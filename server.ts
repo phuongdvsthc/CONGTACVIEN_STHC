@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 
@@ -1829,12 +1830,81 @@ async function startServer() {
   });
 
   // ----------------------------------------------------------------------------
+  // API 404 HANDLER (Ngăn API không tồn tại bị lọt xuống SPA fallback trả về HTML)
+  // ----------------------------------------------------------------------------
+  app.all('/api/*', (req: Request, res: Response) => {
+    res.status(404).json({
+      success: false,
+      error: `API route không tồn tại: ${req.method} ${req.originalUrl}`,
+    });
+  });
+
+  // ----------------------------------------------------------------------------
   // VITE INTEGRATION (Dev Middlewares / Production Static)
   // ----------------------------------------------------------------------------
   if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
+    // Tìm kiếm thư mục dist thực tế linh hoạt, tương thích với Render, Docker và môi trường cục bộ
+    const possibleDistDirs = [
+      path.resolve(process.cwd(), 'dist'),
+      path.resolve(__dirname, 'dist'),
+      path.resolve(__dirname, '../dist'),
+      path.resolve(__dirname),
+    ];
+
+    const distDir = possibleDistDirs.find((dir) => fs.existsSync(path.join(dir, 'index.html')))
+      || path.resolve(process.cwd(), 'dist');
+    const distIndexHtml = path.join(distDir, 'index.html');
+
+    console.log(`[STHC CTV SYSTEM] Production mode active.`);
+    console.log(`[STHC CTV SYSTEM] Static assets dir: ${distDir}`);
+    console.log(`[STHC CTV SYSTEM] index.html exists: ${fs.existsSync(distIndexHtml)}`);
+
+    // Phục vụ các file tĩnh (js, css, ảnh, fonts...) từ distDir
+    app.use(express.static(distDir, {
+      index: false,
+      maxAge: '1d',
+    }));
+
+    // Trả về 404 cho các file assets bị thiếu (tránh fallback trả HTML về cho file .js/.css/.png lỗi)
+    app.all('/assets/*', (req: Request, res: Response) => {
+      res.status(404).type('text/plain').send('Asset not found');
+    });
+
+    // SPA Fallback cho các đường dẫn frontend hợp lệ (Express 4.x compatible)
     app.get('*', (req: Request, res: Response) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+      // Nếu request có phần mở rộng file (vd: .png, .ico, .js) mà không tìm thấy -> 404
+      if (path.extname(req.path)) {
+        return res.status(404).type('text/plain').send('File not found');
+      }
+
+      if (fs.existsSync(distIndexHtml)) {
+        res.sendFile(distIndexHtml);
+      } else {
+        res.status(500).type('text/html').send(`
+          <!DOCTYPE html>
+          <html lang="vi">
+          <head>
+            <meta charset="utf-8">
+            <title>Lỗi khởi động - Chưa build Frontend</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0B1E3F; color: #fff; padding: 40px; text-align: center; }
+              .box { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 16px; padding: 32px; max-width: 640px; margin: 40px auto; }
+              h1 { color: #F59E0B; margin-top: 0; }
+              code { background: rgba(0,0,0,0.4); padding: 4px 8px; border-radius: 6px; font-size: 14px; color: #93C5FD; }
+            </style>
+          </head>
+          <body>
+            <div class="box">
+              <h1>Chưa tìm thấy bản build Frontend (dist/index.html)</h1>
+              <p>Hệ thống không tìm thấy file giao diện tại: <code>${distIndexHtml}</code></p>
+              <p><strong>Cách khắc phục trên Render:</strong></p>
+              <p>Vào Render Dashboard &rarr; <em>Settings</em> &rarr; <em>Build Command</em> và thiết lập:</p>
+              <p><code>npm install && npm run build</code></p>
+            </div>
+          </body>
+          </html>
+        `);
+      }
     });
   } else {
     const vite = await createViteServer({
