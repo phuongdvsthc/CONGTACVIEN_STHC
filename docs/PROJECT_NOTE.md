@@ -4,7 +4,7 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
 
 ---
 
-## 1. Tổng quan các Phân hệ Đã Triển Khai (M1.1 đến M2.3)
+## 1. Tổng quan các Phân hệ Đã Triển Khai (M1.1 đến M2.3 & Hotfix Admin Navigation)
 
 ### M1: Xác thực, Đăng ký & Điều hướng theo Vai trò (M1.1 - M1.4)
 - **Đăng ký CTV (`AffiliateRegisterModal` / `AffiliateLandingPage`)**: Cho phép ứng viên đăng ký tài khoản CTV mới với các trường thông tin cá nhân, định danh, số điện thoại, mật khẩu và đồng ý chính sách bảo vệ dữ liệu cá nhân theo Nghị định 13/2023/NĐ-CP. Xử lý timeout 25s và tích hợp `resendVerification`.
@@ -30,6 +30,10 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
   - Bảo vệ toàn bộ phân hệ `/portal/*` (yêu cầu phiên hợp lệ, `role = affiliate`, `is_active = true`, `affiliate_status = ACTIVE`).
   - Xử lý thay đổi quyền động, lỗi 401/403, và dọn dẹp state/cache khi đăng xuất.
 
+### Hotfix: Điều hướng Quản trị viên (`/admin`)
+- Loại bỏ hoàn toàn việc viết cứng kiểm tra email trên backend (`admin@sthc.edu.vn`), tuân thủ tuyệt đối nguyên tắc RBAC dựa vào bảng `profiles.role` trong cơ sở dữ liệu.
+- Tài khoản quản trị truy cập `/admin` thông qua phân quyền database chuẩn (thông qua script bootstrap quản trị viên hoặc RPC nâng quyền `admin_bootstrap_user`).
+
 ---
 
 ## 2. Bảng Menu, Route và Điều kiện Truy cập (M2.3)
@@ -50,7 +54,7 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
 - **Trang Tổng quan CTV**: `/src/components/affiliate/AffiliateDashboard.tsx`
 - **Trang Tạm phân hệ**: `/src/components/affiliate/AffiliatePlaceholderPage.tsx`
 - **Điều phối ứng dụng chính**: `/src/App.tsx`
-- **API Backend**: `/server.ts` (các endpoint `/api/v1/affiliate/dashboard`, `/api/v1/affiliate/courses`, `/api/v1/affiliate/leads`, `/api/v1/affiliate/rewards`).
+- **API Backend**: `/server.ts` (các endpoint xác thực `/api/v1/auth/login`, `/api/v1/auth/me`, và các endpoint affiliate).
 
 ---
 
@@ -61,6 +65,7 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
 2. **CTV ACTIVE**: Đăng nhập thành công, sử dụng menu sidebar và các nút thao tác nhanh chuyển trang chính xác, đánh dấu active đúng mục, tải lại trang giữ nguyên phiên.
 3. **CTV PENDING_REVIEW**: Truy cập `/portal` bị chặn và đưa về `/pending` theo đúng quy tắc M1.4.
 4. **Đăng xuất**: Xóa sạch phiên và cache, bấm nút Back không lộ dữ liệu nhạy cảm.
+5. **Xác thực Admin / Staff**: Hệ thống phân quyền dựa trên `profiles.role` trong database; tài khoản có role `admin` đăng nhập tự động chuyển hướng chính xác vào `/admin`.
 
 ### Phần chưa kiểm tra / Hạn chế (Pending / Limitations):
 - Tài khoản bị vô hiệu hóa thực tế trên DB Production chưa kích hoạt kiểm thử trực tiếp bằng tài khoản thật (chờ kiểm thử thủ công trên môi trường staging).

@@ -745,18 +745,7 @@ async function startServer() {
         }
       }
 
-      // Override role for admin and staff test accounts if fetched from DB
-      if (dbProfile) {
-        if (cleanEmail === 'admin@sthc.edu.vn') {
-          dbProfile.role = 'admin';
-          dbProfile.is_active = true;
-          dbAff = null;
-        } else if (cleanEmail === 'tuyensinh_canbo@sthc.edu.vn') {
-          dbProfile.role = 'staff';
-          dbProfile.is_active = true;
-          dbAff = null;
-        }
-      }
+
 
       // Fallback nạp thông tin tài khoản kiểm thử nếu chưa có trong DB Supabase
       if (!dbProfile) {
