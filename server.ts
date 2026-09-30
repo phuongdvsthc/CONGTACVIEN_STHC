@@ -1848,10 +1848,9 @@ async function startServer() {
       path.resolve(process.cwd(), 'dist'),
       path.resolve(__dirname, 'dist'),
       path.resolve(__dirname, '../dist'),
-      path.resolve(__dirname),
     ];
 
-    const distDir = possibleDistDirs.find((dir) => fs.existsSync(path.join(dir, 'index.html')))
+    const distDir = possibleDistDirs.find((dir) => fs.existsSync(path.join(dir, 'index.html')) && fs.existsSync(path.join(dir, 'assets')))
       || path.resolve(process.cwd(), 'dist');
     const distIndexHtml = path.join(distDir, 'index.html');
 
