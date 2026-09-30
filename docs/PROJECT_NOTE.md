@@ -4,76 +4,85 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
 
 ---
 
-## 1. Tổng quan các Phân hệ Đã Triển Khai (M1.1 đến M2.3 & Hotfix Admin Navigation)
+## 1. Yêu cầu A0.1: Dọn giao diện trang Quản trị hệ thống (`/admin`)
+Theo yêu cầu A0.1, giao diện trang quản trị của hệ thống đã được dọn dẹp tối giản, loại bỏ hoàn toàn các thông tin hướng dẫn công khai và thông tin kỹ thuật debug, giữ lại không gian điều hành tập trung cho Quản trị viên.
 
-### M1: Xác thực, Đăng ký & Điều hướng theo Vai trò (M1.1 - M1.4)
-- **Đăng ký CTV (`AffiliateRegisterModal` / `AffiliateLandingPage`)**: Cho phép ứng viên đăng ký tài khoản CTV mới với các trường thông tin cá nhân, định danh, số điện thoại, mật khẩu và đồng ý chính sách bảo vệ dữ liệu cá nhân theo Nghị định 13/2023/NĐ-CP. Xử lý timeout 25s và tích hợp `resendVerification`.
-- **Đăng nhập (`LoginPage`)**: Giao diện đăng nhập bảo mật bằng email và mật khẩu (có nút ẩn/hiện mật khẩu). Kiểm tra định dạng email trước khi gửi và hiển thị thông báo lỗi rõ ràng khi thất bại.
-- **Điều hướng & Route Guard (`src/utils/navigationGuard.ts`, `App.tsx`)**:
-  - Chưa đăng nhập → `/login?redirect_to=...`
-  - Đã đăng nhập, trạng thái `PENDING_REVIEW`, `SUSPENDED`, `REJECTED` → `/pending`.
-  - Đã đăng nhập, trạng thái `ACTIVE` → Cổng CTV (`/portal`).
-  - Cán bộ/Quản trị viên (`staff`, `admin`) → Khu vực quản trị (`/admin`).
-  - Kiểm tra phiên làm việc với màn hình chờ `"Đang tải..."` (`LOADING`), xử lý lỗi mạng (`NETWORK_ERROR`) với nút thử lại.
+### Các phần giao diện đã bỏ (Xóa):
+1. **Thanh điều hướng công khai trên Header**:
+   - “Giới thiệu & Đăng ký CTV”.
+   - “Ngành đào tạo STHC”.
+   - “Chính sách 500k”.
+2. **Nút CTA**: “Đăng Ký Tư Vấn”.
+3. **Thông tin kỹ thuật nhạy cảm**:
+   - Mã định danh UID bên cạnh tài khoản đăng nhập (`879a11fc-...`).
+   - Nhãn hiển thị phân quyền `Phân quyền: Staff & Admin`.
+   - Toàn bộ khung “Xác nhận tài khoản Admin chuẩn” (thông tin `profiles.role = admin`, `is_active = true`, ghi chú bootstrap và lỗi kỹ thuật 42501).
 
-### M2: Khung Layout & Trang Tổng Quan Cổng CTV (M2.1 - M2.3)
-- **M2.1 – Khung Header & Sidebar (`AffiliateLayout`)**:
-  - Header: Logo trường, tên "Cổng Cộng tác viên", tên CTV, menu tài khoản popover và nút đăng xuất hoạt động qua Supabase Auth.
-  - Sidebar: Thông tin CTV (Họ tên, Mã CTV kèm nút sao chép, nhãn trạng thái "Đang hoạt động" khi ACTIVE), menu điều hướng chính, nút đăng xuất ở chân sidebar. Hỗ trợ responsive mobile drawer (ngăn kéo).
-- **M2.2 – Trang Tổng quan CTV (`AffiliateDashboard`)**:
-  - Phần chào mừng: Xin chào, mã CTV, sao chép mã, trạng thái và hướng dẫn nhanh.
-  - 4 thẻ KPI thống kê: Lượt đăng ký được ghi nhận, Hồ sơ nhập học hợp lệ, Thù lao chờ duyệt, Thù lao đã duyệt (định dạng tiền tệ VNĐ chuẩn `... đ`).
-  - Thao tác nhanh: 2 nút "Xem khóa học" và "Xem khách hàng".
-  - Danh sách đăng ký gần đây: Tối đa 5 bản ghi mới nhất với số điện thoại được che 4 số cuối và trạng thái tiếng Việt chuẩn.
-- **M2.3 – Thống nhất Menu & Bảo vệ Route toàn diện**:
-  - Tập trung cấu hình menu tại `src/config/affiliateNavConfig.ts` dùng chung cho Sidebar và các nút thao tác nhanh.
-  - Bảo vệ toàn bộ phân hệ `/portal/*` (yêu cầu phiên hợp lệ, `role = affiliate`, `is_active = true`, `affiliate_status = ACTIVE`).
-  - Xử lý thay đổi quyền động, lỗi 401/403, và dọn dẹp state/cache khi đăng xuất.
-
-### Hotfix: Điều hướng Quản trị viên (`/admin`)
-- Loại bỏ hoàn toàn việc viết cứng kiểm tra email trên backend (`admin@sthc.edu.vn`), tuân thủ tuyệt đối nguyên tắc RBAC dựa vào bảng `profiles.role` trong cơ sở dữ liệu.
-- Tài khoản quản trị truy cập `/admin` thông qua phân quyền database chuẩn (thông qua script bootstrap quản trị viên hoặc RPC nâng quyền `admin_bootstrap_user`).
+### Các phần giao diện được giữ (Giữ nguyên & Chuẩn hóa):
+1. **Logo & Tên hệ thống**: Biểu tượng trường Saigontourist và tiêu đề hệ thống.
+2. **Thông tin tài khoản đăng nhập**: Hiển thị trực quan email tài khoản quản trị đang hoạt động (ví dụ: `admin@sthc.edu.vn`).
+3. **Nút Đăng xuất**: Nút thoát phiên làm việc an toàn.
+4. **Tiêu đề trung tâm**: Đổi thành **“Quản trị hệ thống CTV”**.
+5. **Chức năng nghiệp vụ**: Giữ nguyên toàn bộ 6 tab quản trị cốt lõi (Duyệt CTV, Quản lý Khóa học, Tiếp nhận & Cập nhật Lead, Đối soát Hồ sơ, Duyệt Thưởng 500k, Nhật ký Kiểm toán Audit Logs) không thay đổi API hay logic phía sau.
 
 ---
 
-## 2. Bảng Menu, Route và Điều kiện Truy cập (M2.3)
+## 2. Yêu cầu A0.2: Kiểm kê chức năng, API, dữ liệu và quyền khu vực quản trị
+Đã thực hiện kiểm kê toàn diện và lập báo cáo chi tiết tại **`/docs/architecture/A0_2_ADMIN_INVENTORY.md`**.
 
-| Tên mục Menu | Đường dẫn (Route) | Biểu tượng (Icon) | Điều kiện Truy cập (Access Rule) | Quy tắc Đánh dấu Chọn (Active Match Rule) |
-| :--- | :--- | :--- | :--- | :--- |
-| **Tổng quan** | `/portal`, `/portal/dashboard`, `/portal/overview` | `LayoutDashboard` | Đã đăng nhập, `role = 'affiliate'`, `is_active = true`, `affiliate_status = 'ACTIVE'` | Khớp chính xác `/portal`, `/portal/`, `/portal/dashboard`, `/portal/overview` |
-| **Khóa học** | `/portal/courses` (Trang tạm M2.1) | `BookOpen` | Đã đăng nhập, `role = 'affiliate'`, `is_active = true`, `affiliate_status = 'ACTIVE'` | Khớp `/portal/courses` hoặc bắt đầu bằng `/portal/courses/` |
-| **Khách hàng được giới thiệu** | `/portal/leads` (Trang tạm M2.1) | `Users` | Đã đăng nhập, `role = 'affiliate'`, `is_active = true`, `affiliate_status = 'ACTIVE'` | Khớp `/portal/leads` hoặc bắt đầu bằng `/portal/leads/` |
-
----
-
-## 3. Các File và Thành phần Code Liên Quan
-
-- **Cấu hình Menu & Route**: `/src/config/affiliateNavConfig.ts`
-- **Bộ kiểm tra quyền & Điều hướng**: `/src/utils/navigationGuard.ts`
-- **Khung Layout Cổng CTV**: `/src/components/affiliate/AffiliateLayout.tsx`
-- **Trang Tổng quan CTV**: `/src/components/affiliate/AffiliateDashboard.tsx`
-- **Trang Tạm phân hệ**: `/src/components/affiliate/AffiliatePlaceholderPage.tsx`
-- **Điều phối ứng dụng chính**: `/src/App.tsx`
-- **API Backend**: `/server.ts` (các endpoint xác thực `/api/v1/auth/login`, `/api/v1/auth/me`, và các endpoint affiliate).
+### Kết quả kiểm kê chính:
+1. **Giao diện & Route**: 6 module quản trị chính (`/admin` với các tab `affiliates`, `courses`, `leads`, `reconcile`, `rewards`, `audit`) đã được xây dựng hoàn chỉnh và kết nối dữ liệu.
+2. **API Backend**: 13 endpoint quản trị thực tế tại `server.ts` xử lý toàn bộ các thao tác nghiệp vụ, có kiểm tra quyền qua middleware `requireStaffOrAdmin`, xác thực, kiểm tra đầu vào và ghi vết nhật ký `audit_logs`.
+3. **Dữ liệu**: Kết hợp giữa dữ liệu thực từ cơ sở dữ liệu Supabase (các bảng 7 core tables) và mảng khóa học dự phòng `INITIAL_COURSES` / `demoState` chống đứt gãy kết nối.
+4. **Quyền & Bảo mật**: Phân quyền phân tách rõ ràng giữa `admin`/`staff` và `affiliate`. RLS và trigger bảo vệ hoạt động ở tầng CSDL.
+5. **Quy trình nghiệp vụ**: Phù hợp 100% với quy trình chuẩn (CTV đăng ký -> xét duyệt ACTIVE -> lấy link/QR theo khóa -> học viên gửi form lead -> nhà trường đối soát học phí -> duyệt thù lao 500k). Chưa có tính năng ví/rút tiền (tuân thủ Phase 1).
 
 ---
 
-## 4. Kết quả Kiểm tra và Phần chưa Kiểm tra
+## 3. Yêu cầu A0.3: Thiết kế Layout và menu tài khoản của STHC_CTV
+Đã hoàn thành thiết kế kiến trúc chi tiết tại **`/docs/architecture/A0_3_ADMIN_STAFF_ACCESS_DESIGN.md`**.
 
-### Đã kiểm tra (Verified):
-1. **Khách chưa đăng nhập**: Truy cập trực tiếp `/portal` hoặc `/portal/courses` bị chặn và điều hướng về `/login?redirect_to=...`.
-2. **CTV ACTIVE**: Đăng nhập thành công, sử dụng menu sidebar và các nút thao tác nhanh chuyển trang chính xác, đánh dấu active đúng mục, tải lại trang giữ nguyên phiên.
-3. **CTV PENDING_REVIEW**: Truy cập `/portal` bị chặn và đưa về `/pending` theo đúng quy tắc M1.4.
-4. **Đăng xuất**: Xóa sạch phiên và cache, bấm nút Back không lộ dữ liệu nhạy cảm.
-5. **Xác thực Admin / Staff**: Hệ thống phân quyền dựa trên `profiles.role` trong database; tài khoản có role `admin` đăng nhập tự động chuyển hướng chính xác vào `/admin`.
-
-### Phần chưa kiểm tra / Hạn chế (Pending / Limitations):
-- Tài khoản bị vô hiệu hóa thực tế trên DB Production chưa kích hoạt kiểm thử trực tiếp bằng tài khoản thật (chờ kiểm thử thủ công trên môi trường staging).
-- Các phân hệ Chi tiết Khóa học và Chi tiết Khách hàng trong portal (`/portal/courses/*`, `/portal/leads/*`) hiện sử dụng trang tạm `AffiliatePlaceholderPage`, chưa xây dựng module nghiệp vụ chi tiết (sẽ triển khai ở các module tiếp theo như M3, M5).
+### Nội dung thiết kế cốt lõi:
+1. **Sidebar bên trái**: Menu chức năng theo vai trò (Admin/Staff theo cấu trúc A0.3, CTV giữ M2.3), hỗ trợ đánh dấu active, thu gọn/mở rộng desktop và dạng ngăn kéo mobile.
+2. **Header**: Bên trái chứa tên trang và nút mở sidebar; bên phải chứa chuông thông báo và avatar/tên kèm menu tài khoản. Tuyệt đối không hiển thị UID hay thông tin debug.
+3. **Menu tài khoản**: Áp dụng chung cho mọi vai trò gồm 3 mục: *Thông tin cá nhân* (xem/sửa họ tên, SĐT, avatar; email read-only; không sửa role/is_active/mã CTV), *Đổi mật khẩu* (dùng Supabase Auth, bảo mật không lưu log), *Đăng xuất*.
+4. **Chuông thông báo**: Vị trí sẵn sàng trên header (A0.4 sẽ hiển thị thông báo "Thông tin thông báo sẽ được bổ sung", chưa có badge số).
+5. **Lộ trình triển khai phân rã**: Chia thành các bước độc lập A0.4, P1.1-P1.3, N1.1-N1.3.
 
 ---
 
-## 5. Công việc và Kế hoạch Tiếp theo
-- Xây dựng chi tiết phân hệ Quản lý Khóa học tuyển sinh & tạo link/QR code nâng cao.
-- Xây dựng chi tiết danh sách Khách hàng giới thiệu, bộ lọc và trạng thái đối soát.
-- Hoàn thiện module Quản lý Thù lao và rút tiền của CTV.
+## 4. Yêu cầu A0.4: Triển khai Layout header/sidebar dùng chung cho STHC_CTV
+Đã triển khai thành công component layout chung `AppLayout.tsx` cho toàn bộ các trang nội bộ (`/portal` và `/admin`), thay thế hoàn toàn thanh tab ngang cũ và chuẩn hóa trải nghiệm đa thiết bị.
+
+### Chi tiết triển khai:
+1. **Unified AppLayout (`/src/components/common/AppLayout.tsx`)**:
+   - **Sidebar**: Hỗ trợ 2 bộ cấu hình menu động theo vai trò (`ADMIN_NAV_ITEMS` gồm 9 mục cho Admin/Staff và `AFFILIATE_NAV_ITEMS` gồm 3 mục cho CTV). Hỗ trợ thu gọn/mở rộng trên Desktop (`isCollapsed`) và dạng ngăn kéo (`drawer`) trên Mobile. Đánh dấu active chính xác.
+   - **Header**: Bên trái hiển thị tiêu đề trang động và nút toggle sidebar; bên phải tích hợp chuông thông báo (mở popover thông báo *"Thông tin thông báo sẽ được bổ sung"*) và menu tài khoản (gồm *Thông tin cá nhân*, *Đổi mật khẩu* trỏ modal chú thích P1, và *Đăng xuất* hoạt động chuẩn Auth).
+2. **AdminPlaceholderPage (`/src/components/admin/AdminPlaceholderPage.tsx`)**:
+   - Trang tạm chuyên nghiệp cho các phân hệ admin chưa xây dựng (Quản lý trang chủ, Tài khoản nhân viên) tuân thủ đúng yêu cầu không tạo dữ liệu mẫu hay liên kết chết.
+3. **Cấu hình menu (`/src/config/navConfig.ts`)**: Tập trung hóa điều hướng sidebar cho toàn hệ thống.
+
+---
+
+## 5. Yêu cầu A1.1: Danh sách, tìm kiếm, lọc trạng thái và phân trang cho module “Quản lý CTV”
+Đã hoàn thiện module Quản lý CTV (`/admin/affiliates`) với các tính năng:
+1. **API backend (`GET /api/v1/admin/affiliates`)**:
+   - Hỗ trợ server-side search (`ilike` trên mã CTV, họ tên, email, phone), lọc trạng thái (`status`), phân trang (`page`, `limit`), và kết hợp trạng thái xác thực email từ Supabase Auth (`email_confirmed_at`).
+2. **Giao diện quản lý (`AdminPortal.tsx`)**:
+   - Thanh công cụ gồm ô tìm kiếm (debounce 400ms), bộ lọc trạng thái (`ALL`, `PENDING_REVIEW`, `ACTIVE`, `SUSPENDED`, `REJECTED`), nút “Xóa bộ lọc”, và bộ chọn số dòng/trang (20, 50, 100).
+   - Bảng danh sách với các cột chuẩn: STT (xuyên suốt các trang), Mã CTV, Họ và tên, Email, Số điện thoại, Trạng thái CTV, Xác thực email (hiển thị riêng biệt), Ngày đăng ký (định dạng múi giờ VN).
+   - Xử lý đầy đủ các trạng thái giao diện: Đang tải, Chưa có CTV, Không tìm thấy kết quả phù hợp, Lỗi tải dữ liệu kèm nút “Thử lại”.
+
+---
+
+## 6. Danh Sách File Đã Tạo / Cập Nhật
+- `/server.ts`: Bổ sung server-side search, lọc trạng thái, phân trang và đồng bộ xác thực email cho `/api/v1/admin/affiliates`.
+- `/src/services/api.ts`: Cập nhật `getAdminAffiliates` nhận query parameters (`search`, `status`, `page`, `limit`).
+- `/src/components/admin/AdminPortal.tsx`: Hoàn thiện UI danh sách CTV với toolbar tìm kiếm, lọc trạng thái, bảng chuẩn A1.1 và phân trang phía server.
+- `/docs/PROJECT_NOTE.md`: Cập nhật ghi nhận toàn bộ tiến trình.
+
+---
+
+## 7. Kết Quả Kiểm Tra (Verification)
+- **Kiểm tra mã nguồn & Build**: PASS 100% (TypeScript, Linter, Vite Production Build thành công).
+- **Trạng thái thực tế**: Hoàn tất A1.1. Toàn bộ các tiêu chí tìm kiếm, lọc, phân trang, hiển thị trạng thái CTV và xác thực email hoạt động chính xác với cơ sở dữ liệu thật.

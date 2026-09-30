@@ -185,8 +185,25 @@ export const api = {
   // --------------------------------------------------------------------------
   // E3 - ADMIN & STAFF ENDPOINTS
   // --------------------------------------------------------------------------
-  async getAdminAffiliates(): Promise<{ success: boolean; data: AffiliateProfile[] }> {
-    const res = await fetch('/api/v1/admin/affiliates');
+  async getAdminAffiliates(params?: {
+    search?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data: any[];
+    pagination?: { page: number; limit: number; total: number; totalPages: number };
+    error?: string;
+  }> {
+    const query = new URLSearchParams();
+    if (params?.search) query.set('search', params.search);
+    if (params?.status && params.status !== 'ALL') query.set('status', params.status);
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+
+    const url = `/api/v1/admin/affiliates${query.toString() ? `?${query.toString()}` : ''}`;
+    const res = await fetch(url);
     return res.json();
   },
 

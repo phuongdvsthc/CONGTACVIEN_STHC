@@ -1299,22 +1299,89 @@ async function startServer() {
     next();
   };
 
-  // 1. Quản lý Cộng tác viên
+  // 1. Quản lý Cộng tác viên (với tìm kiếm, lọc trạng thái, phân trang và xác thực email)
   app.get('/api/v1/admin/affiliates', requireStaffOrAdmin, async (req: Request, res: Response) => {
-    const { data: dbAffiliates } = await supabase
-      .from('affiliate_profiles')
-      .select('*, profiles(full_name, email, phone, is_active)')
-      .order('created_at', { ascending: false });
+    try {
+      const search = (req.query.search as string || '').trim();
+      const status = (req.query.status as string || 'ALL').trim();
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 20));
+      const offset = (page - 1) * limit;
 
-    const demoList = [
-      demoState.pendingAffiliate,
-      demoState.activeAffiliate,
-    ];
+      let matchingUserIds: string[] = [];
+      if (search) {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('id')
+          .or(`full_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
+        if (profs) {
+          matchingUserIds = profs.map((p: any) => p.id);
+        }
+      }
 
-    res.json({
-      success: true,
-      data: dbAffiliates && dbAffiliates.length > 0 ? dbAffiliates : demoList,
-    });
+      let query = supabase
+        .from('affiliate_profiles')
+        .select('*, profiles(full_name, email, phone, is_active, role)', { count: 'exact' });
+
+      if (status && status !== 'ALL') {
+        query = query.eq('status', status);
+      }
+
+      if (search) {
+        if (matchingUserIds.length > 0) {
+          query = query.or(`affiliate_code.ilike.%${search}%,user_id.in.(${matchingUserIds.join(',')})`);
+        } else {
+          query = query.ilike('affiliate_code', `%${search}%`);
+        }
+      }
+
+      query = query
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      const { data: dbAffiliates, count, error } = await query;
+
+      if (error) {
+        console.error('Error fetching admin affiliates:', error);
+        return res.status(500).json({ success: false, error: error.message });
+      }
+
+      // Fetch email confirmation status from Supabase Auth admin API
+      let emailVerifiedMap: Record<string, boolean> = {};
+      try {
+        const { data: authUsersList } = await supabase.auth.admin.listUsers();
+        if (authUsersList && authUsersList.users) {
+          authUsersList.users.forEach((u: any) => {
+            emailVerifiedMap[u.id] = !!u.email_confirmed_at;
+          });
+        }
+      } catch (authErr) {
+        console.error('Error fetching auth users for email confirmation:', authErr);
+      }
+
+      const enrichedAffiliates = (dbAffiliates || []).map((aff: any) => ({
+        ...aff,
+        is_email_verified: emailVerifiedMap[aff.user_id] || false,
+      }));
+
+      const total = count || 0;
+      const totalPages = Math.ceil(total / limit);
+
+      res.json({
+        success: true,
+        data: enrichedAffiliates,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: totalPages > 0 ? totalPages : 1,
+        },
+      });
+    } catch (err: any) {
+      console.error('Server error in GET /api/v1/admin/affiliates:', err);
+      res.status(500).json({ success: false, error: err.message || 'Lỗi máy chủ' });
+    }
   });
 
   app.patch('/api/v1/admin/affiliates/:id/status', requireStaffOrAdmin, async (req: Request, res: Response) => {

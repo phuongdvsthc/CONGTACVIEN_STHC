@@ -21,7 +21,12 @@ import {
   X,
 } from 'lucide-react';
 
-export const AdminPortal: React.FC = () => {
+interface AdminPortalProps {
+  currentUser?: any;
+  currentPath?: string;
+}
+
+export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPath = '/admin' }) => {
   const [activeTab, setActiveTab] = useState<'affiliates' | 'courses' | 'leads' | 'reconcile' | 'rewards' | 'audit'>('affiliates');
   const [affiliates, setAffiliates] = useState<AffiliateProfile[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -53,22 +58,79 @@ export const AdminPortal: React.FC = () => {
   const [rejectRewardId, setRejectRewardId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
 
+  // Affiliates list state & pagination
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
+  const [searchInput, setSearchInput] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [limit, setLimit] = useState(20);
+  const [page, setPage] = useState(1);
+  const [affiliatesLoading, setAffiliatesLoading] = useState(false);
+  const [affiliatesError, setAffiliatesError] = useState<string | null>(null);
+
+  // Debounce search input (400ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput);
+      setPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    const clean = currentPath.split('?')[0].split('#')[0];
+    if (clean === '/admin/courses') setActiveTab('courses');
+    else if (clean === '/admin/leads') setActiveTab('leads');
+    else if (clean === '/admin/reconcile') setActiveTab('reconcile');
+    else if (clean === '/admin/rewards') setActiveTab('rewards');
+    else if (clean === '/admin/audit') setActiveTab('audit');
+    else if (clean === '/admin/affiliates') setActiveTab('affiliates');
+    else if (clean === '/admin') setActiveTab('affiliates');
+  }, [currentPath]);
+
   useEffect(() => {
     loadAllData();
   }, []);
 
+  useEffect(() => {
+    loadAffiliates();
+  }, [debouncedSearch, statusFilter, page, limit]);
+
+  const loadAffiliates = async () => {
+    setAffiliatesLoading(true);
+    setAffiliatesError(null);
+    try {
+      const res = await api.getAdminAffiliates({
+        search: debouncedSearch,
+        status: statusFilter,
+        page,
+        limit,
+      });
+      if (res.success) {
+        setAffiliates(res.data || []);
+        if (res.pagination) {
+          setPagination(res.pagination);
+        }
+      } else {
+        setAffiliatesError(res.error || 'Lỗi tải dữ liệu cộng tác viên');
+      }
+    } catch (err: any) {
+      setAffiliatesError(err.message || 'Lỗi kết nối máy chủ');
+    } finally {
+      setAffiliatesLoading(false);
+    }
+  };
+
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const [affRes, coursesRes, leadsRes, rewRes, auditRes] = await Promise.all([
-        api.getAdminAffiliates(),
+      const [coursesRes, leadsRes, rewRes, auditRes] = await Promise.all([
         api.getAdminCourses(),
         api.getAdminLeads(),
         api.getAdminRewards(),
         api.getAdminAuditLogs(),
       ]);
 
-      if (affRes.success) setAffiliates(affRes.data);
       if (coursesRes.success) setCourses(coursesRes.data);
       if (leadsRes.success) setLeads(leadsRes.data);
       if (rewRes.success) setRewards(rewRes.data);
@@ -77,6 +139,23 @@ export const AdminPortal: React.FC = () => {
       console.error('Error loading admin portal data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const formatDateVN = (isoString: string) => {
+    if (!isoString) return '—';
+    try {
+      const d = new Date(isoString);
+      return new Intl.DateTimeFormat('vi-VN', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(d);
+    } catch {
+      return isoString;
     }
   };
 
@@ -226,9 +305,11 @@ export const AdminPortal: React.FC = () => {
     }
   };
 
+  const userEmail = currentUser?.email || 'admin@sthc.edu.vn';
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-fade-in">
-      {/* Top Admin Identity & Confirmation Notice */}
+      {/* Top Admin Identity & Clean Notice */}
       <div className="bg-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-800 space-y-4">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="space-y-1">
@@ -236,24 +317,12 @@ export const AdminPortal: React.FC = () => {
               <span className="px-3 py-1 rounded-full bg-amber-400 text-slate-950 font-bold text-xs uppercase tracking-wider">
                 Cổng Quản Trị Hệ Thống STHC
               </span>
-              <span className="text-xs text-slate-400">Phân quyền: Staff & Admin</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              Trung Tâm Điều Hành Tuyển Sinh & Thù Lao CTV
+              Quản trị hệ thống CTV
             </h1>
             <p className="text-xs text-slate-300">
-              Tài khoản đang đăng nhập: <strong className="text-amber-400 font-mono">admin@sthc.edu.vn</strong> (UID: <span className="font-mono text-slate-400">879a11fc-ff89-4019-b2f4-57d7843b631b</span>)
-            </p>
-          </div>
-
-          {/* Confirmation Tag as required before E3 acceptance */}
-          <div className="bg-emerald-950/80 border border-emerald-500/40 rounded-2xl p-4 text-xs space-y-1 max-w-md">
-            <span className="font-bold text-emerald-400 flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-              Xác nhận tài khoản Admin chuẩn:
-            </span>
-            <p className="text-emerald-200 text-[11px] leading-relaxed">
-              Tài khoản admin thật có <strong>profiles.role = 'admin'</strong>, <strong>is_active = true</strong> và lỗi bootstrap 42501 đã được xử lý triệt để. Chưa triển khai ví tiền/chi trả hoa hồng (tuân thủ Phase 1).
+              Tài khoản đang đăng nhập: <strong className="text-amber-400 font-mono">{userEmail}</strong>
             </p>
           </div>
         </div>
@@ -277,173 +346,218 @@ export const AdminPortal: React.FC = () => {
         )}
       </div>
 
-      {/* Admin Tab Navigation */}
-      <div className="flex items-center gap-2 border-b border-slate-200 overflow-x-auto pb-1 text-xs">
-        <button
-          onClick={() => setActiveTab('affiliates')}
-          className={`py-3 px-4 font-semibold rounded-t-xl transition-colors whitespace-nowrap flex items-center gap-2 ${
-            activeTab === 'affiliates'
-              ? 'bg-blue-900 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          <span>Duyệt CTV ({affiliates.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('courses')}
-          className={`py-3 px-4 font-semibold rounded-t-xl transition-colors whitespace-nowrap flex items-center gap-2 ${
-            activeTab === 'courses'
-              ? 'bg-blue-900 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <BookOpen className="w-4 h-4" />
-          <span>Quản Lý Khóa Học</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('leads')}
-          className={`py-3 px-4 font-semibold rounded-t-xl transition-colors whitespace-nowrap flex items-center gap-2 ${
-            activeTab === 'leads'
-              ? 'bg-blue-900 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          <span>Tiếp Nhận & Cập Nhật Lead ({leads.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('reconcile')}
-          className={`py-3 px-4 font-semibold rounded-t-xl transition-colors whitespace-nowrap flex items-center gap-2 ${
-            activeTab === 'reconcile'
-              ? 'bg-blue-900 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <FileCheck2 className="w-4 h-4" />
-          <span>Đối Soát Hồ Sơ & Học Phí</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('rewards')}
-          className={`py-3 px-4 font-semibold rounded-t-xl transition-colors whitespace-nowrap flex items-center gap-2 ${
-            activeTab === 'rewards'
-              ? 'bg-blue-900 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <DollarSign className="w-4 h-4" />
-          <span>Duyệt Thưởng 500k & Báo Cáo</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('audit')}
-          className={`py-3 px-4 font-semibold rounded-t-xl transition-colors whitespace-nowrap flex items-center gap-2 ${
-            activeTab === 'audit'
-              ? 'bg-blue-900 text-white shadow-sm'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <History className="w-4 h-4" />
-          <span>Nhật Ký Kiểm Toán (Audit)</span>
-        </button>
-      </div>
-
       {/* ---------------------------------------------------------------------- */}
-      {/* TAB 1: DUYỆT CỘNG TÁC VIÊN */}
+      {/* TAB 1: QUẢN LÝ CỘNG TÁC VIÊN (A1.1) */}
       {/* ---------------------------------------------------------------------- */}
       {activeTab === 'affiliates' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <div className="flex items-center justify-between">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
-              <h3 className="text-base font-bold text-slate-900">Danh Sách Hồ Sơ Cộng Tác Viên Tuyển Sinh</h3>
+              <h3 className="text-base font-bold text-slate-900">Quản Lý Cộng Tác Viên Tuyển Sinh</h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Chỉ CTV có trạng thái ACTIVE mới được cấp mã tiếp thị và ghi nhận thưởng
+                Danh sách đại sứ và cộng tác viên tuyển sinh chính thức của trường
               </p>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-y border-slate-200 uppercase tracking-wider text-[11px]">
-                <tr>
-                  <th className="py-3 px-4">Họ và tên</th>
-                  <th className="py-3 px-4">Email & SĐT</th>
-                  <th className="py-3 px-4">Số CCCD</th>
-                  <th className="py-3 px-4">Mã CTV</th>
-                  <th className="py-3 px-4">Trạng thái</th>
-                  <th className="py-3 px-4 text-right">Thao tác duyệt</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {affiliates.map((aff: any) => (
-                  <tr key={aff.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-4 font-semibold text-slate-900">
-                      {aff.full_name || aff.profiles?.full_name}
-                    </td>
-                    <td className="py-3 px-4 text-slate-600">
-                      <div>{aff.email || aff.profiles?.email}</div>
-                      <div className="text-[11px] text-slate-400 font-mono">{aff.phone || aff.profiles?.phone || '0908123456'}</div>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-slate-700">
-                      {aff.id_card_number || '079201001234'}
-                    </td>
-                    <td className="py-3 px-4 font-mono font-bold text-blue-900">
-                      {aff.affiliate_code}
-                    </td>
-                    <td className="py-3 px-4">
-                      {aff.status === 'ACTIVE' && (
-                        <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          ACTIVE
-                        </span>
-                      )}
-                      {aff.status === 'PENDING_REVIEW' && (
-                        <span className="text-amber-700 font-semibold">
-                          PENDING_REVIEW
-                        </span>
-                      )}
-                      {aff.status === 'REJECTED' && (
-                        <span className="text-rose-700 font-semibold">REJECTED</span>
-                      )}
-                      {aff.status === 'SUSPENDED' && (
-                        <span className="text-slate-500 font-semibold">SUSPENDED</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-right space-x-1.5">
-                      {aff.status !== 'ACTIVE' && (
-                        <button
-                          onClick={() => handleUpdateAffiliateStatus(aff.id, 'ACTIVE')}
-                          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-medium transition-colors"
-                        >
-                          Duyệt ACTIVE
-                        </button>
-                      )}
-                      {aff.status === 'ACTIVE' && (
-                        <button
-                          onClick={() => handleUpdateAffiliateStatus(aff.id, 'SUSPENDED')}
-                          className="px-3 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded text-xs font-medium transition-colors"
-                        >
-                          Tạm ngừng
-                        </button>
-                      )}
-                      {aff.status === 'PENDING_REVIEW' && (
-                        <button
-                          onClick={() => handleUpdateAffiliateStatus(aff.id, 'REJECTED')}
-                          className="px-3 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded text-xs font-medium transition-colors"
-                        >
-                          Từ chối
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {/* TOOLBAR: Search, Status Filter, Reset, Limit */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+              {/* Search input */}
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Tìm theo họ tên, email, SĐT, mã CTV..."
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-all"
+                />
+              </div>
+
+              {/* Status Filter */}
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="py-2 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
+              >
+                <option value="ALL">Tất cả trạng thái</option>
+                <option value="PENDING_REVIEW">Chờ duyệt (PENDING_REVIEW)</option>
+                <option value="ACTIVE">Hoạt động (ACTIVE)</option>
+                <option value="SUSPENDED">Tạm ngưng (SUSPENDED)</option>
+                <option value="REJECTED">Từ chối (REJECTED)</option>
+              </select>
+
+              {/* Clear filters */}
+              {(searchInput || statusFilter !== 'ALL') && (
+                <button
+                  onClick={() => {
+                    setSearchInput('');
+                    setDebouncedSearch('');
+                    setStatusFilter('ALL');
+                    setPage(1);
+                  }}
+                  className="px-3 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Xóa bộ lọc</span>
+                </button>
+              )}
+            </div>
+
+            {/* Limit selector */}
+            <div className="flex items-center gap-2 text-xs text-slate-600 justify-end">
+              <span>Hiển thị:</span>
+              <select
+                value={limit}
+                onChange={(e) => {
+                  setLimit(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="py-1.5 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-900/20"
+              >
+                <option value={20}>20 / trang</option>
+                <option value={50}>50 / trang</option>
+                <option value={100}>100 / trang</option>
+              </select>
+            </div>
           </div>
+
+          {/* TABLE CONTENT */}
+          {affiliatesError ? (
+            <div className="p-8 text-center bg-rose-50 border border-rose-200 rounded-2xl space-y-3">
+              <AlertCircle className="w-8 h-8 text-rose-600 mx-auto" />
+              <p className="text-xs font-medium text-rose-900">{affiliatesError}</p>
+              <button
+                onClick={loadAffiliates}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm inline-flex items-center gap-2"
+              >
+                <span>Thử lại</span>
+              </button>
+            </div>
+          ) : affiliatesLoading ? (
+            <div className="py-16 text-center space-y-3">
+              <div className="w-8 h-8 border-2 border-blue-900 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-xs text-slate-500 font-medium">Đang tải dữ liệu cộng tác viên...</p>
+            </div>
+          ) : affiliates.length === 0 ? (
+            <div className="py-16 text-center space-y-2 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+              <Users className="w-8 h-8 text-slate-400 mx-auto" />
+              <h4 className="text-sm font-bold text-slate-900">Không tìm thấy cộng tác viên</h4>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                {debouncedSearch || statusFilter !== 'ALL'
+                  ? 'Không có hồ sơ CTV nào khớp với từ khóa tìm kiếm hoặc bộ lọc hiện tại.'
+                  : 'Chưa có cộng tác viên nào đăng ký trong hệ thống.'}
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 text-slate-600 font-semibold border-y border-slate-200 uppercase tracking-wider text-[11px]">
+                  <tr>
+                    <th className="py-3 px-3 w-12 text-center">STT</th>
+                    <th className="py-3 px-4">Mã CTV</th>
+                    <th className="py-3 px-4">Họ và tên</th>
+                    <th className="py-3 px-4">Email</th>
+                    <th className="py-3 px-4">Số điện thoại</th>
+                    <th className="py-3 px-4">Trạng thái CTV</th>
+                    <th className="py-3 px-4">Xác thực email</th>
+                    <th className="py-3 px-4 text-right">Ngày đăng ký</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {affiliates.map((aff: any, index: number) => {
+                    const stt = (pagination.page - 1) * pagination.limit + index + 1;
+                    const fullName = aff.profiles?.full_name || aff.full_name || '—';
+                    const email = aff.profiles?.email || aff.email || '—';
+                    const phone = aff.profiles?.phone || aff.phone || '—';
+                    const code = aff.affiliate_code || '—';
+                    const status = aff.status || 'PENDING_REVIEW';
+                    const isVerified = aff.is_email_verified;
+                    const createdAt = aff.created_at;
+
+                    return (
+                      <tr key={aff.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 px-3 text-center font-mono text-slate-500">{stt}</td>
+                        <td className="py-3 px-4 font-mono font-bold text-blue-900">{code}</td>
+                        <td className="py-3 px-4 font-semibold text-slate-900">{fullName}</td>
+                        <td className="py-3 px-4 text-slate-600 truncate max-w-[200px]" title={email}>
+                          {email}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-slate-700">{phone}</td>
+                        <td className="py-3 px-4">
+                          {status === 'ACTIVE' && (
+                            <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              Hoạt động (ACTIVE)
+                            </span>
+                          )}
+                          {status === 'PENDING_REVIEW' && (
+                            <span className="text-amber-700 font-semibold">Chờ duyệt (PENDING)</span>
+                          )}
+                          {status === 'REJECTED' && (
+                            <span className="text-rose-700 font-semibold">Từ chối (REJECTED)</span>
+                          )}
+                          {status === 'SUSPENDED' && (
+                            <span className="text-slate-500 font-semibold">Tạm ngưng (SUSPENDED)</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          {isVerified ? (
+                            <span className="text-emerald-700 font-medium">Đã xác thực</span>
+                          ) : (
+                            <span className="text-slate-400 font-medium">Chưa xác thực</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-slate-600 tabular-nums">
+                          {formatDateVN(createdAt)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* PAGINATION FOOTER */}
+          {pagination.total > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100 text-xs text-slate-600">
+              <div>
+                Hiển thị{' '}
+                <strong className="text-slate-900">
+                  {Math.min((pagination.page - 1) * pagination.limit + 1, pagination.total)}–
+                  {Math.min(pagination.page * pagination.limit, pagination.total)}
+                </strong>{' '}
+                / <strong className="text-slate-900">{pagination.total}</strong> CTV
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={pagination.page <= 1}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                >
+                  Trang trước
+                </button>
+
+                <span className="px-2 font-medium text-slate-700">
+                  Trang {pagination.page} / {pagination.totalPages || 1}
+                </span>
+
+                <button
+                  onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
+                  disabled={pagination.page >= pagination.totalPages}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                >
+                  Trang sau
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

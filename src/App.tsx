@@ -16,6 +16,8 @@ import { AffiliatePlaceholderPage } from './components/affiliate/AffiliatePlaceh
 import { AffiliatePendingScreen } from './components/affiliate/AffiliatePendingScreen';
 import { AffiliateRegisterModal } from './components/affiliate/AffiliateRegisterModal';
 import { AdminPortal } from './components/admin/AdminPortal';
+import { AdminPlaceholderPage } from './components/admin/AdminPlaceholderPage';
+import { AppLayout } from './components/common/AppLayout';
 import { AccessNoticeScreen } from './components/common/AccessNoticeScreen';
 import {
   AuthSessionData,
@@ -129,7 +131,7 @@ export default function App() {
   /**
    * Bộ điều hướng trung tâm (Unified Navigate)
    */
-  const navigate = useCallback((toPath: string, replace = false) => {
+  const navigate = useCallback((toPath: string, replace = false, customAuth?: AuthSessionData) => {
     const cleanPath = toPath.split('?')[0].split('#')[0];
 
     // Cập nhật URL trình duyệt
@@ -145,8 +147,9 @@ export default function App() {
     const urlObj = new URL(window.location.href);
     setRequestedRedirectParam(urlObj.searchParams.get('redirect_to'));
 
-    // Chạy kiểm tra phân quyền
-    evaluateGuard(cleanPath, authSessionRef.current);
+    // Chạy kiểm tra phân quyền với auth được cung cấp hoặc auth ref mới nhất
+    const authToUse = customAuth || authSessionRef.current;
+    evaluateGuard(cleanPath, authToUse);
   }, [evaluateGuard]);
 
   /**
@@ -277,6 +280,7 @@ export default function App() {
     };
 
     setAuthSession(newSession);
+    authSessionRef.current = newSession;
 
     // Xác định URL muốn chuyển đến (ưu tiên requestedRedirect)
     const targetCandidate = requestedRedirectFromForm || requestedRedirectParam;
@@ -286,8 +290,8 @@ export default function App() {
     setLoginSuccessNotice(null);
     setRequestedRedirectParam(null);
 
-    // Điều hướng đến trang đích được cấp phép
-    navigate(targetPath, isFallback);
+    // Điều hướng đến trang đích được cấp phép với newSession trực tiếp
+    navigate(targetPath, isFallback, newSession);
   };
 
   /**
@@ -405,11 +409,16 @@ export default function App() {
     return 'affiliate_landing';
   };
 
+  const isInternalPortal =
+    currentPath.startsWith('/portal') ||
+    currentPath.startsWith('/admin');
+
   return (
     <>
-      {isAffiliatePortal ? (
-        /* M2.1: KHU VỰC CỔNG CTV DÙNG CHUNG AFFILIATE LAYOUT (HEADER + SIDEBAR + MAIN WORKSPACE) */
-        <AffiliateLayout
+      {isInternalPortal ? (
+        /* A0.4: KHU VỰC NỘI BỘ DÙNG CHUNG APPLAYOUT (HEADER + SIDEBAR + WORKSPACE) */
+        <AppLayout
+          role={authSession.role}
           user={authSession.user}
           affiliate={authSession.affiliate}
           currentPath={currentPath}
@@ -417,7 +426,7 @@ export default function App() {
           onLogout={handleLogout}
           brandConfig={defaultLandingConfig}
         >
-          {/* MENU 1: TỔNG QUAN (DASHBOARD CTV HIỆN CÓ) */}
+          {/* AFFILIATE PORTAL ROUTING */}
           {(currentPath === '/portal' ||
             currentPath === '/portal/' ||
             currentPath === '/portal/dashboard' ||
@@ -430,7 +439,6 @@ export default function App() {
             />
           )}
 
-          {/* MENU 2: KHÓA HỌC (TRANG TẠM CHỜ M2.2) */}
           {currentPath.startsWith('/portal/courses') && (
             <AffiliatePlaceholderPage
               title="Khóa học"
@@ -438,18 +446,43 @@ export default function App() {
             />
           )}
 
-          {/* MENU 3: KHÁCH HÀNG ĐƯỢC GIỚI THIỆU (TRANG TẠM CHỜ M2.2) */}
           {currentPath.startsWith('/portal/leads') && (
             <AffiliatePlaceholderPage
               title="Khách hàng được giới thiệu"
               onNavigateToOverview={() => navigate('/portal')}
             />
           )}
-        </AffiliateLayout>
+
+          {/* ADMIN & STAFF PORTAL ROUTING */}
+          {(currentPath === '/admin' ||
+            currentPath === '/admin/' ||
+            currentPath === '/admin/affiliates' ||
+            currentPath === '/admin/courses' ||
+            currentPath === '/admin/leads' ||
+            currentPath === '/admin/reconcile' ||
+            currentPath === '/admin/rewards' ||
+            currentPath === '/admin/audit') && (
+            <AdminPortal currentUser={authSession.user} currentPath={currentPath} />
+          )}
+
+          {currentPath === '/admin/homepage' && (
+            <AdminPlaceholderPage
+              title="Quản lý trang chủ"
+              onNavigateToOverview={() => navigate('/admin')}
+            />
+          )}
+
+          {currentPath === '/admin/staff-accounts' && (
+            <AdminPlaceholderPage
+              title="Tài khoản nhân viên"
+              onNavigateToOverview={() => navigate('/admin')}
+            />
+          )}
+        </AppLayout>
       ) : (
         <div className="min-h-screen flex flex-col bg-[#070D18] font-sans text-slate-100 antialiased selection:bg-amber-400 selection:text-slate-950">
           {/* 
-            CHỈ HIỂN THỊ HEADER CHUNG KHI Ở CÁC TRANG CÔNG KHAI (/catalog, /policy) HOẶC /admin.
+            CHỈ HIỂN THỊ HEADER CHUNG KHI Ở CÁC TRANG CÔNG KHAI (/catalog, /policy).
             Trang /, /login và /pending có giao diện độc lập riêng.
           */}
           {currentPath !== '/' && currentPath !== '/login' && currentPath !== '/pending' && (
@@ -549,13 +582,6 @@ export default function App() {
                   onLogout={handleLogout}
                   onGoHome={() => navigate('/')}
                 />
-              </div>
-            )}
-
-            {/* ROUTE /admin: CỔNG QUẢN TRỊ / NHÂN VIÊN TUYỂN SINH (STAFF & ADMIN) */}
-            {currentPath === '/admin' && (
-              <div className="bg-slate-50 text-slate-900 py-6 min-h-screen">
-                <AdminPortal />
               </div>
             )}
           </main>

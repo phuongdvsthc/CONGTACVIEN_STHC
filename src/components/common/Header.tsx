@@ -70,67 +70,58 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </div>
 
-          {/* Zone 2: 4-6 clean text navigation links */}
-          <nav className="hidden lg:flex items-center gap-6 text-sm font-medium text-slate-600">
-            <button
-              onClick={() => onNavigate('affiliate_landing')}
-              className={`hover:text-blue-900 transition-colors ${
-                activeTab === 'affiliate_landing' ? 'text-blue-900 font-semibold border-b-2 border-blue-900 py-4' : ''
-              }`}
-            >
-              Giới thiệu & Đăng ký CTV
-            </button>
-
-            <button
-              onClick={() => onNavigate('public_catalog')}
-              className={`hover:text-blue-900 transition-colors ${
-                activeTab === 'public_catalog' ? 'text-blue-900 font-semibold border-b-2 border-blue-900 py-4' : ''
-              }`}
-            >
-              Ngành đào tạo STHC
-            </button>
-
-            <button
-              onClick={() => onNavigate('affiliate_policy')}
-              className={`hover:text-blue-900 transition-colors ${
-                activeTab === 'affiliate_policy' ? 'text-blue-900 font-semibold border-b-2 border-blue-900 py-4' : ''
-              }`}
-            >
-              Chính sách 500k
-            </button>
-
-            {/* Portal Link depends on Role */}
-            {currentRole === 'public' && (
+          {/* Zone 2: 4-6 clean text navigation links (Hidden for staff/admin) */}
+          {currentRole !== 'staff' && currentRole !== 'admin' && (
+            <nav className="hidden lg:flex items-center gap-6 text-sm font-medium text-slate-600">
               <button
-                onClick={onOpenLoginAffiliate}
-                className="hover:text-blue-900 transition-colors text-slate-600"
-              >
-                Cổng CTV Tuyển Sinh
-              </button>
-            )}
-
-            {(currentRole === 'affiliate_pending' || currentRole === 'affiliate_active') && (
-              <button
-                onClick={() => onNavigate('affiliate_portal')}
+                onClick={() => onNavigate('affiliate_landing')}
                 className={`hover:text-blue-900 transition-colors ${
-                  activeTab === 'affiliate_portal' ? 'text-blue-900 font-semibold border-b-2 border-blue-900 py-4' : ''
+                  activeTab === 'affiliate_landing' ? 'text-blue-900 font-semibold border-b-2 border-blue-900 py-4' : ''
                 }`}
               >
-                Cổng CTV Của Tôi
+                Giới thiệu & Đăng ký CTV
               </button>
-            )}
 
-            {(currentRole === 'staff' || currentRole === 'admin') && (
               <button
-                onClick={() => onNavigate('admin_portal')}
+                onClick={() => onNavigate('public_catalog')}
                 className={`hover:text-blue-900 transition-colors ${
-                  activeTab === 'admin_portal' ? 'text-blue-900 font-semibold border-b-2 border-blue-900 py-4' : ''
+                  activeTab === 'public_catalog' ? 'text-blue-900 font-semibold border-b-2 border-blue-900 py-4' : ''
                 }`}
               >
-                Cổng Quản Trị Hệ Thống
+                Ngành đào tạo STHC
               </button>
-            )}
-          </nav>
+
+              <button
+                onClick={() => onNavigate('affiliate_policy')}
+                className={`hover:text-blue-900 transition-colors ${
+                  activeTab === 'affiliate_policy' ? 'text-blue-900 font-semibold border-b-2 border-blue-900 py-4' : ''
+                }`}
+              >
+                Chính sách 500k
+              </button>
+
+              {/* Portal Link depends on Role */}
+              {currentRole === 'public' && (
+                <button
+                  onClick={onOpenLoginAffiliate}
+                  className="hover:text-blue-900 transition-colors text-slate-600"
+                >
+                  Cổng CTV Tuyển Sinh
+                </button>
+              )}
+
+              {(currentRole === 'affiliate_pending' || currentRole === 'affiliate_active') && (
+                <button
+                  onClick={() => onNavigate('affiliate_portal')}
+                  className={`hover:text-blue-900 transition-colors ${
+                    activeTab === 'affiliate_portal' ? 'text-blue-900 font-semibold border-b-2 border-blue-900 py-4' : ''
+                  }`}
+                >
+                  Cổng CTV Của Tôi
+                </button>
+              )}
+            </nav>
+          )}
 
           {/* Zone 3: 1-2 primary actions */}
           <div className="flex items-center gap-2.5">
@@ -195,32 +186,33 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* STAFF / ADMIN STATE */}
             {(currentRole === 'staff' || currentRole === 'admin') && (
-              <div className="hidden sm:flex items-center gap-2 text-xs">
-                <div className="px-2.5 py-1 bg-blue-50 text-blue-900 border border-blue-200 rounded-lg flex items-center gap-1.5 font-semibold">
-                  <Shield className="w-3.5 h-3.5 text-blue-700" />
-                  <span className="uppercase">{currentRole}</span>
+              <div className="flex items-center gap-3 text-xs">
+                <div className="px-3 py-1.5 bg-slate-100 text-slate-800 border border-slate-200 rounded-xl flex items-center gap-2 font-medium">
+                  <span className="font-mono font-bold text-blue-900">{currentUser?.email || 'admin@sthc.edu.vn'}</span>
                 </div>
                 {onLogout && (
                   <button
                     onClick={onLogout}
                     title="Đăng xuất tài khoản"
-                    className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors flex items-center gap-1"
+                    className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl transition-colors flex items-center gap-1.5 border border-rose-200 shadow-sm"
                   >
                     <LogOut className="w-4 h-4" />
-                    <span className="text-[11px] font-medium hidden md:inline">Thoát</span>
+                    <span>Đăng xuất</span>
                   </button>
                 )}
               </div>
             )}
 
-            {/* Main Lead Consultation CTA */}
-            <button
-              onClick={onOpenConsultationModal}
-              className="px-3.5 py-2 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-sm transition-all flex items-center gap-1 whitespace-nowrap active:scale-95"
-            >
-              <span>Đăng Ký Tư Vấn</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
+            {/* Main Lead Consultation CTA (Hidden for staff/admin) */}
+            {currentRole !== 'staff' && currentRole !== 'admin' && (
+              <button
+                onClick={onOpenConsultationModal}
+                className="px-3.5 py-2 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-sm transition-all flex items-center gap-1 whitespace-nowrap active:scale-95"
+              >
+                <span>Đăng Ký Tư Vấn</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
 
             {/* Mobile menu toggle */}
             <button
