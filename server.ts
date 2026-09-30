@@ -745,6 +745,19 @@ async function startServer() {
         }
       }
 
+      // Override role for admin and staff test accounts if fetched from DB
+      if (dbProfile) {
+        if (cleanEmail === 'admin@sthc.edu.vn') {
+          dbProfile.role = 'admin';
+          dbProfile.is_active = true;
+          dbAff = null;
+        } else if (cleanEmail === 'tuyensinh_canbo@sthc.edu.vn') {
+          dbProfile.role = 'staff';
+          dbProfile.is_active = true;
+          dbAff = null;
+        }
+      }
+
       // Fallback nạp thông tin tài khoản kiểm thử nếu chưa có trong DB Supabase
       if (!dbProfile) {
         if (
@@ -869,6 +882,39 @@ async function startServer() {
     demoState.currentUser = null;
     demoState.currentAffiliate = null;
     res.json({ success: true, message: 'Đã đăng xuất tài khoản thành công.' });
+  });
+
+  app.post('/api/v1/auth/resend-verification', async (req: Request, res: Response) => {
+    const { email } = req.body;
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ success: false, error: 'Vui lòng cung cấp địa chỉ email.' });
+    }
+    const cleanEmail = email.trim().toLowerCase();
+    try {
+      const appUrl = process.env.APP_URL || (req.headers.origin as string) || 'http://localhost:3000';
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: cleanEmail,
+        options: {
+          emailRedirectTo: `${appUrl}/login`,
+        },
+      });
+      if (error) {
+        return res.status(400).json({
+          success: false,
+          error: error.message || 'Không thể gửi lại email xác nhận.',
+        });
+      }
+      return res.json({
+        success: true,
+        message: 'Đã gửi lại email xác nhận thành công. Vui lòng kiểm tra hộp thư đến (hoặc hòm thư rác / spam).',
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        success: false,
+        error: err.message || 'Lỗi máy chủ khi gửi lại email xác nhận.',
+      });
+    }
   });
 
   // ----------------------------------------------------------------------------
@@ -1063,11 +1109,23 @@ async function startServer() {
       .select('id, reconciliation_status, reward_status')
       .eq('affiliate_id', affiliateId);
 
+    const { data: rewards } = await supabase
+      .from('rewards')
+      .select('amount, status')
+      .eq('affiliate_id', affiliateId);
+
     const totalReferred = (leads?.length || 0) + 3; // + mock seed
     const enrolledValid = (leads?.filter(l => l.reconciliation_status === 'MATCHED_VALID').length || 0) + 2;
-    const pendingRewards = (leads?.filter(l => l.reward_status === 'PENDING_APPROVAL').length || 0) + 1;
-    const approvedRewards = (leads?.filter(l => l.reward_status === 'APPROVED').length || 0) + 1;
-    const approvedAmount = approvedRewards * 500000;
+    const pendingRewardsCount = (leads?.filter(l => l.reward_status === 'PENDING_APPROVAL').length || 0) + 1;
+    const approvedRewardsCount = (leads?.filter(l => l.reward_status === 'APPROVED').length || 0) + 1;
+
+    const pendingAmount = rewards && rewards.length > 0
+      ? rewards.filter(r => r.status === 'PENDING_APPROVAL').reduce((sum, r) => sum + (r.amount || 500000), 0)
+      : pendingRewardsCount * 500000;
+
+    const approvedAmount = rewards && rewards.length > 0
+      ? rewards.filter(r => r.status === 'APPROVED').reduce((sum, r) => sum + (r.amount || 500000), 0)
+      : approvedRewardsCount * 500000;
 
     res.json({
       success: true,
@@ -1078,8 +1136,9 @@ async function startServer() {
         metrics: {
           total_leads_referred: totalReferred,
           enrolled_valid_leads: enrolledValid,
-          pending_reward_count: pendingRewards,
-          approved_reward_count: approvedRewards,
+          pending_reward_count: pendingRewardsCount,
+          pending_reward_amount: pendingAmount,
+          approved_reward_count: approvedRewardsCount,
           approved_reward_amount: approvedAmount,
         },
       },

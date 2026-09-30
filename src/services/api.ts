@@ -52,12 +52,38 @@ export const api = {
     status?: string;
     affiliate_code?: string;
   }) {
-    const res = await fetch('/api/v1/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    return res.json();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
+    try {
+      const res = await fetch('/api/v1/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      if (res.status === 504 || res.status === 502) {
+        return {
+          success: false,
+          isTimeout: true,
+          error: 'Chưa nhận được kết quả đăng ký. Vui lòng kiểm tra email trước khi thử lại.',
+        };
+      }
+      return res.json();
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+        return {
+          success: false,
+          isTimeout: true,
+          error: 'Chưa nhận được kết quả đăng ký. Vui lòng kiểm tra email trước khi thử lại.',
+        };
+      }
+      return {
+        success: false,
+        error: err.message || 'Lỗi kết nối máy chủ xác thực.',
+      };
+    }
   },
 
   async registerAffiliate(payload: {
@@ -74,12 +100,28 @@ export const api = {
     status?: string;
     affiliate_code?: string;
   }) {
-    const res = await fetch('/api/v1/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    return res.json();
+    return this.register(payload);
+  },
+
+  async resendVerification(email: string) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    try {
+      const res = await fetch('/api/v1/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      return res.json();
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      return {
+        success: false,
+        error: 'Không thể gửi lại email do quá thời gian kết nối. Vui lòng thử lại.',
+      };
+    }
   },
 
   // --------------------------------------------------------------------------

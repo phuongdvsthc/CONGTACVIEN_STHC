@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { UserSessionProfile, AffiliateSessionProfile } from '../../utils/navigationGuard';
 import { AffiliateLandingConfig } from '../../types/landingConfig';
+import { AFFILIATE_NAV_ITEMS } from '../../config/affiliateNavConfig';
 
 interface AffiliateLayoutProps {
   user: UserSessionProfile | null;
@@ -90,37 +91,8 @@ export const AffiliateLayout: React.FC<AffiliateLayoutProps> = ({
     onNavigate(path);
   };
 
-  // Xác định mục menu nào đang được chọn theo URL
-  const isNavActive = (path: string) => {
-    if (path === '/portal') {
-      return (
-        currentPath === '/portal' ||
-        currentPath === '/portal/' ||
-        currentPath === '/portal/dashboard' ||
-        currentPath === '/portal/overview'
-      );
-    }
-    return currentPath === path || currentPath.startsWith(path + '/');
-  };
-
-  // Danh mục menu theo đúng thứ tự quy định
-  const navItems = [
-    {
-      title: 'Tổng quan',
-      path: '/portal',
-      icon: LayoutDashboard,
-    },
-    {
-      title: 'Khóa học',
-      path: '/portal/courses',
-      icon: BookOpen,
-    },
-    {
-      title: 'Khách hàng được giới thiệu',
-      path: '/portal/leads',
-      icon: Users,
-    },
-  ];
+  // Danh mục menu dùng chung từ AFFILIATE_NAV_ITEMS
+  const navItems = AFFILIATE_NAV_ITEMS;
 
   const brandName = brandConfig?.header?.logoText || 'TRƯỜNG SAIGONTOURIST';
   const logoBadge = brandConfig?.header?.logoBadgeText || 'STHC';
@@ -237,7 +209,7 @@ export const AffiliateLayout: React.FC<AffiliateLayoutProps> = ({
           Điều hướng
         </span>
         {navItems.map((item) => {
-          const active = isNavActive(item.path);
+          const active = item.isActiveMatch(currentPath);
           const Icon = item.icon;
           return (
             <button

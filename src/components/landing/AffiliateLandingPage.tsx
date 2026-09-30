@@ -51,6 +51,27 @@ export const AffiliateLandingPage: React.FC<AffiliateLandingPageProps> = ({
 
   // FAQ accordion state
   const [expandedFaqId, setExpandedFaqId] = useState<string | null>('faq_1');
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resendCooldown]);
+
+  const handleResendEmail = async () => {
+    if (resendCooldown > 0 || !submissionSuccessData?.email) return;
+    setResendMessage(null);
+    const res = await api.resendVerification(submissionSuccessData.email);
+    if (res.success) {
+      setResendMessage('Đã gửi lại email xác nhận thành công!');
+      setResendCooldown(60);
+    } else {
+      setResendMessage(res.error || 'Không thể gửi lại email.');
+    }
+  };
 
   // Image load error fallback state
   const [imageError, setImageError] = useState(false);
@@ -117,6 +138,13 @@ export const AffiliateLandingPage: React.FC<AffiliateLandingPageProps> = ({
         confirm_password: confirmPassword,
         terms_accepted: termsAccepted,
       });
+
+      if (res.isTimeout) {
+        setFormErrors({
+          general: 'Chưa nhận được kết quả đăng ký. Vui lòng kiểm tra email trước khi thử lại.',
+        });
+        return;
+      }
 
       if (res.success) {
         if (res.requires_email_confirmation) {
@@ -349,11 +377,24 @@ export const AffiliateLandingPage: React.FC<AffiliateLandingPageProps> = ({
                       {submissionSuccessData.requiresEmailConfirmation && (
                         <div className="p-3.5 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl text-left flex items-start gap-2.5">
                           <AlertCircle className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
-                          <div>
+                          <div className="space-y-1.5 w-full">
                             <span className="font-bold block">Yêu cầu xác thực email:</span>
-                            <p className="text-[11px] text-blue-800 leading-relaxed mt-0.5">
+                            <p className="text-[11px] text-blue-800 leading-relaxed">
                               Hệ thống đã gửi liên kết xác nhận đến <strong>{submissionSuccessData.email}</strong>. Vui lòng kiểm tra hộp thư và bấm xác nhận trước khi đăng nhập.
                             </p>
+                            <div className="pt-1 flex items-center justify-between">
+                              <button
+                                type="button"
+                                disabled={resendCooldown > 0}
+                                onClick={handleResendEmail}
+                                className="text-xs font-bold text-blue-900 hover:underline disabled:text-slate-400 disabled:no-underline"
+                              >
+                                {resendCooldown > 0 ? `Gửi lại email (${resendCooldown}s)` : 'Gửi lại email xác nhận'}
+                              </button>
+                              {resendMessage && (
+                                <span className="text-[11px] text-emerald-700 font-medium">{resendMessage}</span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       )}

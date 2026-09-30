@@ -426,6 +426,7 @@ export default function App() {
               key={authSession.affiliate?.id || authSession.affiliate?.affiliate_code || 'active_affiliate'}
               affiliateCode={authSession.affiliate?.affiliate_code || 'STHCCTV1088'}
               fullName={authSession.affiliate?.full_name || authSession.user?.full_name || 'Trần Thị Thu Thảo'}
+              onNavigate={(path) => navigate(path)}
             />
           )}
 
