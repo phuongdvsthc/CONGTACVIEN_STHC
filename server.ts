@@ -16,6 +16,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false },
 });
 
+// Dedicated independent client instance for public auth operations (signUp, signIn)
+const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+
 // Initial academic courses of STHC
 const INITIAL_COURSES = [
   {
@@ -507,7 +512,7 @@ async function startServer() {
     const emailRedirectTo = `${appUrl}/login`;
 
     try {
-      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+      const { data: signUpData, error: signUpErr } = await supabaseAuth.auth.signUp({
         email: cleanEmail,
         password: password,
         options: {
@@ -517,41 +522,30 @@ async function startServer() {
       });
 
       if (signUpErr) {
-        // Fallback an toàn nếu dính SMTP Rate Limit ở môi trường thử nghiệm
-        if (signUpErr.status === 429 || signUpErr.message?.includes('rate limit')) {
-          console.warn('[AUTH] signUp hit SMTP rate limit, falling back to admin.createUser');
-          const { data: adminUserData, error: adminErr } = await supabase.auth.admin.createUser({
-            email: cleanEmail,
-            password: password,
-            email_confirm: false,
-            user_metadata: userMetadata,
-          });
-
-          if (adminErr) {
-            return res.status(400).json({
-              success: false,
-              error: adminErr.message || 'Lỗi khi tạo tài khoản xác thực Supabase.',
-            });
-          }
-          authUser = adminUserData.user;
-          requiresEmailConfirmation = true;
-        } else {
-          return res.status(400).json({
+        if (signUpErr.status === 429 || signUpErr.message?.includes('rate limit') || signUpErr.message?.includes('Email rate limit')) {
+          console.warn('[AUTH] signUp hit SMTP rate limit (429):', signUpErr.message);
+          return res.status(429).json({
             success: false,
-            error: signUpErr.message?.includes('already registered')
-              ? 'Địa chỉ email này đã được đăng ký tài khoản trong hệ thống.'
-              : signUpErr.message || 'Đăng ký không thành công.',
+            error: 'Hệ thống gửi email xác thực đang tạm quá tải (Rate Limit). Vui lòng thử lại sau ít phút hoặc sử dụng email khác.',
           });
         }
-      } else {
-        authUser = signUpData.user;
-        requiresEmailConfirmation = !authUser?.confirmed_at && !signUpData.session;
-        // Nếu Auth trả session ngay khi đăng ký, xử lý kết thúc session để giữ luồng đăng ký -> đăng nhập
-        if (signUpData.session) {
-          try {
-            await supabase.auth.signOut();
-          } catch (_) {}
-        }
+
+        const isAlreadyRegistered = signUpErr.message?.includes('already registered') || signUpErr.status === 400;
+        return res.status(400).json({
+          success: false,
+          error: isAlreadyRegistered
+            ? 'Địa chỉ email này đã được đăng ký tài khoản trong hệ thống. Vui lòng đăng nhập hoặc sử dụng chức năng quên mật khẩu.'
+            : signUpErr.message || 'Đăng ký tài khoản không thành công.',
+        });
+      }
+
+      authUser = signUpData.user;
+      requiresEmailConfirmation = !authUser?.confirmed_at && !signUpData.session;
+
+      if (signUpData.session) {
+        try {
+          await supabaseAuth.auth.signOut();
+        } catch (_) {}
       }
 
       if (!authUser || !authUser.id) {
@@ -561,12 +555,20 @@ async function startServer() {
         });
       }
 
-      // 9. Xác nhận Trigger DB-C đã tự động tạo đúng profiles và affiliate_profiles
+      // 9. Xác nhận Trigger DB-C đã tự động tạo đúng profiles và affiliate_profiles.
       const { data: profile, error: pErr } = await supabase
         .from('profiles')
         .select('id, email, full_name, phone, role, is_active')
         .eq('id', authUser.id)
         .maybeSingle();
+
+      if (pErr) {
+        console.error('[AUTH REGISTER SQL ERROR] Query profiles failed:', pErr);
+        return res.status(500).json({
+          success: false,
+          error: 'Lỗi hệ thống khi khởi tạo hồ sơ người dùng. Vui lòng liên hệ quản trị viên.',
+        });
+      }
 
       const { data: affProfile, error: aErr } = await supabase
         .from('affiliate_profiles')
@@ -574,7 +576,16 @@ async function startServer() {
         .eq('user_id', authUser.id)
         .maybeSingle();
 
+      if (aErr) {
+        console.error('[AUTH REGISTER SQL ERROR] Query affiliate_profiles failed:', aErr);
+        return res.status(500).json({
+          success: false,
+          error: 'Lỗi hệ thống khi khởi tạo hồ sơ cộng tác viên. Vui lòng liên hệ quản trị viên.',
+        });
+      }
+
       if (!profile || !affProfile) {
+        console.error('[AUTH REGISTER] Missing profile or affiliate_profile for user_id:', authUser.id);
         return res.status(500).json({
           success: false,
           error: 'Hồ sơ CTV chưa được tạo tự động bởi hệ thống cơ sở dữ liệu. Vui lòng liên hệ quản trị viên.',
