@@ -19,6 +19,7 @@ import { AdminPortal } from './components/admin/AdminPortal';
 import { AdminPlaceholderPage } from './components/admin/AdminPlaceholderPage';
 import { AppLayout } from './components/common/AppLayout';
 import { AccessNoticeScreen } from './components/common/AccessNoticeScreen';
+import { ProfileDetailView } from './components/common/ProfileDetailView';
 import {
   AuthSessionData,
   checkRouteAccess,
@@ -439,6 +440,14 @@ export default function App() {
             />
           )}
 
+          {currentPath === '/portal/profile' && (
+            <ProfileDetailView
+              currentUser={authSession.user}
+              currentRole={authSession.role}
+              onBack={() => navigate('/portal')}
+            />
+          )}
+
           {currentPath.startsWith('/portal/courses') && (
             <AffiliatePlaceholderPage
               title="Khóa học"
@@ -454,9 +463,17 @@ export default function App() {
           )}
 
           {/* ADMIN & STAFF PORTAL ROUTING */}
+          {currentPath === '/admin/profile' && (
+            <ProfileDetailView
+              currentUser={authSession.user}
+              currentRole={authSession.role}
+              onBack={() => navigate('/admin')}
+            />
+          )}
+
           {(currentPath === '/admin' ||
             currentPath === '/admin/' ||
-            currentPath === '/admin/affiliates' ||
+            currentPath.startsWith('/admin/affiliates') ||
             currentPath === '/admin/courses' ||
             currentPath === '/admin/leads' ||
             currentPath === '/admin/reconcile' ||

@@ -17,6 +17,8 @@ export type ReconciliationStatus =
 
 export type RewardStatus = 'NONE' | 'PENDING_APPROVAL' | 'APPROVED' | 'VOIDED' | 'REJECTED';
 
+export type CourseStatus = 'DRAFT' | 'ACTIVE' | 'STOPPED';
+
 export interface Course {
   id: string;
   code: string;
@@ -25,13 +27,23 @@ export interface Course {
   department: string;
   degree_level: string;
   duration_text: string;
-  tuition_fee_estimate: number;
-  summary: string;
-  description_html: string;
-  thumbnail_url?: string;
-  brochure_url?: string;
+  tuition_fee_estimate: number | null;
+  summary?: string | null;
+  description_html?: string | null;
+  benefits_title?: string | null;
+  benefits_content?: string | null;
+  thumbnail_url?: string | null;
+  brochure_url?: string | null;
   is_active: boolean;
+  accepts_referrals?: boolean;
+  status?: CourseStatus;
+  stop_reason?: string | null;
+  status_note?: string | null;
+  status_updated_at?: string | null;
+  status_updated_by?: string | null;
   sort_order: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Profile {
@@ -39,9 +51,12 @@ export interface Profile {
   email: string;
   full_name: string;
   phone?: string;
+  avatar_url?: string;
   role: 'affiliate' | 'staff' | 'admin';
   is_active: boolean;
+  tax_code?: string | null;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface AffiliateProfile {
@@ -50,13 +65,71 @@ export interface AffiliateProfile {
   affiliate_code: string;
   status: AffiliateStatus;
   id_card_number?: string;
+  id_card_issued_date?: string;
   occupation?: string;
   address?: string;
+  bank_account_number?: string;
+  bank_name?: string;
+  tax_code?: string | null;
   reviewed_by?: string;
   reviewed_at?: string;
   review_note?: string;
+  suspended_by?: string;
+  suspended_at?: string;
+  suspension_reason?: string;
+  reactivated_by?: string;
+  reactivated_at?: string;
+  reactivation_note?: string;
   created_at: string;
+  updated_at?: string;
   profile?: Profile;
+  reviewer?: {
+    id: string;
+    full_name: string;
+    email?: string;
+  };
+  suspender?: {
+    id: string;
+    full_name: string;
+    email?: string;
+  };
+  reactivator?: {
+    id: string;
+    full_name: string;
+    email?: string;
+  };
+  email_verified?: boolean;
+  audit_logs?: any[];
+}
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  full_name: string;
+  phone?: string | null;
+  avatar_url?: string | null;
+  role: 'affiliate' | 'staff' | 'admin';
+  is_active: boolean;
+  email_verified?: boolean;
+  tax_code?: string | null;
+  address?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+
+  // CTV-specific fields (undefined for Admin/Staff)
+  affiliate_code?: string;
+  affiliate_status?: AffiliateStatus;
+  id_card_number?: string | null;
+  id_card_issued_date?: string | null;
+  occupation?: string | null;
+  bank_account_number?: string | null;
+  bank_name?: string | null;
+  reviewed_at?: string | null;
+  reviewer_name?: string | null;
+  suspended_at?: string | null;
+  suspension_reason?: string | null;
+  reactivated_at?: string | null;
+  reactivation_note?: string | null;
 }
 
 export interface Lead {

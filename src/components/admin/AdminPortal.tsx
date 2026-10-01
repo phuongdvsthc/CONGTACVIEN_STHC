@@ -21,6 +21,9 @@ import {
   X,
 } from 'lucide-react';
 
+import { AffiliateDetailView } from './AffiliateDetailView';
+import { CourseListView } from './CourseListView';
+
 interface AdminPortalProps {
   currentUser?: any;
   currentPath?: string;
@@ -307,6 +310,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
 
   const userEmail = currentUser?.email || 'admin@sthc.edu.vn';
 
+  const cleanPath = currentPath.split('?')[0].split('#')[0];
+  if (cleanPath === '/admin/courses') {
+    return <CourseListView currentUser={currentUser} />;
+  }
+
+  const affiliateDetailMatch = currentPath.match(/^\/admin\/affiliates\/([a-f0-9-]+)$/i);
+  if (affiliateDetailMatch) {
+    return (
+      <AffiliateDetailView
+        affiliateId={affiliateDetailMatch[1]}
+        currentUser={currentUser}
+        onBack={() => {
+          window.history.pushState({}, '', '/admin/affiliates');
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        }}
+        onStatusUpdated={() => {
+          loadAffiliates();
+        }}
+      />
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-fade-in">
       {/* Top Admin Identity & Clean Notice */}
@@ -466,6 +491,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
                     <th className="py-3 px-4">Trạng thái CTV</th>
                     <th className="py-3 px-4">Xác thực email</th>
                     <th className="py-3 px-4 text-right">Ngày đăng ký</th>
+                    <th className="py-3 px-4 text-right">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -515,6 +541,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
                         <td className="py-3 px-4 text-right font-mono text-slate-600 tabular-nums">
                           {formatDateVN(createdAt)}
                         </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={() => {
+                              window.history.pushState({}, '', `/admin/affiliates/${aff.id}`);
+                              window.dispatchEvent(new PopStateEvent('popstate'));
+                            }}
+                            className="px-2.5 py-1.5 bg-blue-50 text-blue-900 font-semibold rounded-lg hover:bg-blue-100 transition-colors inline-flex items-center gap-1.5 text-xs shadow-sm"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            Xem chi tiết
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -562,54 +600,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
       )}
 
       {/* ---------------------------------------------------------------------- */}
-      {/* TAB 2: QUẢN LÝ KHÓA HỌC */}
+      {/* TAB 2: QUẢN LÝ KHÓA HỌC (YÊU CẦU A2.1) */}
       {/* ---------------------------------------------------------------------- */}
       {activeTab === 'courses' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Danh Mục Ngành Tuyển Sinh</h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Các ngành học thuộc Trường Trung cấp Du lịch & Khách sạn Saigontourist (STHC)
-              </p>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-y border-slate-200 uppercase tracking-wider text-[11px]">
-                <tr>
-                  <th className="py-3 px-4">Mã ngành</th>
-                  <th className="py-3 px-4">Tên ngành đào tạo</th>
-                  <th className="py-3 px-4">Khoa chuyên môn</th>
-                  <th className="py-3 px-4">Hệ đào tạo</th>
-                  <th className="py-3 px-4">Học phí dự kiến</th>
-                  <th className="py-3 px-4">Trạng thái</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {courses.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-4 font-mono font-semibold text-blue-900">{c.code}</td>
-                    <td className="py-3 px-4 font-semibold text-slate-900">{c.title}</td>
-                    <td className="py-3 px-4 text-slate-600">{c.department}</td>
-                    <td className="py-3 px-4 text-slate-600">{c.degree_level}</td>
-                    <td className="py-3 px-4 font-mono font-bold text-amber-800 tabular-nums">
-                      {new Intl.NumberFormat('vi-VN').format(c.tuition_fee_estimate || 0)}đ
-                    </td>
-                    <td className="py-3 px-4">
-                      {c.is_active ? (
-                        <span className="text-emerald-700 font-semibold">Đang tuyển sinh</span>
-                      ) : (
-                        <span className="text-slate-400">Tạm đóng</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <CourseListView currentUser={currentUser} />
       )}
 
       {/* ---------------------------------------------------------------------- */}

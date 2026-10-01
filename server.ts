@@ -11,9 +11,12 @@ const __dirname = path.dirname(__filename);
 const PORT = Number(process.env.PORT) || 3000;
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://jowfyhlzwhalwaohlldm.supabase.co';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+if (!SUPABASE_SERVICE_ROLE_KEY || SUPABASE_SERVICE_ROLE_KEY.trim() === '') {
+  console.error('[CONFIGURATION ERROR] Thiếu biến môi trường SUPABASE_SERVICE_ROLE_KEY. Không thể khởi tạo client quản trị backend.');
+}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
+  auth: { persistSession: false, autoRefreshToken: false },
 });
 
 // Dedicated independent client instance for public auth operations (signUp, signIn)
@@ -130,68 +133,43 @@ const INITIAL_COURSES = [
 ];
 
 // In-memory demo simulated state for E4 testing
+interface DemoAffiliate {
+  id: string;
+  user_id: string;
+  full_name: string;
+  email: string;
+  phone: string;
+  affiliate_code: string;
+  status: 'PENDING_REVIEW' | 'ACTIVE' | 'SUSPENDED' | 'REJECTED';
+  id_card_number: string;
+  id_card_issued_date?: string;
+  occupation: string;
+  address: string;
+  bank_account_number?: string;
+  bank_name?: string;
+  created_at: string;
+  review_note?: string;
+  reviewed_at?: string;
+  reviewed_by?: string;
+  suspended_by?: string;
+  suspended_at?: string;
+  suspension_reason?: string;
+  reactivated_by?: string;
+  reactivated_at?: string;
+  reactivation_note?: string;
+  email_verified?: boolean;
+}
+
 interface DemoState {
   currentRole: 'public' | 'affiliate_pending' | 'affiliate_active' | 'staff' | 'admin';
   currentUser: any | null;
   currentAffiliate: any | null;
-  pendingAffiliate: {
-    id: string;
-    user_id: string;
-    full_name: string;
-    email: string;
-    phone: string;
-    affiliate_code: string;
-    status: 'PENDING_REVIEW' | 'ACTIVE' | 'SUSPENDED' | 'REJECTED';
-    id_card_number: string;
-    occupation: string;
-    address: string;
-    created_at: string;
-    review_note?: string;
-    reviewed_at?: string;
-  };
-  activeAffiliate: {
-    id: string;
-    user_id: string;
-    full_name: string;
-    email: string;
-    phone: string;
-    affiliate_code: string;
-    status: 'PENDING_REVIEW' | 'ACTIVE' | 'SUSPENDED' | 'REJECTED';
-    id_card_number: string;
-    occupation: string;
-    address: string;
-    created_at: string;
-    review_note?: string;
-    reviewed_at?: string;
-  };
-  suspendedAffiliate: {
-    id: string;
-    user_id: string;
-    full_name: string;
-    email: string;
-    phone: string;
-    affiliate_code: string;
-    status: 'SUSPENDED';
-    id_card_number: string;
-    occupation: string;
-    address: string;
-    created_at: string;
-    review_note: string;
-  };
-  rejectedAffiliate: {
-    id: string;
-    user_id: string;
-    full_name: string;
-    email: string;
-    phone: string;
-    affiliate_code: string;
-    status: 'REJECTED';
-    id_card_number: string;
-    occupation: string;
-    address: string;
-    created_at: string;
-    review_note: string;
-  };
+  pendingAffiliate: DemoAffiliate;
+  pendingVerifiedAffiliate: DemoAffiliate;
+  activeAffiliate: DemoAffiliate;
+  suspendedAffiliate: DemoAffiliate;
+  rejectedAffiliate: DemoAffiliate;
+  auditLogs: any[];
   disabledUser: {
     id: string;
     email: string;
@@ -223,16 +201,38 @@ const demoState: DemoState = {
   pendingAffiliate: {
     id: 'a0000000-0000-0000-0000-000000000001',
     user_id: 'u0000000-0000-0000-0000-000000000001',
-    full_name: 'Nguyễn Văn Đang Chờ Duyệt',
+    full_name: 'Nguyễn Văn Đang Chờ Duyệt (Chưa xác thực email)',
     email: 'ctv_cho_duyet@sthc.edu.vn',
     phone: '0901234567',
     affiliate_code: 'STHCCTV9001',
     status: 'PENDING_REVIEW',
     id_card_number: '079201009876',
+    id_card_issued_date: '2024-01-10',
     occupation: 'Cựu sinh viên Khóa 2024',
     address: 'Quận 10, TP. Hồ Chí Minh',
+    bank_account_number: '0123456789',
+    bank_name: 'BIDV - Chi nhánh Bến Thành',
+    email_verified: false,
     created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
     review_note: 'Hồ sơ đang chờ Ban Tuyển sinh đối chiếu thông tin cá nhân.',
+  },
+  pendingVerifiedAffiliate: {
+    id: 'a0000000-0000-0000-0000-000000000005',
+    user_id: 'u0000000-0000-0000-0000-000000000006',
+    full_name: 'Hoàng Minh Nhật (Chờ duyệt - Đã xác thực)',
+    email: 'ctv_daxacthuc@sthc.edu.vn',
+    phone: '0903332211',
+    affiliate_code: 'STHCCTV9005',
+    status: 'PENDING_REVIEW',
+    id_card_number: '079201005566',
+    id_card_issued_date: '2023-11-15',
+    occupation: 'Nhân viên kinh doanh du lịch',
+    address: 'Quận Phú Nhuận, TP. Hồ Chí Minh',
+    bank_account_number: '0071001234567',
+    bank_name: 'Vietcombank - Chi nhánh Tân Định',
+    email_verified: true,
+    created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
+    review_note: 'Hồ sơ chờ phê duyệt sau khi đã xác thực email thành công.',
   },
   activeAffiliate: {
     id: 'a0000000-0000-0000-0000-000000000002',
@@ -243,10 +243,16 @@ const demoState: DemoState = {
     affiliate_code: 'STHCCTV1088',
     status: 'ACTIVE',
     id_card_number: '079201001234',
+    id_card_issued_date: '2023-08-20',
     occupation: 'Hướng dẫn viên Du lịch tự do',
     address: 'Quận Tân Bình, TP. Hồ Chí Minh',
+    bank_account_number: '0908889999',
+    bank_name: 'Vietcombank - Chi nhánh TP.HCM',
     created_at: new Date(Date.now() - 3600000 * 24 * 30).toISOString(),
     review_note: 'Đã phê duyệt và kích hoạt đầy đủ quyền tuyển sinh.',
+    reviewed_by: 'u0000000-0000-0000-0000-000000000099',
+    reviewed_at: new Date(Date.now() - 3600000 * 24 * 25).toISOString(),
+    email_verified: true,
   },
   suspendedAffiliate: {
     id: 'a0000000-0000-0000-0000-000000000003',
@@ -260,7 +266,13 @@ const demoState: DemoState = {
     occupation: 'Tự do',
     address: 'Quận 1, TP. Hồ Chí Minh',
     created_at: new Date(Date.now() - 3600000 * 24 * 60).toISOString(),
-    review_note: 'Tài khoản đang bị tạm khóa do vi phạm chính sách truyền thông tuyển sinh.',
+    reviewed_by: 'u0000000-0000-0000-0000-000000000099',
+    reviewed_at: new Date(Date.now() - 3600000 * 24 * 45).toISOString(),
+    review_note: 'Hồ sơ đã được phê duyệt hợp lệ bởi Ban Tuyển sinh.',
+    suspended_by: 'u0000000-0000-0000-0000-000000000099',
+    suspended_at: new Date(Date.now() - 3600000 * 24 * 15).toISOString(),
+    suspension_reason: 'Tài khoản đang bị tạm ngưng do vi phạm chính sách truyền thông tuyển sinh.',
+    email_verified: true,
   },
   rejectedAffiliate: {
     id: 'a0000000-0000-0000-0000-000000000004',
@@ -274,8 +286,49 @@ const demoState: DemoState = {
     occupation: 'Tự do',
     address: 'Quận 3, TP. Hồ Chí Minh',
     created_at: new Date(Date.now() - 3600000 * 24 * 10).toISOString(),
+    reviewed_by: 'u0000000-0000-0000-0000-000000000099',
+    reviewed_at: new Date(Date.now() - 3600000 * 24 * 9).toISOString(),
     review_note: 'Hồ sơ chưa đáp ứng điều kiện tiếp nhận CTV theo quy chế năm 2026.',
+    email_verified: false,
   },
+  auditLogs: [
+    {
+      id: 'audit-seed-suspend-01',
+      actor_id: 'u0000000-0000-0000-0000-000000000099',
+      action: 'AFFILIATE_SUSPENDED',
+      entity_name: 'affiliate_profiles',
+      entity_id: 'a0000000-0000-0000-0000-000000000003',
+      old_values: { status: 'ACTIVE' },
+      new_values: {
+        status: 'SUSPENDED',
+        suspended_by: 'u0000000-0000-0000-0000-000000000099',
+        suspension_reason: 'Tài khoản đang bị tạm ngưng do vi phạm chính sách truyền thông tuyển sinh.',
+      },
+      reason: 'Tài khoản đang bị tạm ngưng do vi phạm chính sách truyền thông tuyển sinh.',
+      actor: {
+        id: 'u0000000-0000-0000-0000-000000000099',
+        full_name: 'Cán bộ Tuyển sinh (Ban Quản trị)',
+        email: 'staff@sthc.edu.vn',
+      },
+      created_at: new Date(Date.now() - 3600000 * 24 * 15).toISOString(),
+    },
+    {
+      id: 'audit-seed-approve-01',
+      actor_id: 'u0000000-0000-0000-0000-000000000099',
+      action: 'AFFILIATE_APPROVED',
+      entity_name: 'affiliate_profiles',
+      entity_id: 'a0000000-0000-0000-0000-000000000003',
+      old_values: { status: 'PENDING_REVIEW' },
+      new_values: { status: 'ACTIVE' },
+      reason: 'Hồ sơ đã được phê duyệt hợp lệ bởi Ban Tuyển sinh.',
+      actor: {
+        id: 'u0000000-0000-0000-0000-000000000099',
+        full_name: 'Cán bộ Tuyển sinh (Ban Quản trị)',
+        email: 'staff@sthc.edu.vn',
+      },
+      created_at: new Date(Date.now() - 3600000 * 24 * 45).toISOString(),
+    },
+  ],
   disabledUser: {
     id: 'u0000000-0000-0000-0000-000000000005',
     email: 'taikhoan_vohieuhoa@sthc.edu.vn',
@@ -318,9 +371,182 @@ async function initDatabase() {
   }
 }
 
+// Persistent companion storage for Course Benefits & Custom Section (A2.3)
+const BENEFITS_FILE = path.join(__dirname, 'data', 'course_benefits.json');
+
+function loadCourseBenefits(): Record<string, { benefits_title?: string | null; benefits_content?: string | null }> {
+  try {
+    if (fs.existsSync(BENEFITS_FILE)) {
+      return JSON.parse(fs.readFileSync(BENEFITS_FILE, 'utf-8'));
+    }
+  } catch (e) {
+    console.warn('[BENEFITS STORE LOAD WARN]', e);
+  }
+  return {};
+}
+
+function saveCourseBenefits(courseId: string, benefits: { benefits_title?: string | null; benefits_content?: string | null }) {
+  try {
+    const dir = path.dirname(BENEFITS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const all = loadCourseBenefits();
+    all[courseId] = {
+      benefits_title: benefits.benefits_title !== undefined ? (benefits.benefits_title ? String(benefits.benefits_title).trim() : null) : (all[courseId]?.benefits_title ?? null),
+      benefits_content: benefits.benefits_content !== undefined ? (benefits.benefits_content ? String(benefits.benefits_content).trim() : null) : (all[courseId]?.benefits_content ?? null),
+    };
+    fs.writeFileSync(BENEFITS_FILE, JSON.stringify(all, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('[BENEFITS STORE SAVE WARN]', e);
+  }
+}
+
+function attachCourseBenefits(course: any) {
+  if (!course) return course;
+  const courseId = course.id || course.code;
+  const all = loadCourseBenefits();
+  const stored = (course.id && all[course.id]) || (course.code && all[course.code]) || null;
+  return {
+    ...course,
+    benefits_title: course.benefits_title !== undefined && course.benefits_title !== null ? course.benefits_title : (stored?.benefits_title ?? null),
+    benefits_content: course.benefits_content !== undefined && course.benefits_content !== null ? course.benefits_content : (stored?.benefits_content ?? null),
+  };
+}
+
+// Persistent companion storage for Course Lifecycle & Referral Status (A2.4)
+const STATUS_FILE = path.join(__dirname, 'data', 'course_status.json');
+
+interface CourseStatusData {
+  status: 'DRAFT' | 'ACTIVE' | 'STOPPED';
+  accepts_referrals: boolean;
+  stop_reason?: string | null;
+  status_note?: string | null;
+  status_updated_at?: string;
+  status_updated_by?: string | null;
+}
+
+function loadCourseStatus(): Record<string, CourseStatusData> {
+  try {
+    if (fs.existsSync(STATUS_FILE)) {
+      return JSON.parse(fs.readFileSync(STATUS_FILE, 'utf-8'));
+    }
+  } catch (e) {
+    console.warn('[STATUS STORE LOAD WARN]', e);
+  }
+  return {};
+}
+
+function saveCourseStatus(courseId: string, data: Partial<CourseStatusData>) {
+  try {
+    const dir = path.dirname(STATUS_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const all = loadCourseStatus();
+    all[courseId] = {
+      status: data.status || all[courseId]?.status || 'ACTIVE',
+      accepts_referrals: data.accepts_referrals !== undefined ? data.accepts_referrals : (all[courseId]?.accepts_referrals ?? true),
+      stop_reason: data.stop_reason !== undefined ? data.stop_reason : (all[courseId]?.stop_reason ?? null),
+      status_note: data.status_note !== undefined ? data.status_note : (all[courseId]?.status_note ?? null),
+      status_updated_at: data.status_updated_at || new Date().toISOString(),
+      status_updated_by: data.status_updated_by !== undefined ? data.status_updated_by : (all[courseId]?.status_updated_by ?? null),
+    };
+    fs.writeFileSync(STATUS_FILE, JSON.stringify(all, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('[STATUS STORE SAVE WARN]', e);
+  }
+}
+
+function attachCourseLifecycle(course: any) {
+  if (!course) return course;
+  const courseId = course.id || course.code;
+  const all = loadCourseStatus();
+  const stored = (course.id && all[course.id]) || (course.code && all[course.code]) || null;
+
+  const is_active = course.is_active !== undefined ? Boolean(course.is_active) : true;
+  let status: 'DRAFT' | 'ACTIVE' | 'STOPPED' = course.status || stored?.status || (is_active ? 'ACTIVE' : 'DRAFT');
+  
+  // Consistency check
+  if (!is_active) {
+    status = 'DRAFT';
+  } else if (status === 'DRAFT') {
+    status = 'ACTIVE';
+  }
+
+  const accepts_referrals = course.accepts_referrals !== undefined 
+    ? Boolean(course.accepts_referrals) 
+    : (stored?.accepts_referrals !== undefined ? stored.accepts_referrals : (status === 'ACTIVE'));
+
+  const stop_reason = course.stop_reason !== undefined ? course.stop_reason : (stored?.stop_reason ?? null);
+  const status_note = course.status_note !== undefined ? course.status_note : (stored?.status_note ?? null);
+  const status_updated_at = course.status_updated_at || stored?.status_updated_at || course.updated_at || new Date().toISOString();
+  const status_updated_by = course.status_updated_by || stored?.status_updated_by || null;
+
+  return {
+    ...course,
+    is_active,
+    status,
+    accepts_referrals,
+    stop_reason,
+    status_note,
+    status_updated_at,
+    status_updated_by,
+  };
+}
+
+function attachCourseFull(course: any) {
+  return attachCourseLifecycle(attachCourseBenefits(course));
+}
+
+// Persistent companion storage for Profile Tax Codes (P2)
+// Tuyệt đối không ghi mã số thuế vào console log
+const TAX_CODES_FILE = path.join(__dirname, 'data', 'profile_tax_codes.json');
+
+function loadTaxCodes(): Record<string, string> {
+  try {
+    if (fs.existsSync(TAX_CODES_FILE)) {
+      return JSON.parse(fs.readFileSync(TAX_CODES_FILE, 'utf-8'));
+    }
+  } catch (e) {
+    console.warn('[TAX CODES STORE LOAD WARN]', (e as any)?.message);
+  }
+  return {};
+}
+
+function saveTaxCode(userId: string, taxCode: string | null) {
+  try {
+    const dir = path.dirname(TAX_CODES_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const all = loadTaxCodes();
+    if (taxCode && String(taxCode).trim() !== '') {
+      all[userId] = String(taxCode).trim();
+    } else {
+      delete all[userId];
+    }
+    fs.writeFileSync(TAX_CODES_FILE, JSON.stringify(all, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('[TAX CODES STORE SAVE WARN]', (e as any)?.message);
+  }
+}
+
+function getStoredTaxCode(userId?: string | null): string | null {
+  if (!userId) return null;
+  const all = loadTaxCodes();
+  return all[userId] || null;
+}
+
 async function startServer() {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+  // Global error handler for payload too large
+  app.use((err: any, req: Request, res: Response, next: any) => {
+    if (err && (err.type === 'entity.too.large' || err.status === 413)) {
+      return res.status(413).json({
+        success: false,
+        error: 'Dung lượng dữ liệu tải lên vượt quá giới hạn cho phép (tối đa 5 MB cho tệp ảnh).',
+      });
+    }
+    next(err);
+  });
 
   await initDatabase();
 
@@ -411,9 +637,51 @@ async function startServer() {
       confirm_password,
       terms_accepted,
       id_card_number,
+      id_card_issued_date,
       occupation,
       address,
+      bank_account_number,
+      bank_name,
     } = req.body;
+
+    // 0. Kiểm tra tính hợp lệ của Ngày cấp CCCD, Số tài khoản, Ngân hàng nếu có gửi lên
+    let cleanIssuedDate: string | null = null;
+    if (id_card_issued_date) {
+      const dateStr = String(id_card_issued_date).trim();
+      const parsedDate = new Date(dateStr);
+      const now = new Date();
+      if (isNaN(parsedDate.getTime())) {
+        return res.status(400).json({ success: false, error: 'Ngày cấp CCCD không hợp lệ.' });
+      }
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const issuedOnly = new Date(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate());
+      if (issuedOnly > today) {
+        return res.status(400).json({ success: false, error: 'Ngày cấp CCCD không thể lớn hơn ngày hiện tại.' });
+      }
+      cleanIssuedDate = dateStr.slice(0, 10);
+    }
+
+    let cleanBankAcc: string | null = null;
+    if (bank_account_number !== undefined && bank_account_number !== null) {
+      const bankStr = String(bank_account_number).trim();
+      if (bankStr) {
+        if (bankStr.length > 50) {
+          return res.status(400).json({ success: false, error: 'Số tài khoản ngân hàng không được vượt quá 50 ký tự.' });
+        }
+        cleanBankAcc = bankStr;
+      }
+    }
+
+    let cleanBankName: string | null = null;
+    if (bank_name) {
+      const bName = String(bank_name).trim();
+      if (bName) {
+        if (bName.length > 150) {
+          return res.status(400).json({ success: false, error: 'Tên ngân hàng không được vượt quá 150 ký tự.' });
+        }
+        cleanBankName = bName;
+      }
+    }
 
     // 1. Kiểm tra họ và tên ở phía xử lý tin cậy
     if (!full_name || typeof full_name !== 'string' || !full_name.trim()) {
@@ -501,8 +769,11 @@ async function startServer() {
       full_name: cleanFullName,
       phone: cleanPhone,
       id_card_number: id_card_number ? String(id_card_number).trim() : null,
+      id_card_issued_date: cleanIssuedDate,
       occupation: occupation ? String(occupation).trim() : null,
       address: address ? String(address).trim() : null,
+      bank_account_number: cleanBankAcc,
+      bank_name: cleanBankName,
     };
 
     // 8. Đăng ký tài khoản qua Supabase Auth
@@ -592,6 +863,19 @@ async function startServer() {
         });
       }
 
+      // Cập nhật các trường bổ sung vào CSDL nếu có
+      const extraFields: any = {};
+      if (cleanIssuedDate) extraFields.id_card_issued_date = cleanIssuedDate;
+      if (cleanBankAcc) extraFields.bank_account_number = cleanBankAcc;
+      if (cleanBankName) extraFields.bank_name = cleanBankName;
+      if (Object.keys(extraFields).length > 0) {
+        try {
+          await supabase.from('affiliate_profiles').update(extraFields).eq('user_id', authUser.id);
+        } catch (dbErr: any) {
+          console.warn('[AUTH REGISTER] Notice: columns might be pending migration:', dbErr?.message);
+        }
+      }
+
       // Cập nhật session tạm thời trong demoState
       demoState.pendingAffiliate = {
         id: affProfile.id,
@@ -602,8 +886,11 @@ async function startServer() {
         affiliate_code: affProfile.affiliate_code,
         status: affProfile.status,
         id_card_number: userMetadata.id_card_number || '',
+        id_card_issued_date: cleanIssuedDate || '',
         occupation: userMetadata.occupation || '',
         address: userMetadata.address || '',
+        bank_account_number: cleanBankAcc || '',
+        bank_name: cleanBankName || '',
         created_at: affProfile.created_at,
       };
 
@@ -658,7 +945,7 @@ async function startServer() {
     let authError: any = null;
 
     try {
-      const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+      const { data: signInData, error: signInErr } = await supabaseAuth.auth.signInWithPassword({
         email: cleanEmail,
         password: password,
       });
@@ -892,7 +1179,7 @@ async function startServer() {
     const cleanEmail = email.trim().toLowerCase();
     try {
       const appUrl = process.env.APP_URL || (req.headers.origin as string) || 'http://localhost:3000';
-      const { error } = await supabase.auth.resend({
+      const { error } = await supabaseAuth.auth.resend({
         type: 'signup',
         email: cleanEmail,
         options: {
@@ -920,21 +1207,27 @@ async function startServer() {
   // ----------------------------------------------------------------------------
   // E1 – PUBLIC ENDPOINTS (Danh mục khóa học & Đăng ký tư vấn)
   // ----------------------------------------------------------------------------
+  // E1 – PUBLIC ENDPOINTS (Danh mục khóa học & Đăng ký tư vấn)
+  // ----------------------------------------------------------------------------
   app.get('/api/v1/public/courses', async (req: Request, res: Response) => {
     try {
       const { data: courses, error } = await supabase
         .from('courses')
         .select('*')
-        .eq('is_active', true)
         .order('sort_order', { ascending: true });
 
-      if (error || !courses || courses.length === 0) {
-        return res.json({ success: true, data: INITIAL_COURSES });
-      }
+      const rawCourses = (!error && courses && courses.length > 0) ? courses : INITIAL_COURSES;
+      // Chỉ hiển thị các khóa học đã công khai (is_active = true, loại bỏ DRAFT)
+      const publicCourses = rawCourses
+        .map(attachCourseFull)
+        .filter(c => c.is_active);
 
-      res.json({ success: true, data: courses });
+      res.json({ success: true, data: publicCourses });
     } catch (err: any) {
-      res.json({ success: true, data: INITIAL_COURSES });
+      const publicCourses = INITIAL_COURSES
+        .map(attachCourseFull)
+        .filter(c => c.is_active);
+      res.json({ success: true, data: publicCourses });
     }
   });
 
@@ -947,19 +1240,131 @@ async function startServer() {
         .eq('slug', slug)
         .maybeSingle();
 
-      if (error || !course) {
-        const fallback = INITIAL_COURSES.find(c => c.slug === slug);
-        if (fallback) return res.json({ success: true, data: fallback });
+      const target = course || INITIAL_COURSES.find(c => c.slug === slug);
+      if (!target) {
         return res.status(404).json({ success: false, error: 'Không tìm thấy khóa học' });
       }
 
-      res.json({ success: true, data: course });
+      const fullCourse = attachCourseFull(target);
+
+      // Nếu là bản nháp / chưa công khai: chặn khách xem bằng cách đoán ID/slug (Yêu cầu A2.4)
+      if (!fullCourse.is_active) {
+        return res.status(404).json({
+          success: false,
+          error: 'Khóa học này hiện chưa được công khai trên hệ thống.',
+        });
+      }
+
+      // Khóa học công khai (kể cả đang ngừng giới thiệu) vẫn mở được nội dung qua link cũ
+      res.json({ success: true, data: fullCourse });
     } catch (err: any) {
-      const fallback = INITIAL_COURSES.find(c => c.slug === slug);
-      if (fallback) return res.json({ success: true, data: fallback });
-      res.status(404).json({ success: false, error: 'Không tìm thấy khóa học' });
+      const target = INITIAL_COURSES.find(c => c.slug === slug);
+      if (!target) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy khóa học' });
+      }
+      const fullCourse = attachCourseFull(target);
+      if (!fullCourse.is_active) {
+        return res.status(404).json({ success: false, error: 'Khóa học này hiện chưa được công khai.' });
+      }
+      res.json({ success: true, data: fullCourse });
     }
   });
+
+  // Helper dùng chung kiểm tra điều kiện CTV được giới thiệu (Yêu cầu A1.4)
+  // Backend đọc trạng thái có hiệu lực từ CSDL hoặc state máy chủ thực tế
+  const checkAffiliateReferralEligibility = async (identifier: { id?: string; code?: string }): Promise<{
+    eligible: boolean;
+    status: string;
+    affiliate?: any;
+    error_message?: string;
+  }> => {
+    // 1. Kiểm tra demo accounts
+    const demoAccounts = [
+      demoState.activeAffiliate,
+      demoState.suspendedAffiliate,
+      demoState.pendingAffiliate,
+      demoState.pendingVerifiedAffiliate,
+      demoState.rejectedAffiliate,
+    ];
+
+    const matchedDemo = demoAccounts.find(a => 
+      (identifier.id && a.id === identifier.id) ||
+      (identifier.code && a.affiliate_code.toUpperCase() === identifier.code.toUpperCase())
+    );
+
+    if (matchedDemo) {
+      if (matchedDemo.status === 'SUSPENDED') {
+        return {
+          eligible: false,
+          status: 'SUSPENDED',
+          affiliate: matchedDemo,
+          error_message: 'Mã giới thiệu của Cộng tác viên hiện đang tạm ngưng tiếp nhận đăng ký tư vấn mới. Vui lòng liên hệ trực tiếp Ban Tuyển sinh Trường Saigontourist để được hỗ trợ.',
+        };
+      }
+      if (matchedDemo.status !== 'ACTIVE') {
+        return {
+          eligible: false,
+          status: matchedDemo.status,
+          affiliate: matchedDemo,
+          error_message: 'Mã giới thiệu của Cộng tác viên chưa được kích hoạt quyền giới thiệu.',
+        };
+      }
+      return {
+        eligible: true,
+        status: 'ACTIVE',
+        affiliate: matchedDemo,
+      };
+    }
+
+    // 2. Tra cứu từ CSDL Supabase
+    try {
+      let query = supabase.from('affiliate_profiles').select('id, user_id, affiliate_code, status');
+      if (identifier.id) {
+        query = query.eq('id', identifier.id);
+      } else if (identifier.code) {
+        query = query.eq('affiliate_code', identifier.code);
+      }
+      const { data: dbAff, error } = await query.maybeSingle();
+
+      if (error || !dbAff) {
+        return {
+          eligible: false,
+          status: 'NOT_FOUND',
+          error_message: 'Không tìm thấy hồ sơ Cộng tác viên.',
+        };
+      }
+
+      if (dbAff.status === 'SUSPENDED') {
+        return {
+          eligible: false,
+          status: 'SUSPENDED',
+          affiliate: dbAff,
+          error_message: 'Mã giới thiệu của Cộng tác viên hiện đang tạm ngưng tiếp nhận đăng ký tư vấn mới. Vui lòng liên hệ trực tiếp Ban Tuyển sinh Trường Saigontourist để được hỗ trợ.',
+        };
+      }
+
+      if (dbAff.status !== 'ACTIVE') {
+        return {
+          eligible: false,
+          status: dbAff.status,
+          affiliate: dbAff,
+          error_message: 'Mã giới thiệu của Cộng tác viên chưa được kích hoạt quyền giới thiệu.',
+        };
+      }
+
+      return {
+        eligible: true,
+        status: 'ACTIVE',
+        affiliate: dbAff,
+      };
+    } catch (err: any) {
+      return {
+        eligible: false,
+        status: 'ERROR',
+        error_message: 'Lỗi kiểm tra quyền CTV.',
+      };
+    }
+  };
 
   // POST /api/v1/public/leads (Người học tự gửi form tư vấn, không hỏi CCCD, bảo vệ dữ liệu PII)
   app.post('/api/v1/public/leads', async (req: Request, res: Response) => {
@@ -997,22 +1402,69 @@ async function startServer() {
     let assignedAffiliateId: string | null = null;
     let capturedCode: string | null = null;
 
-    // 2. Tra cứu mã giới thiệu CTV (chỉ ghi nhận nguồn nếu CTV đang ACTIVE)
+    // 1.1 Kiểm tra trạng thái công khai và tiếp nhận đăng ký của khóa học (Yêu cầu A2.4)
+    if (course_id) {
+      let targetCourse: any = null;
+      try {
+        const { data: dbCourse } = await supabase
+          .from('courses')
+          .select('*')
+          .or(`id.eq.${course_id},code.eq.${course_id}`)
+          .maybeSingle();
+        if (dbCourse) {
+          targetCourse = attachCourseFull(dbCourse);
+        }
+      } catch (dbErr) {
+        // Fallback
+      }
+
+      if (!targetCourse) {
+        const fb = INITIAL_COURSES.find(c => (c as any).id === course_id || c.code === course_id || c.slug === course_id);
+        if (fb) targetCourse = attachCourseFull(fb);
+      }
+
+      if (targetCourse) {
+        if (!targetCourse.is_active) {
+          return res.status(400).json({
+            success: false,
+            error: 'Khóa học này hiện chưa được công khai. Không thể tiếp nhận đăng ký tuyển sinh.',
+            code: 'COURSE_NOT_PUBLISHED',
+          });
+        }
+        if (!targetCourse.accepts_referrals) {
+          return res.status(400).json({
+            success: false,
+            error: 'Khóa học hiện ngừng nhận đăng ký tuyển sinh. Vui lòng chọn ngành học khác hoặc liên hệ Ban Tuyển sinh STHC để được hỗ trợ.',
+            code: 'COURSE_REFERRAL_STOPPED',
+          });
+        }
+      }
+    }
+
+    // 2. Tra cứu mã giới thiệu CTV và kiểm tra quyền giới thiệu
     if (ref_code) {
       const cleanRef = String(ref_code).trim();
       capturedCode = cleanRef;
-      if (cleanRef === demoState.activeAffiliate.affiliate_code) {
-        assignedAffiliateId = demoState.activeAffiliate.id;
-      } else {
-        const { data: aff } = await supabase
-          .from('affiliate_profiles')
-          .select('id, status')
-          .eq('affiliate_code', cleanRef)
-          .maybeSingle();
 
-        if (aff && aff.status === 'ACTIVE') {
-          assignedAffiliateId = aff.id;
+      const eligibility = await checkAffiliateReferralEligibility({ code: cleanRef });
+      if (!eligibility.eligible) {
+        if (eligibility.status === 'SUSPENDED') {
+          // BẢO VỆ CHÍNH SÁCH A1.4: Không ghi nhận lượt mới, hiển thị thông báo rõ ràng, không chuyển sang CTV khác
+          return res.status(400).json({
+            success: false,
+            error: eligibility.error_message || 'Mã giới thiệu của Cộng tác viên hiện đang tạm ngưng tiếp nhận đăng ký tư vấn mới. Vui lòng liên hệ trực tiếp Ban Tuyển sinh Trường Saigontourist để được hỗ trợ.',
+            code: 'AFFILIATE_SUSPENDED',
+          });
         }
+        if (eligibility.status === 'PENDING_REVIEW' || eligibility.status === 'REJECTED') {
+          return res.status(400).json({
+            success: false,
+            error: 'Mã giới thiệu của Cộng tác viên chưa được kích hoạt quyền giới thiệu. Vui lòng liên hệ Ban Tuyển sinh STHC.',
+            code: 'AFFILIATE_NOT_ACTIVE',
+          });
+        }
+      } else if (eligibility.affiliate) {
+        assignedAffiliateId = eligibility.affiliate.id;
       }
     }
 
@@ -1127,12 +1579,15 @@ async function startServer() {
       ? rewards.filter(r => r.status === 'APPROVED').reduce((sum, r) => sum + (r.amount || 500000), 0)
       : approvedRewardsCount * 500000;
 
+    const currentAff = demoState.activeAffiliate;
+
     res.json({
       success: true,
       data: {
-        affiliate_code: demoState.activeAffiliate.affiliate_code,
-        affiliate_status: 'ACTIVE',
-        full_name: demoState.activeAffiliate.full_name,
+        affiliate_code: currentAff.affiliate_code,
+        affiliate_status: currentAff.status,
+        full_name: currentAff.full_name,
+        suspension_reason: currentAff.status === 'SUSPENDED' ? currentAff.suspension_reason : undefined,
         metrics: {
           total_leads_referred: totalReferred,
           enrolled_valid_leads: enrolledValid,
@@ -1146,6 +1601,15 @@ async function startServer() {
   });
 
   app.get('/api/v1/affiliate/courses', requireActiveAffiliate, async (req: Request, res: Response) => {
+    // Kiểm tra quyền giới thiệu của CTV có hiệu lực (Yêu cầu A1.4)
+    if (demoState.activeAffiliate.status === 'SUSPENDED') {
+      return res.status(403).json({
+        success: false,
+        error: 'Tài khoản Cộng tác viên của bạn hiện đang bị TẠM NGƯNG quyền giới thiệu. Các chức năng lấy link và mã QR tiếp thị tuyển sinh bị tạm khóa. Vui lòng liên hệ Ban Tuyển sinh để được hỗ trợ.',
+        affiliate_status: 'SUSPENDED',
+      });
+    }
+
     const code = demoState.activeAffiliate.affiliate_code;
     const host = req.get('host') || 'localhost:3000';
     const protocol = req.protocol || 'http';
@@ -1157,9 +1621,13 @@ async function startServer() {
       .eq('is_active', true)
       .order('sort_order', { ascending: true });
 
-    const courseList = courses && courses.length > 0 ? courses : INITIAL_COURSES;
+    const rawCourseList = courses && courses.length > 0 ? courses : INITIAL_COURSES;
+    // BẢO MẬT & QUY TẮC A2.4: Khóa học trong danh sách của CTV phải ĐANG CÔNG KHAI VÀ ĐANG NHẬN GIỚI THIỆU
+    const activeReferralCourses = rawCourseList
+      .map(attachCourseFull)
+      .filter(c => c.is_active && c.accepts_referrals);
 
-    const data = courseList.map(c => {
+    const data = activeReferralCourses.map(c => {
       const referralUrl = `${baseUrl}/?ref=${code}&course=${c.slug}`;
       return {
         ...c,
@@ -1288,15 +1756,486 @@ async function startServer() {
   });
 
   // ----------------------------------------------------------------------------
+  // E2.1 – CẬP NHẬT & XEM HỒ SƠ CÁ NHÂN CỦA CTV (YÊU CẦU A1.2)
+  // ----------------------------------------------------------------------------
+  const requireAffiliateOrAdmin = (req: Request, res: Response, next: NextFunction) => {
+    if (
+      demoState.currentRole !== 'affiliate_active' &&
+      demoState.currentRole !== 'affiliate_pending' &&
+      demoState.currentRole !== 'admin'
+    ) {
+      return res.status(403).json({
+        success: false,
+        error: 'Chức năng chỉ dành cho Cộng tác viên tuyển sinh hoặc Quản trị viên.',
+      });
+    }
+    next();
+  };
+
+  // ----------------------------------------------------------------------------
+  // P2: GET /api/v1/user/profile - Xem thông tin cá nhân chỉ đọc cho Admin/Staff/CTV
+  // ----------------------------------------------------------------------------
+  app.get('/api/v1/user/profile', async (req: Request, res: Response) => {
+    try {
+      // 1. Xác định người dùng từ phiên đăng nhập đã xác thực (Bearer token hoặc demo session)
+      let resolvedUserId: string | null = null;
+      let resolvedRole: string = 'public';
+      let authUserEmailConfirmed: boolean | undefined = undefined;
+
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+          const token = authHeader.replace('Bearer ', '');
+          const { data: { user }, error: authErr } = await supabaseAuth.auth.getUser(token);
+          if (!authErr && user) {
+            resolvedUserId = user.id;
+            authUserEmailConfirmed = !!user.email_confirmed_at;
+          }
+        } catch (e) {
+          // Token invalid or network error
+        }
+      }
+
+      // Nếu không có Bearer token, lấy theo phiên hệ thống hiện tại
+      if (!resolvedUserId) {
+        if (demoState.currentUser?.id) {
+          resolvedUserId = demoState.currentUser.id;
+          resolvedRole = demoState.currentRole;
+        } else if (demoState.currentRole === 'admin') {
+          resolvedUserId = demoState.adminUser.id;
+          resolvedRole = 'admin';
+        } else if (demoState.currentRole === 'staff') {
+          resolvedUserId = demoState.staffUser.id;
+          resolvedRole = 'staff';
+        } else if (demoState.currentRole === 'affiliate_active') {
+          resolvedUserId = demoState.activeAffiliate.user_id;
+          resolvedRole = 'affiliate';
+        } else if (demoState.currentRole === 'affiliate_pending') {
+          resolvedUserId = demoState.pendingAffiliate.user_id;
+          resolvedRole = 'affiliate';
+        }
+      }
+
+      if (!resolvedUserId || resolvedRole === 'public') {
+        return res.status(401).json({
+          success: false,
+          error: 'Chưa đăng nhập. Vui lòng đăng nhập để xem thông tin cá nhân.',
+        });
+      }
+
+      // 2. Tuyệt đối không cho phép client truyền ID để chọn đọc hồ sơ người khác
+      // 3. Đọc dữ liệu từ CSDL profiles
+      let dbProf: any = null;
+      let dbAff: any = null;
+
+      const { data: prof, error: profErr } = await supabase
+        .from('profiles')
+        .select('id, email, full_name, phone, avatar_url, role, is_active, created_at, updated_at')
+        .eq('id', resolvedUserId)
+        .maybeSingle();
+
+      if (prof && !profErr) {
+        dbProf = prof;
+      } else {
+        // Fallback demo state nếu tài khoản kiểm thử chưa có trong remote DB
+        if (resolvedUserId === demoState.adminUser.id || resolvedRole === 'admin') {
+          dbProf = {
+            id: demoState.adminUser.id,
+            email: demoState.adminUser.email,
+            full_name: demoState.adminUser.full_name,
+            phone: '0283844648',
+            avatar_url: null,
+            role: 'admin',
+            is_active: true,
+            created_at: new Date(Date.now() - 3600000 * 24 * 180).toISOString(),
+            updated_at: new Date(Date.now() - 3600000 * 24 * 10).toISOString(),
+          };
+        } else if (resolvedUserId === demoState.staffUser.id || resolvedRole === 'staff') {
+          dbProf = {
+            id: demoState.staffUser.id,
+            email: demoState.staffUser.email,
+            full_name: demoState.staffUser.full_name,
+            phone: '0901889977',
+            avatar_url: null,
+            role: 'staff',
+            is_active: true,
+            created_at: new Date(Date.now() - 3600000 * 24 * 90).toISOString(),
+            updated_at: new Date(Date.now() - 3600000 * 24 * 5).toISOString(),
+          };
+        } else if (resolvedUserId === demoState.activeAffiliate.user_id) {
+          dbProf = {
+            id: demoState.activeAffiliate.user_id,
+            email: demoState.activeAffiliate.email,
+            full_name: demoState.activeAffiliate.full_name,
+            phone: demoState.activeAffiliate.phone,
+            avatar_url: null,
+            role: 'affiliate',
+            is_active: true,
+            created_at: demoState.activeAffiliate.created_at,
+            updated_at: demoState.activeAffiliate.created_at,
+          };
+        } else if (resolvedUserId === demoState.pendingAffiliate.user_id) {
+          dbProf = {
+            id: demoState.pendingAffiliate.user_id,
+            email: demoState.pendingAffiliate.email,
+            full_name: demoState.pendingAffiliate.full_name,
+            phone: demoState.pendingAffiliate.phone,
+            avatar_url: null,
+            role: 'affiliate',
+            is_active: true,
+            created_at: demoState.pendingAffiliate.created_at,
+            updated_at: demoState.pendingAffiliate.created_at,
+          };
+        }
+      }
+
+      if (!dbProf) {
+        return res.status(404).json({
+          success: false,
+          error: 'Không tìm thấy thông tin hồ sơ người dùng.',
+        });
+      }
+
+      const role = dbProf.role || resolvedRole;
+      const storedTaxCode = getStoredTaxCode(dbProf.id);
+
+      // Nếu là CTV: tra cứu affiliate_profiles theo user_id rõ ràng (không tạo cho Admin/Staff)
+      if (role === 'affiliate') {
+        const { data: aff, error: affErr } = await supabase
+          .from('affiliate_profiles')
+          .select(`
+            id,
+            user_id,
+            affiliate_code,
+            status,
+            id_card_number,
+            id_card_issued_date,
+            occupation,
+            address,
+            bank_account_number,
+            bank_name,
+            created_at,
+            updated_at,
+            reviewed_at,
+            reviewer:profiles!affiliate_profiles_reviewed_by_fkey(full_name),
+            suspended_at,
+            suspension_reason,
+            reactivated_at,
+            reactivation_note
+          `)
+          .eq('user_id', dbProf.id)
+          .maybeSingle();
+
+        if (aff && !affErr) {
+          dbAff = aff;
+        } else {
+          // Demo fallback
+          const matched = [
+            demoState.activeAffiliate,
+            demoState.pendingAffiliate,
+            demoState.pendingVerifiedAffiliate,
+            demoState.suspendedAffiliate,
+            demoState.rejectedAffiliate,
+          ].find(a => a.user_id === dbProf.id);
+          dbAff = matched || demoState.activeAffiliate;
+        }
+      }
+
+      const isEmailVerified = authUserEmailConfirmed !== undefined
+        ? authUserEmailConfirmed
+        : (role !== 'affiliate' || dbAff?.email_verified !== false);
+
+      const userProfilePayload: any = {
+        id: dbProf.id,
+        email: dbProf.email,
+        full_name: dbProf.full_name,
+        phone: dbProf.phone || null,
+        avatar_url: dbProf.avatar_url || null,
+        role: dbProf.role,
+        is_active: dbProf.is_active,
+        email_verified: isEmailVerified,
+        tax_code: storedTaxCode || dbProf.tax_code || (dbAff?.tax_code ?? null),
+        address: dbAff?.address || null,
+        created_at: dbProf.created_at,
+        updated_at: dbProf.updated_at || dbProf.created_at,
+      };
+
+      // Chỉ gắn các trường CTV khi vai trò là affiliate (KHÔNG gắn cho Admin/Staff)
+      if (role === 'affiliate' && dbAff) {
+        userProfilePayload.affiliate_code = dbAff.affiliate_code;
+        userProfilePayload.affiliate_status = dbAff.status;
+        userProfilePayload.id_card_number = dbAff.id_card_number || null;
+        userProfilePayload.id_card_issued_date = dbAff.id_card_issued_date || null;
+        userProfilePayload.occupation = dbAff.occupation || null;
+        userProfilePayload.bank_account_number = dbAff.bank_account_number || null;
+        userProfilePayload.bank_name = dbAff.bank_name || null;
+        userProfilePayload.reviewed_at = dbAff.reviewed_at || null;
+        userProfilePayload.reviewer_name = dbAff.reviewer?.full_name || (dbAff.reviewed_at ? 'Cán bộ Tuyển sinh' : null);
+        if (dbAff.status === 'SUSPENDED') {
+          userProfilePayload.suspended_at = dbAff.suspended_at || null;
+          userProfilePayload.suspension_reason = dbAff.suspension_reason || null;
+        }
+        if (dbAff.reactivated_at) {
+          userProfilePayload.reactivated_at = dbAff.reactivated_at;
+          userProfilePayload.reactivation_note = dbAff.reactivation_note || null;
+        }
+      }
+
+      return res.json({
+        success: true,
+        data: userProfilePayload,
+      });
+    } catch (err: any) {
+      console.error('[API GET USER PROFILE EXCEPTION]', err?.message);
+      return res.status(500).json({ success: false, error: 'Lỗi tải hồ sơ cá nhân.' });
+    }
+  });
+
+  // GET /api/v1/affiliate/profile (Xem hồ sơ cá nhân của chính CTV)
+  app.get('/api/v1/affiliate/profile', requireAffiliateOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const currentAff = demoState.currentRole === 'affiliate_active'
+        ? demoState.activeAffiliate
+        : demoState.pendingAffiliate;
+      const userId = currentAff.user_id;
+
+      if (userId && !userId.startsWith('u0000000')) {
+        const { data: dbAff, error } = await supabase
+          .from('affiliate_profiles')
+          .select(`
+            *,
+            profile:profiles!affiliate_profiles_user_id_fkey(id, email, full_name, phone, role, is_active)
+          `)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (dbAff && !error) {
+          return res.json({
+            success: true,
+            data: {
+              id: dbAff.id,
+              user_id: dbAff.user_id,
+              full_name: dbAff.profile?.full_name || currentAff.full_name,
+              email: dbAff.profile?.email || currentAff.email,
+              phone: dbAff.profile?.phone || currentAff.phone,
+              affiliate_code: dbAff.affiliate_code,
+              status: dbAff.status,
+              id_card_number: dbAff.id_card_number || '',
+              id_card_issued_date: dbAff.id_card_issued_date || '',
+              occupation: dbAff.occupation || '',
+              address: dbAff.address || '',
+              bank_account_number: dbAff.bank_account_number || '',
+              bank_name: dbAff.bank_name || '',
+              created_at: dbAff.created_at,
+              updated_at: dbAff.updated_at,
+            },
+          });
+        }
+      }
+
+      return res.json({
+        success: true,
+        data: currentAff,
+      });
+    } catch (err: any) {
+      console.error('[API GET AFFILIATE PROFILE EXCEPTION]', err?.message);
+      return res.status(500).json({ success: false, error: 'Lỗi tải hồ sơ cá nhân.' });
+    }
+  });
+
+  // PUT /api/v1/affiliate/profile (Cập nhật hồ sơ cá nhân của chính CTV)
+  app.put('/api/v1/affiliate/profile', requireAffiliateOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const {
+        full_name,
+        phone,
+        address,
+        occupation,
+        id_card_number,
+        id_card_issued_date,
+        bank_account_number,
+        bank_name,
+      } = req.body;
+
+      // 1. Kiểm tra an toàn: Tuyệt đối không cho phép đổi vai trò, mã CTV hoặc thông tin quản trị
+      if (
+        req.body.role !== undefined ||
+        req.body.status !== undefined ||
+        req.body.affiliate_code !== undefined ||
+        req.body.reviewed_by !== undefined ||
+        req.body.reviewed_at !== undefined ||
+        req.body.review_note !== undefined
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: 'Bảo mật: Không được phép thay đổi vai trò, mã CTV hoặc thông tin xét duyệt.',
+        });
+      }
+
+      // 2. Validate Họ và tên nếu có gửi lên
+      let cleanFullName: string | undefined;
+      if (full_name !== undefined) {
+        cleanFullName = String(full_name).trim();
+        if (!cleanFullName || cleanFullName.split(/\s+/).length < 2) {
+          return res.status(400).json({ success: false, error: 'Họ và tên phải bao gồm đầy đủ cả họ và tên.' });
+        }
+      }
+
+      // 3. Validate Số điện thoại nếu có gửi lên
+      let cleanPhone: string | undefined;
+      if (phone !== undefined) {
+        cleanPhone = String(phone).trim().replace(/\s/g, '');
+        const phoneRegex = /(84|0[3|5|7|8|9])+([0-9]{8})\b/;
+        if (!phoneRegex.test(cleanPhone) || cleanPhone.length !== 10) {
+          return res.status(400).json({ success: false, error: 'Số điện thoại không hợp lệ (10 chữ số).' });
+        }
+      }
+
+      // 4. Validate Ngày cấp CCCD
+      let cleanIssuedDate: string | null | undefined;
+      if (id_card_issued_date !== undefined) {
+        if (!id_card_issued_date) {
+          cleanIssuedDate = null;
+        } else {
+          const dateStr = String(id_card_issued_date).trim();
+          const parsedDate = new Date(dateStr);
+          const now = new Date();
+          if (isNaN(parsedDate.getTime())) {
+            return res.status(400).json({ success: false, error: 'Ngày cấp CCCD không hợp lệ.' });
+          }
+          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const issuedOnly = new Date(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate());
+          if (issuedOnly > today) {
+            return res.status(400).json({ success: false, error: 'Ngày cấp CCCD không thể lớn hơn ngày hiện tại.' });
+          }
+          cleanIssuedDate = dateStr.slice(0, 10);
+        }
+      }
+
+      // 5. Validate Số tài khoản ngân hàng (chuỗi, giữ số 0 ở đầu)
+      let cleanBankAcc: string | null | undefined;
+      if (bank_account_number !== undefined) {
+        if (bank_account_number === null || bank_account_number === '') {
+          cleanBankAcc = null;
+        } else {
+          const bStr = String(bank_account_number).trim();
+          if (bStr.length > 50) {
+            return res.status(400).json({ success: false, error: 'Số tài khoản ngân hàng không được vượt quá 50 ký tự.' });
+          }
+          cleanBankAcc = bStr;
+        }
+      }
+
+      // 6. Validate Tên ngân hàng
+      let cleanBankName: string | null | undefined;
+      if (bank_name !== undefined) {
+        if (!bank_name) {
+          cleanBankName = null;
+        } else {
+          const bName = String(bank_name).trim();
+          if (bName.length > 150) {
+            return res.status(400).json({ success: false, error: 'Tên ngân hàng không được vượt quá 150 ký tự.' });
+          }
+          cleanBankName = bName;
+        }
+      }
+
+      const currentAff = demoState.currentRole === 'affiliate_active'
+        ? demoState.activeAffiliate
+        : demoState.pendingAffiliate;
+      const userId = currentAff.user_id;
+
+      // Cập nhật CSDL thực tế nếu có
+      if (userId && !userId.startsWith('u0000000')) {
+        if (cleanFullName || cleanPhone) {
+          const profileUpdates: any = {};
+          if (cleanFullName) profileUpdates.full_name = cleanFullName;
+          if (cleanPhone) profileUpdates.phone = cleanPhone;
+          profileUpdates.updated_at = new Date().toISOString();
+          await supabase.from('profiles').update(profileUpdates).eq('id', userId);
+        }
+
+        const affUpdates: any = { updated_at: new Date().toISOString() };
+        if (address !== undefined) affUpdates.address = address ? String(address).trim() : null;
+        if (occupation !== undefined) affUpdates.occupation = occupation ? String(occupation).trim() : null;
+        if (id_card_number !== undefined) affUpdates.id_card_number = id_card_number ? String(id_card_number).trim() : null;
+        if (cleanIssuedDate !== undefined) affUpdates.id_card_issued_date = cleanIssuedDate;
+        if (cleanBankAcc !== undefined) affUpdates.bank_account_number = cleanBankAcc;
+        if (cleanBankName !== undefined) affUpdates.bank_name = cleanBankName;
+
+        try {
+          await supabase.from('affiliate_profiles').update(affUpdates).eq('user_id', userId);
+        } catch (dbErr: any) {
+          console.warn('[UPDATE AFFILIATE PROFILE] Notice: DB columns might need migration:', dbErr?.message);
+        }
+      }
+
+      // Cập nhật demoState bảo toàn các trường khác không bị mất
+      if (cleanFullName) currentAff.full_name = cleanFullName;
+      if (cleanPhone) currentAff.phone = cleanPhone;
+      if (address !== undefined) currentAff.address = address ? String(address).trim() : currentAff.address;
+      if (occupation !== undefined) currentAff.occupation = occupation ? String(occupation).trim() : currentAff.occupation;
+      if (id_card_number !== undefined) currentAff.id_card_number = id_card_number ? String(id_card_number).trim() : currentAff.id_card_number;
+      if (cleanIssuedDate !== undefined) currentAff.id_card_issued_date = cleanIssuedDate || '';
+      if (cleanBankAcc !== undefined) currentAff.bank_account_number = cleanBankAcc || '';
+      if (cleanBankName !== undefined) currentAff.bank_name = cleanBankName || '';
+
+      console.log(`[API UPDATE AFFILIATE PROFILE] User ID ${userId} updated personal profile successfully.`);
+
+      return res.json({
+        success: true,
+        message: 'Cập nhật hồ sơ cá nhân thành công.',
+        data: currentAff,
+      });
+    } catch (err: any) {
+      console.error('[API UPDATE AFFILIATE PROFILE EXCEPTION]', err?.message);
+      return res.status(500).json({ success: false, error: 'Lỗi khi cập nhật hồ sơ cá nhân.' });
+    }
+  });
+
+  // ----------------------------------------------------------------------------
   // E3 – ADMIN PORTAL (Duyệt CTV, Quản lý Khóa, Lead, Đối soát, Duyệt Thưởng)
   // ----------------------------------------------------------------------------
-  const requireStaffOrAdmin = (req: Request, res: Response, next: NextFunction) => {
+  // E3 – ADMIN PORTAL (Duyệt CTV, Quản lý Khóa, Lead, Đối soát, Duyệt Thưởng)
+  // ----------------------------------------------------------------------------
+  const requireStaffOrAdmin = async (req: Request, res: Response, next: NextFunction) => {
+    // 1. Kiểm tra Bearer token nếu có (xác thực danh tính thực tế từ DB profiles)
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.replace('Bearer ', '');
+        const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token);
+        if (!authError && user) {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('id, full_name, email, role, is_active')
+            .eq('id', user.id)
+            .maybeSingle();
+
+          if (prof && prof.is_active && (prof.role === 'staff' || prof.role === 'admin')) {
+            (req as any).user = prof;
+            return next();
+          } else {
+            return res.status(403).json({
+              success: false,
+              error: 'Bị từ chối: Chỉ Cán bộ Tuyển sinh (Staff) hoặc Quản trị viên (Admin) mới có quyền duyệt hồ sơ CTV (Mã lỗi: 42501).',
+            });
+          }
+        }
+      } catch (e) {
+        // Fallback to demo session check
+      }
+    }
+
+    // 2. Kiểm tra theo phiên phân quyền demo hệ thống
     if (demoState.currentRole !== 'staff' && demoState.currentRole !== 'admin') {
       return res.status(403).json({
         success: false,
         error: 'Bị từ chối: Chỉ Cán bộ Tuyển sinh (Staff) hoặc Quản trị viên (Admin) mới có quyền truy cập khu vực này (Mã lỗi: 42501).',
       });
     }
+
+    (req as any).user = demoState.currentRole === 'admin' ? demoState.adminUser : demoState.staffUser;
     next();
   };
 
@@ -1332,7 +2271,7 @@ async function startServer() {
 
       let query = supabase
         .from('affiliate_profiles')
-        .select('*, profiles(full_name, email, phone, is_active, role)', { count: 'exact' });
+        .select('*, profiles!affiliate_profiles_user_id_fkey(full_name, email, phone, is_active, role)', { count: 'exact' });
 
       if (status && status !== 'ALL') {
         query = query.eq('status', status);
@@ -1395,70 +2334,1695 @@ async function startServer() {
     }
   });
 
-  app.patch('/api/v1/admin/affiliates/:id/status', requireStaffOrAdmin, async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const { status, review_note } = req.body;
+  // GET /api/v1/admin/affiliates/:id - Chi tiết hồ sơ CTV
+  app.get('/api/v1/admin/affiliates/:id', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      if (!id || typeof id !== 'string' || id.length < 10) {
+        return res.status(400).json({ success: false, error: 'Mã định danh hồ sơ CTV không hợp lệ.' });
+      }
 
-    if (!['ACTIVE', 'SUSPENDED', 'REJECTED'].includes(status)) {
-      return res.status(400).json({ success: false, error: 'Trạng thái không hợp lệ' });
-    }
+      const { data: aff, error: affErr } = await supabase
+        .from('affiliate_profiles')
+        .select(`
+          *,
+          profile:profiles!affiliate_profiles_user_id_fkey(id, email, full_name, phone, role, is_active, created_at, updated_at),
+          reviewer:profiles!affiliate_profiles_reviewed_by_fkey(id, full_name, email)
+        `)
+        .eq('id', id)
+        .maybeSingle();
 
-    if (id === demoState.pendingAffiliate.id) {
-      (demoState.pendingAffiliate as any).status = status;
-      demoState.pendingAffiliate.review_note = review_note || 'Đã xét duyệt bởi Cán bộ Tuyển sinh';
-      demoState.pendingAffiliate.reviewed_at = new Date().toISOString();
+      if (affErr) {
+        console.error('[API ADMIN AFFILIATE DETAIL SQL ERROR]', affErr);
+        return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi truy vấn hồ sơ cộng tác viên.' });
+      }
+
+      if (!aff) {
+        const demoAff = [
+          demoState.pendingAffiliate,
+          demoState.pendingVerifiedAffiliate,
+          demoState.activeAffiliate,
+          demoState.suspendedAffiliate,
+          demoState.rejectedAffiliate,
+        ].find(a => a && a.id === id);
+
+        if (demoAff) {
+          return res.json({
+            success: true,
+            data: {
+              ...demoAff,
+              tax_code: getStoredTaxCode(demoAff.user_id) || null,
+              profile: {
+                id: demoAff.user_id,
+                email: demoAff.email,
+                full_name: demoAff.full_name,
+                phone: demoAff.phone,
+                tax_code: getStoredTaxCode(demoAff.user_id) || null,
+                role: 'affiliate',
+                is_active: demoAff.status !== 'SUSPENDED',
+                created_at: demoAff.created_at,
+                updated_at: demoAff.created_at,
+              },
+              email_verified: demoAff.email_verified !== undefined ? demoAff.email_verified : (demoAff.id !== 'a0000000-0000-0000-0000-000000000001'),
+              email_confirmed_at: demoAff.email_verified !== false ? demoAff.created_at : null,
+              reviewer: demoAff.reviewed_by ? {
+                id: demoAff.reviewed_by,
+                full_name: demoAff.reviewed_by === demoState.adminUser.id ? demoState.adminUser.full_name : demoState.staffUser.full_name,
+                email: demoAff.reviewed_by === demoState.adminUser.id ? demoState.adminUser.email : demoState.staffUser.email,
+              } : null,
+              suspender: demoAff.suspended_by ? {
+                id: demoAff.suspended_by,
+                full_name: demoAff.suspended_by === demoState.adminUser.id ? demoState.adminUser.full_name : demoState.staffUser.full_name,
+                email: demoAff.suspended_by === demoState.adminUser.id ? demoState.adminUser.email : demoState.staffUser.email,
+              } : null,
+              reactivator: demoAff.reactivated_by ? {
+                id: demoAff.reactivated_by,
+                full_name: demoAff.reactivated_by === demoState.adminUser.id ? demoState.adminUser.full_name : demoState.staffUser.full_name,
+                email: demoAff.reactivated_by === demoState.adminUser.id ? demoState.adminUser.email : demoState.staffUser.email,
+              } : null,
+              audit_logs: demoState.auditLogs.filter((l: any) => l.entity_id === demoAff.id),
+            },
+          });
+        }
+
+        return res.status(404).json({ success: false, error: 'Không tìm thấy hồ sơ cộng tác viên.' });
+      }
+
+      if (aff.profile && aff.profile.role && aff.profile.role !== 'affiliate') {
+        return res.status(403).json({ success: false, error: 'Không có quyền truy cập hồ sơ quản trị viên hoặc nhân sự.' });
+      }
+
+      let emailVerified = false;
+      let emailConfirmedAt = null;
+      if (aff.user_id) {
+        try {
+          const { data: authUserObj } = await supabase.auth.admin.getUserById(aff.user_id);
+          if (authUserObj && authUserObj.user) {
+            emailVerified = !!authUserObj.user.email_confirmed_at;
+            emailConfirmedAt = authUserObj.user.email_confirmed_at || null;
+          }
+        } catch (authErr) {
+          console.error('[API ADMIN AFFILIATE DETAIL AUTH ERROR]', authErr);
+        }
+      }
+
+      let auditHistory: any[] = [];
+      try {
+        const { data: logs } = await supabase
+          .from('audit_logs')
+          .select(`
+            id,
+            actor_id,
+            action,
+            entity_name,
+            entity_id,
+            old_values,
+            new_values,
+            reason,
+            created_at,
+            actor:profiles!audit_logs_actor_id_fkey(id, full_name, email)
+          `)
+          .eq('entity_name', 'affiliate_profiles')
+          .eq('entity_id', id)
+          .order('created_at', { ascending: false });
+        if (logs) auditHistory = logs;
+      } catch (logErr) {
+        console.error('[API ADMIN AFFILIATE AUDIT LOGS ERROR]', logErr);
+      }
+
+      const affTaxCode = aff.tax_code || getStoredTaxCode(aff.user_id) || null;
+
       return res.json({
         success: true,
-        message: `Đã cập nhật trạng thái CTV sang ${status}!`,
+        data: {
+          ...aff,
+          tax_code: affTaxCode,
+          profile: {
+            ...aff.profile,
+            tax_code: aff.profile?.tax_code || affTaxCode,
+          },
+          email_verified: emailVerified,
+          email_confirmed_at: emailConfirmedAt,
+          audit_logs: auditHistory,
+        },
+      });
+    } catch (err: any) {
+      console.error('[API ADMIN AFFILIATE DETAIL EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi kết nối máy chủ.' });
+    }
+  });
+
+  // ----------------------------------------------------------------------------
+  // XỬ LÝ DUYỆT & TỪ CHỐI HỒ SƠ CTV (YÊU CẦU A1.3)
+  // ----------------------------------------------------------------------------
+  const handleReviewAffiliate = async (req: Request, res: Response, action: 'APPROVE' | 'REJECT') => {
+    try {
+      const { id } = req.params;
+      const { review_note, rejection_reason } = req.body;
+      const noteInput = action === 'REJECT' ? (rejection_reason || review_note) : review_note;
+
+      if (!id || typeof id !== 'string' || id.length < 10) {
+        return res.status(400).json({ success: false, error: 'Mã định danh hồ sơ CTV không hợp lệ.' });
+      }
+
+      // Xác định người xử lý từ phiên đăng nhập thực tế (không nhận từ client)
+      let actorId = demoState.currentRole === 'admin' ? demoState.adminUser.id : demoState.staffUser.id;
+      let actorName = demoState.currentRole === 'admin' ? demoState.adminUser.full_name : demoState.staffUser.full_name;
+      if ((req as any).user?.id) {
+        actorId = (req as any).user.id;
+        actorName = (req as any).user.full_name || actorName;
+      }
+
+      // Kiểm tra lý do khi từ chối: BẮT BUỘC, không chấp nhận chuỗi chỉ có khoảng trắng
+      let cleanReason: string | null = null;
+      if (action === 'REJECT') {
+        cleanReason = noteInput ? String(noteInput).trim() : '';
+        if (!cleanReason || cleanReason.length === 0) {
+          return res.status(400).json({
+            success: false,
+            error: 'Bắt buộc phải nhập lý do từ chối hồ sơ cộng tác viên.',
+            code: 'REASON_REQUIRED',
+          });
+        }
+      } else {
+        cleanReason = noteInput ? String(noteInput).trim() : null;
+      }
+
+      // Trường hợp 1: Thử nghiệm với Demo Account (nếu ID trùng với pendingAffiliate hoặc pendingVerifiedAffiliate)
+      const targetDemo = id === demoState.pendingAffiliate.id
+        ? demoState.pendingAffiliate
+        : (id === demoState.pendingVerifiedAffiliate?.id ? demoState.pendingVerifiedAffiliate : null);
+
+      if (targetDemo) {
+        if (targetDemo.status !== 'PENDING_REVIEW') {
+          return res.status(409).json({
+            success: false,
+            error: `Hồ sơ đã được xử lý trước đó (trạng thái hiện tại: ${targetDemo.status}), vui lòng tải lại trang.`,
+            code: 'ALREADY_PROCESSED',
+          });
+        }
+
+        // BẮT BUỘC: Chỉ duyệt khi email đã được xác thực
+        if (action === 'APPROVE') {
+          const isEmailVerified = targetDemo.email_verified === true;
+          if (!isEmailVerified) {
+            return res.status(400).json({
+              success: false,
+              error: 'Không thể duyệt hồ sơ do email của Cộng tác viên chưa được xác thực. Vui lòng yêu cầu CTV hoàn tất xác thực email trước khi duyệt.',
+              code: 'EMAIL_NOT_VERIFIED',
+            });
+          }
+        }
+
+        const nowIso = new Date().toISOString();
+        const newStatus = action === 'APPROVE' ? 'ACTIVE' : 'REJECTED';
+        const oldStatus = targetDemo.status;
+        const oldNote = targetDemo.review_note;
+
+        targetDemo.status = newStatus;
+        targetDemo.reviewed_by = actorId;
+        targetDemo.reviewed_at = nowIso;
+        targetDemo.review_note = cleanReason || (action === 'APPROVE' ? 'Hồ sơ đã được duyệt bởi Cán bộ Tuyển sinh' : '');
+
+        // Ghi nhật ký kiểm toán vào demoState.auditLogs
+        const auditEntry = {
+          id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          actor_id: actorId,
+          action: action === 'APPROVE' ? 'AFFILIATE_APPROVED' : 'AFFILIATE_REJECTED',
+          entity_name: 'affiliate_profiles',
+          entity_id: targetDemo.id,
+          old_values: { status: oldStatus, review_note: oldNote },
+          new_values: {
+            status: newStatus,
+            reviewed_by: actorId,
+            reviewed_at: nowIso,
+            review_note: targetDemo.review_note,
+          },
+          reason: cleanReason,
+          actor: {
+            id: actorId,
+            full_name: actorName,
+            email: demoState.currentRole === 'admin' ? demoState.adminUser.email : demoState.staffUser.email,
+          },
+          created_at: nowIso,
+        };
+        demoState.auditLogs.unshift(auditEntry);
+
+        // Ghi nhật ký kiểm toán vào audit_logs nếu có kết nối Supabase
+        try {
+          await supabase.from('audit_logs').insert({
+            actor_id: actorId,
+            action: action === 'APPROVE' ? 'AFFILIATE_APPROVED' : 'AFFILIATE_REJECTED',
+            entity_name: 'affiliate_profiles',
+            entity_id: targetDemo.id,
+            old_values: { status: oldStatus, review_note: oldNote },
+            new_values: {
+              status: newStatus,
+              reviewed_by: actorId,
+              reviewed_at: nowIso,
+              review_note: targetDemo.review_note,
+            },
+            reason: cleanReason,
+            ip_address: req.ip || null,
+            user_agent: req.headers['user-agent'] || null,
+          });
+        } catch (auditErr: any) {
+          console.warn('[AUDIT LOG INSERT NOTICE]:', auditErr?.message);
+        }
+
+        return res.json({
+          success: true,
+          message: action === 'APPROVE' ? 'Phê duyệt hồ sơ CTV thành công!' : 'Từ chối hồ sơ CTV thành công!',
+          data: {
+            ...targetDemo,
+            reviewer: {
+              id: actorId,
+              full_name: actorName,
+              email: demoState.currentRole === 'admin' ? demoState.adminUser.email : demoState.staffUser.email,
+            },
+            audit_logs: demoState.auditLogs.filter(l => l.entity_id === targetDemo.id),
+          },
+        });
+      }
+
+      // Trường hợp 2: Hồ sơ thật trong CSDL Supabase
+      // 2.1 Kiểm tra trạng thái hiện tại trong CSDL
+      const { data: currentAff, error: fetchErr } = await supabase
+        .from('affiliate_profiles')
+        .select('id, user_id, status, affiliate_code, review_note')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (fetchErr) {
+        console.error('[API REVIEW AFFILIATE SQL ERROR]', fetchErr);
+        return res.status(500).json({ success: false, error: 'Lỗi truy vấn CSDL.' });
+      }
+
+      if (!currentAff) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy hồ sơ cộng tác viên.' });
+      }
+
+      // Chỉ hồ sơ “Chờ duyệt” được duyệt hoặc từ chối
+      if (currentAff.status !== 'PENDING_REVIEW') {
+        return res.status(409).json({
+          success: false,
+          error: `Hồ sơ đã được xử lý trước đó (trạng thái hiện tại: ${currentAff.status}), vui lòng tải lại trang.`,
+          code: 'ALREADY_PROCESSED',
+        });
+      }
+
+      // 2.2 Kiểm tra xác thực email khi duyệt (bắt buộc)
+      if (action === 'APPROVE') {
+        let isEmailVerified = false;
+        try {
+          if (currentAff.user_id) {
+            const { data: authUserObj } = await supabase.auth.admin.getUserById(currentAff.user_id);
+            isEmailVerified = !!authUserObj?.user?.email_confirmed_at;
+          }
+        } catch (authErr: any) {
+          console.error('[API REVIEW EMAIL CHECK AUTH ERROR]', authErr?.message);
+        }
+
+        if (!isEmailVerified) {
+          return res.status(400).json({
+            success: false,
+            error: 'Không thể duyệt hồ sơ do email của Cộng tác viên chưa được xác thực. Vui lòng yêu cầu CTV hoàn tất xác thực email trước khi duyệt.',
+            code: 'EMAIL_NOT_VERIFIED',
+          });
+        }
+      }
+
+      // 2.3 Gọi hàm nguyên tử PostgreSQL (fn_review_affiliate_profile) nếu có
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('fn_review_affiliate_profile', {
+          p_affiliate_id: id,
+          p_reviewer_id: actorId,
+          p_action: action,
+          p_review_note: cleanReason,
+          p_client_ip: req.ip || null,
+          p_user_agent: req.headers['user-agent'] || null,
+        });
+
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          // Lấy hồ sơ sau khi cập nhật để trả về đầy đủ quan hệ
+          const { data: fullUpdated } = await supabase
+            .from('affiliate_profiles')
+            .select(`
+              *,
+              profile:profiles!affiliate_profiles_user_id_fkey(id, email, full_name, phone, role, is_active),
+              reviewer:profiles!affiliate_profiles_reviewed_by_fkey(id, full_name, email)
+            `)
+            .eq('id', id)
+            .maybeSingle();
+
+          return res.json({
+            success: true,
+            message: action === 'APPROVE' ? 'Phê duyệt hồ sơ CTV thành công!' : 'Từ chối hồ sơ CTV thành công!',
+            data: fullUpdated || rpcRes,
+          });
+        }
+
+        if (rpcErr && rpcErr.message?.includes('được xử lý trước đó')) {
+          return res.status(409).json({
+            success: false,
+            error: 'Hồ sơ đã được xử lý trước đó, vui lòng tải lại trang.',
+            code: 'ALREADY_PROCESSED',
+          });
+        }
+      } catch (rpcEx: any) {
+        console.warn('[RPC fn_review_affiliate_profile fallback]:', rpcEx?.message);
+      }
+
+      // 2.4 Cập nhật trực tiếp có điều kiện nguyên tử (Atomic Conditional Update)
+      const nowIso = new Date().toISOString();
+      const newStatus = action === 'APPROVE' ? 'ACTIVE' : 'REJECTED';
+
+      const { data: updatedAff, error: updateErr } = await supabase
+        .from('affiliate_profiles')
+        .update({
+          status: newStatus,
+          reviewed_by: actorId,
+          reviewed_at: nowIso,
+          review_note: cleanReason,
+          updated_at: nowIso,
+        })
+        .eq('id', id)
+        .eq('status', 'PENDING_REVIEW')
+        .select(`
+          *,
+          profile:profiles!affiliate_profiles_user_id_fkey(id, email, full_name, phone, role, is_active),
+          reviewer:profiles!affiliate_profiles_reviewed_by_fkey(id, full_name, email)
+        `)
+        .maybeSingle();
+
+      if (updateErr) {
+        console.error('[API REVIEW AFFILIATE UPDATE ERROR]', updateErr);
+        return res.status(500).json({ success: false, error: 'Lỗi cập nhật CSDL.' });
+      }
+
+      if (!updatedAff) {
+        return res.status(409).json({
+          success: false,
+          error: 'Hồ sơ đã được xử lý trước đó, vui lòng tải lại trang.',
+          code: 'ALREADY_PROCESSED',
+        });
+      }
+
+      // Ghi nhật ký kiểm toán vào audit_logs
+      try {
+        await supabase.from('audit_logs').insert({
+          actor_id: actorId,
+          action: action === 'APPROVE' ? 'AFFILIATE_APPROVED' : 'AFFILIATE_REJECTED',
+          entity_name: 'affiliate_profiles',
+          entity_id: id,
+          old_values: { status: 'PENDING_REVIEW', review_note: currentAff.review_note },
+          new_values: {
+            status: newStatus,
+            reviewed_by: actorId,
+            reviewed_at: nowIso,
+            review_note: cleanReason,
+          },
+          reason: cleanReason,
+          ip_address: req.ip || null,
+          user_agent: req.headers['user-agent'] || null,
+        });
+      } catch (auditErr: any) {
+        console.warn('[AUDIT LOG INSERT NOTICE]:', auditErr?.message);
+      }
+
+      return res.json({
+        success: true,
+        message: action === 'APPROVE' ? 'Phê duyệt hồ sơ CTV thành công!' : 'Từ chối hồ sơ CTV thành công!',
+        data: updatedAff,
+      });
+    } catch (err: any) {
+      console.error('[API REVIEW AFFILIATE EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi kết nối máy chủ.' });
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // E3.1 – TẠM NGƯNG VÀ KÍCH HOẠT LẠI CTV (YÊU CẦU A1.4)
+  // ----------------------------------------------------------------------------
+  const handleSuspendAffiliate = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      if (!id || typeof id !== 'string' || id.length < 10) {
+        return res.status(400).json({ success: false, error: 'Mã định danh hồ sơ CTV không hợp lệ.' });
+      }
+
+      const cleanReason = (typeof reason === 'string' ? reason.trim() : '');
+      if (!cleanReason || cleanReason.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bắt buộc phải nhập lý do tạm ngưng hoạt động của cộng tác viên.',
+          code: 'REASON_REQUIRED',
+        });
+      }
+
+      const actorId = (req as any).user?.id || (demoState.currentRole === 'admin' ? demoState.adminUser.id : demoState.staffUser.id);
+      const actorName = (req as any).user?.full_name || (demoState.currentRole === 'admin' ? demoState.adminUser.full_name : demoState.staffUser.full_name);
+      const actorEmail = (req as any).user?.email || (demoState.currentRole === 'admin' ? demoState.adminUser.email : demoState.staffUser.email);
+      const nowIso = new Date().toISOString();
+
+      // Kiểm tra demo accounts
+      const targetDemo = [
+        demoState.pendingAffiliate,
+        demoState.pendingVerifiedAffiliate,
+        demoState.activeAffiliate,
+        demoState.suspendedAffiliate,
+        demoState.rejectedAffiliate,
+      ].find(a => a && a.id === id);
+
+      if (targetDemo) {
+        if (targetDemo.status !== 'ACTIVE') {
+          return res.status(409).json({
+            success: false,
+            error: `Thao tác không hợp lệ: Chỉ cộng tác viên đang ở trạng thái Hoạt động (ACTIVE) mới có thể tạm ngưng (trạng thái hiện tại: ${targetDemo.status}).`,
+            code: 'INVALID_STATUS',
+          });
+        }
+
+        const oldStatus = targetDemo.status;
+        targetDemo.status = 'SUSPENDED';
+        targetDemo.suspended_by = actorId;
+        targetDemo.suspended_at = nowIso;
+        targetDemo.suspension_reason = cleanReason;
+
+        const auditEntry = {
+          id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          actor_id: actorId,
+          action: 'AFFILIATE_SUSPENDED',
+          entity_name: 'affiliate_profiles',
+          entity_id: targetDemo.id,
+          old_values: { status: oldStatus },
+          new_values: {
+            status: 'SUSPENDED',
+            suspended_by: actorId,
+            suspended_at: nowIso,
+            suspension_reason: cleanReason,
+          },
+          reason: cleanReason,
+          actor: { id: actorId, full_name: actorName, email: actorEmail },
+          created_at: nowIso,
+        };
+        demoState.auditLogs.unshift(auditEntry);
+
+        try {
+          await supabase.from('audit_logs').insert({
+            actor_id: actorId,
+            action: 'AFFILIATE_SUSPENDED',
+            entity_name: 'affiliate_profiles',
+            entity_id: targetDemo.id,
+            old_values: { status: oldStatus },
+            new_values: {
+              status: 'SUSPENDED',
+              suspended_by: actorId,
+              suspended_at: nowIso,
+              suspension_reason: cleanReason,
+            },
+            reason: cleanReason,
+            ip_address: req.ip || null,
+            user_agent: req.headers['user-agent'] || null,
+          });
+        } catch (err: any) {
+          console.warn('[AUDIT LOG INSERT NOTICE]:', err?.message);
+        }
+
+        return res.json({
+          success: true,
+          message: 'Tạm ngưng hoạt động của CTV thành công!',
+          data: {
+            ...targetDemo,
+            suspender: { id: actorId, full_name: actorName, email: actorEmail },
+            audit_logs: demoState.auditLogs.filter(l => l.entity_id === targetDemo.id),
+          },
+        });
+      }
+
+      // Supabase Database Handling
+      const { data: currentAff, error: fetchErr } = await supabase
+        .from('affiliate_profiles')
+        .select('id, user_id, status, affiliate_code, reviewed_by, reviewed_at, review_note')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (fetchErr) {
+        console.error('[API SUSPEND AFFILIATE SQL ERROR]', fetchErr);
+        return res.status(500).json({ success: false, error: 'Lỗi truy vấn CSDL.' });
+      }
+
+      if (!currentAff) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy hồ sơ cộng tác viên.' });
+      }
+
+      if (currentAff.status !== 'ACTIVE') {
+        return res.status(409).json({
+          success: false,
+          error: `Thao tác không hợp lệ: Chỉ cộng tác viên đang ở trạng thái Hoạt động (ACTIVE) mới có thể tạm ngưng (trạng thái hiện tại: ${currentAff.status}).`,
+          code: 'INVALID_STATUS',
+        });
+      }
+
+      // Try RPC fn_suspend_affiliate_profile
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('fn_suspend_affiliate_profile', {
+          p_affiliate_id: id,
+          p_actor_id: actorId,
+          p_reason: cleanReason,
+          p_client_ip: req.ip || null,
+          p_user_agent: req.headers['user-agent'] || null,
+        });
+
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          const { data: fullUpdated } = await supabase
+            .from('affiliate_profiles')
+            .select(`
+              *,
+              profile:profiles!affiliate_profiles_user_id_fkey(id, email, full_name, phone, role, is_active),
+              reviewer:profiles!affiliate_profiles_reviewed_by_fkey(id, full_name, email)
+            `)
+            .eq('id', id)
+            .maybeSingle();
+
+          return res.json({
+            success: true,
+            message: 'Tạm ngưng hoạt động của CTV thành công!',
+            data: fullUpdated || rpcRes,
+          });
+        }
+      } catch (rpcEx: any) {
+        console.warn('[RPC fn_suspend_affiliate_profile fallback]:', rpcEx?.message);
+      }
+
+      // Fallback atomic update
+      const { data: updatedAff, error: updateErr } = await supabase
+        .from('affiliate_profiles')
+        .update({
+          status: 'SUSPENDED',
+          suspended_by: actorId,
+          suspended_at: nowIso,
+          suspension_reason: cleanReason,
+          updated_at: nowIso,
+        })
+        .eq('id', id)
+        .eq('status', 'ACTIVE')
+        .select(`
+          *,
+          profile:profiles!affiliate_profiles_user_id_fkey(id, email, full_name, phone, role, is_active),
+          reviewer:profiles!affiliate_profiles_reviewed_by_fkey(id, full_name, email)
+        `)
+        .maybeSingle();
+
+      if (updateErr) {
+        console.error('[API SUSPEND AFFILIATE UPDATE ERROR]', updateErr);
+        return res.status(500).json({ success: false, error: 'Lỗi cập nhật CSDL.' });
+      }
+
+      if (!updatedAff) {
+        return res.status(409).json({
+          success: false,
+          error: 'Trạng thái hồ sơ đã thay đổi bởi thao tác khác, vui lòng tải lại trang.',
+          code: 'CONCURRENT_CONFLICT',
+        });
+      }
+
+      // Insert audit log
+      try {
+        await supabase.from('audit_logs').insert({
+          actor_id: actorId,
+          action: 'AFFILIATE_SUSPENDED',
+          entity_name: 'affiliate_profiles',
+          entity_id: id,
+          old_values: { status: 'ACTIVE' },
+          new_values: {
+            status: 'SUSPENDED',
+            suspended_by: actorId,
+            suspended_at: nowIso,
+            suspension_reason: cleanReason,
+          },
+          reason: cleanReason,
+          ip_address: req.ip || null,
+          user_agent: req.headers['user-agent'] || null,
+        });
+      } catch (err: any) {
+        console.warn('[AUDIT LOG INSERT NOTICE]:', err?.message);
+      }
+
+      return res.json({
+        success: true,
+        message: 'Tạm ngưng hoạt động của CTV thành công!',
+        data: updatedAff,
+      });
+    } catch (err: any) {
+      console.error('[API SUSPEND AFFILIATE EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi kết nối máy chủ.' });
+    }
+  };
+
+  const handleReactivateAffiliate = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { note } = req.body;
+
+      if (!id || typeof id !== 'string' || id.length < 10) {
+        return res.status(400).json({ success: false, error: 'Mã định danh hồ sơ CTV không hợp lệ.' });
+      }
+
+      const cleanNote = (typeof note === 'string' ? note.trim() : '') || 'Kích hoạt lại hoạt động CTV';
+      const actorId = (req as any).user?.id || (demoState.currentRole === 'admin' ? demoState.adminUser.id : demoState.staffUser.id);
+      const actorName = (req as any).user?.full_name || (demoState.currentRole === 'admin' ? demoState.adminUser.full_name : demoState.staffUser.full_name);
+      const actorEmail = (req as any).user?.email || (demoState.currentRole === 'admin' ? demoState.adminUser.email : demoState.staffUser.email);
+      const nowIso = new Date().toISOString();
+
+      // Kiểm tra demo accounts
+      const targetDemo = [
+        demoState.pendingAffiliate,
+        demoState.pendingVerifiedAffiliate,
+        demoState.activeAffiliate,
+        demoState.suspendedAffiliate,
+        demoState.rejectedAffiliate,
+      ].find(a => a && a.id === id);
+
+      if (targetDemo) {
+        if (targetDemo.status === 'PENDING_REVIEW' || targetDemo.status === 'REJECTED') {
+          return res.status(400).json({
+            success: false,
+            error: 'Thao tác không hợp lệ: Hồ sơ chờ duyệt hoặc bị từ chối không thể kích hoạt lại để bỏ qua quy trình xét duyệt A1.3.',
+            code: 'CANNOT_BYPASS_REVIEW',
+          });
+        }
+
+        if (targetDemo.status !== 'SUSPENDED') {
+          return res.status(409).json({
+            success: false,
+            error: `Thao tác không hợp lệ: Chỉ cộng tác viên đang ở trạng thái Tạm ngưng (SUSPENDED) mới có thể kích hoạt lại (trạng thái hiện tại: ${targetDemo.status}).`,
+            code: 'INVALID_STATUS',
+          });
+        }
+
+        // Kiểm tra email xác thực
+        if (targetDemo.email_verified === false) {
+          return res.status(400).json({
+            success: false,
+            error: 'Không thể kích hoạt lại hồ sơ do email của Cộng tác viên chưa được xác thực.',
+            code: 'EMAIL_NOT_VERIFIED',
+          });
+        }
+
+        const oldStatus = targetDemo.status;
+        targetDemo.status = 'ACTIVE';
+        targetDemo.reactivated_by = actorId;
+        targetDemo.reactivated_at = nowIso;
+        targetDemo.reactivation_note = cleanNote;
+
+        const auditEntry = {
+          id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          actor_id: actorId,
+          action: 'AFFILIATE_REACTIVATED',
+          entity_name: 'affiliate_profiles',
+          entity_id: targetDemo.id,
+          old_values: { status: oldStatus, suspension_reason: targetDemo.suspension_reason },
+          new_values: {
+            status: 'ACTIVE',
+            reactivated_by: actorId,
+            reactivated_at: nowIso,
+            reactivation_note: cleanNote,
+          },
+          reason: cleanNote,
+          actor: { id: actorId, full_name: actorName, email: actorEmail },
+          created_at: nowIso,
+        };
+        demoState.auditLogs.unshift(auditEntry);
+
+        try {
+          await supabase.from('audit_logs').insert({
+            actor_id: actorId,
+            action: 'AFFILIATE_REACTIVATED',
+            entity_name: 'affiliate_profiles',
+            entity_id: targetDemo.id,
+            old_values: { status: oldStatus, suspension_reason: targetDemo.suspension_reason },
+            new_values: {
+              status: 'ACTIVE',
+              reactivated_by: actorId,
+              reactivated_at: nowIso,
+              reactivation_note: cleanNote,
+            },
+            reason: cleanNote,
+            ip_address: req.ip || null,
+            user_agent: req.headers['user-agent'] || null,
+          });
+        } catch (err: any) {
+          console.warn('[AUDIT LOG INSERT NOTICE]:', err?.message);
+        }
+
+        return res.json({
+          success: true,
+          message: 'Kích hoạt lại hoạt động CTV thành công!',
+          data: {
+            ...targetDemo,
+            reactivator: { id: actorId, full_name: actorName, email: actorEmail },
+            audit_logs: demoState.auditLogs.filter(l => l.entity_id === targetDemo.id),
+          },
+        });
+      }
+
+      // Supabase Database Handling
+      const { data: currentAff, error: fetchErr } = await supabase
+        .from('affiliate_profiles')
+        .select('id, user_id, status, affiliate_code, suspension_reason')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (fetchErr) {
+        console.error('[API REACTIVATE AFFILIATE SQL ERROR]', fetchErr);
+        return res.status(500).json({ success: false, error: 'Lỗi truy vấn CSDL.' });
+      }
+
+      if (!currentAff) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy hồ sơ cộng tác viên.' });
+      }
+
+      if (currentAff.status === 'PENDING_REVIEW' || currentAff.status === 'REJECTED') {
+        return res.status(400).json({
+          success: false,
+          error: 'Thao tác không hợp lệ: Hồ sơ chờ duyệt hoặc bị từ chối không thể kích hoạt lại để bỏ qua quy trình xét duyệt A1.3.',
+          code: 'CANNOT_BYPASS_REVIEW',
+        });
+      }
+
+      if (currentAff.status !== 'SUSPENDED') {
+        return res.status(409).json({
+          success: false,
+          error: `Thao tác không hợp lệ: Chỉ cộng tác viên đang ở trạng thái Tạm ngưng (SUSPENDED) mới có thể kích hoạt lại (trạng thái hiện tại: ${currentAff.status}).`,
+          code: 'INVALID_STATUS',
+        });
+      }
+
+      // Kiểm tra xác thực email
+      let isEmailVerified = false;
+      try {
+        if (currentAff.user_id) {
+          const { data: authUserObj } = await supabase.auth.admin.getUserById(currentAff.user_id);
+          isEmailVerified = !!authUserObj?.user?.email_confirmed_at;
+        }
+      } catch (authErr: any) {
+        console.error('[API REACTIVATE EMAIL CHECK ERROR]', authErr?.message);
+      }
+
+      if (!isEmailVerified) {
+        return res.status(400).json({
+          success: false,
+          error: 'Không thể kích hoạt lại hồ sơ do email của Cộng tác viên chưa được xác thực.',
+          code: 'EMAIL_NOT_VERIFIED',
+        });
+      }
+
+      // Try RPC fn_reactivate_affiliate_profile
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('fn_reactivate_affiliate_profile', {
+          p_affiliate_id: id,
+          p_actor_id: actorId,
+          p_note: cleanNote,
+          p_client_ip: req.ip || null,
+          p_user_agent: req.headers['user-agent'] || null,
+        });
+
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          const { data: fullUpdated } = await supabase
+            .from('affiliate_profiles')
+            .select(`
+              *,
+              profile:profiles!affiliate_profiles_user_id_fkey(id, email, full_name, phone, role, is_active),
+              reviewer:profiles!affiliate_profiles_reviewed_by_fkey(id, full_name, email)
+            `)
+            .eq('id', id)
+            .maybeSingle();
+
+          return res.json({
+            success: true,
+            message: 'Kích hoạt lại hoạt động CTV thành công!',
+            data: fullUpdated || rpcRes,
+          });
+        }
+      } catch (rpcEx: any) {
+        console.warn('[RPC fn_reactivate_affiliate_profile fallback]:', rpcEx?.message);
+      }
+
+      // Fallback atomic update
+      const { data: updatedAff, error: updateErr } = await supabase
+        .from('affiliate_profiles')
+        .update({
+          status: 'ACTIVE',
+          reactivated_by: actorId,
+          reactivated_at: nowIso,
+          reactivation_note: cleanNote,
+          updated_at: nowIso,
+        })
+        .eq('id', id)
+        .eq('status', 'SUSPENDED')
+        .select(`
+          *,
+          profile:profiles!affiliate_profiles_user_id_fkey(id, email, full_name, phone, role, is_active),
+          reviewer:profiles!affiliate_profiles_reviewed_by_fkey(id, full_name, email)
+        `)
+        .maybeSingle();
+
+      if (updateErr) {
+        console.error('[API REACTIVATE AFFILIATE UPDATE ERROR]', updateErr);
+        return res.status(500).json({ success: false, error: 'Lỗi cập nhật CSDL.' });
+      }
+
+      if (!updatedAff) {
+        return res.status(409).json({
+          success: false,
+          error: 'Trạng thái hồ sơ đã thay đổi bởi thao tác khác, vui lòng tải lại trang.',
+          code: 'CONCURRENT_CONFLICT',
+        });
+      }
+
+      // Insert audit log
+      try {
+        await supabase.from('audit_logs').insert({
+          actor_id: actorId,
+          action: 'AFFILIATE_REACTIVATED',
+          entity_name: 'affiliate_profiles',
+          entity_id: id,
+          old_values: { status: 'SUSPENDED', suspension_reason: currentAff.suspension_reason },
+          new_values: {
+            status: 'ACTIVE',
+            reactivated_by: actorId,
+            reactivated_at: nowIso,
+            reactivation_note: cleanNote,
+          },
+          reason: cleanNote,
+          ip_address: req.ip || null,
+          user_agent: req.headers['user-agent'] || null,
+        });
+      } catch (err: any) {
+        console.warn('[AUDIT LOG INSERT NOTICE]:', err?.message);
+      }
+
+      return res.json({
+        success: true,
+        message: 'Kích hoạt lại hoạt động CTV thành công!',
+        data: updatedAff,
+      });
+    } catch (err: any) {
+      console.error('[API REACTIVATE AFFILIATE EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi kết nối máy chủ.' });
+    }
+  };
+
+  app.post('/api/v1/admin/affiliates/:id/approve', requireStaffOrAdmin, (req: Request, res: Response) => {
+    return handleReviewAffiliate(req, res, 'APPROVE');
+  });
+
+  app.post('/api/v1/admin/affiliates/:id/reject', requireStaffOrAdmin, (req: Request, res: Response) => {
+    return handleReviewAffiliate(req, res, 'REJECT');
+  });
+
+  app.post('/api/v1/admin/affiliates/:id/suspend', requireStaffOrAdmin, (req: Request, res: Response) => {
+    return handleSuspendAffiliate(req, res);
+  });
+
+  app.post('/api/v1/admin/affiliates/:id/reactivate', requireStaffOrAdmin, (req: Request, res: Response) => {
+    return handleReactivateAffiliate(req, res);
+  });
+
+  app.patch('/api/v1/admin/affiliates/:id/status', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    const { status } = req.body;
+    const { id } = req.params;
+
+    if (status === 'ACTIVE') {
+      const demoAff = [
+        demoState.pendingAffiliate,
+        demoState.pendingVerifiedAffiliate,
+        demoState.activeAffiliate,
+        demoState.suspendedAffiliate,
+        demoState.rejectedAffiliate,
+      ].find(a => a && a.id === id);
+
+      if (demoAff) {
+        if (demoAff.status === 'SUSPENDED') {
+          return handleReactivateAffiliate(req, res);
+        } else {
+          return handleReviewAffiliate(req, res, 'APPROVE');
+        }
+      }
+
+      const { data: dbAff } = await supabase
+        .from('affiliate_profiles')
+        .select('status')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (dbAff?.status === 'SUSPENDED') {
+        return handleReactivateAffiliate(req, res);
+      } else {
+        return handleReviewAffiliate(req, res, 'APPROVE');
+      }
+    } else if (status === 'SUSPENDED') {
+      return handleSuspendAffiliate(req, res);
+    } else if (status === 'REJECTED') {
+      return handleReviewAffiliate(req, res, 'REJECT');
+    }
+
+    return res.status(400).json({
+      success: false,
+      error: 'Trạng thái chuyển tiếp không hợp lệ. Chỉ chấp nhận ACTIVE, SUSPENDED, hoặc REJECTED.',
+    });
+  });
+
+  // Endpoint mô phỏng xác thực email cho testing demo state
+  app.post('/api/v1/admin/affiliates/:id/simulate-email-verification', requireStaffOrAdmin, (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { verified } = req.body;
+    if (id === demoState.pendingAffiliate.id) {
+      (demoState.pendingAffiliate as any).email_verified = verified !== false;
+      return res.json({
+        success: true,
+        message: `Đã cập nhật mô phỏng email_verified = ${(demoState.pendingAffiliate as any).email_verified}`,
         data: demoState.pendingAffiliate,
       });
     }
-
-    const { data, error } = await supabase
-      .from('affiliate_profiles')
-      .update({
-        status,
-        review_note: review_note || null,
-        reviewed_at: new Date().toISOString(),
-        reviewed_by: demoState.adminUser.id,
-      })
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      return res.status(500).json({ success: false, error: error.message });
-    }
-
-    res.json({ success: true, message: `Cập nhật CTV thành công sang ${status}!`, data });
+    return res.json({ success: true });
   });
 
-  // 2. Quản lý Khóa học
-  app.get('/api/v1/admin/courses', requireStaffOrAdmin, async (req: Request, res: Response) => {
-    const { data: courses } = await supabase
-      .from('courses')
-      .select('*')
-      .order('sort_order', { ascending: true });
+  // Endpoint thiết lập lại dữ liệu kiểm thử demo
+  app.post('/api/v1/admin/affiliates/demo/reset', requireStaffOrAdmin, (req: Request, res: Response) => {
+    demoState.pendingAffiliate.status = 'PENDING_REVIEW';
+    demoState.pendingAffiliate.reviewed_by = undefined;
+    demoState.pendingAffiliate.reviewed_at = undefined;
+    demoState.pendingAffiliate.review_note = 'Hồ sơ đang chờ Ban Tuyển sinh đối chiếu thông tin cá nhân.';
+    demoState.pendingAffiliate.email_verified = false;
 
-    res.json({ success: true, data: courses && courses.length > 0 ? courses : INITIAL_COURSES });
+    demoState.pendingVerifiedAffiliate.status = 'PENDING_REVIEW';
+    demoState.pendingVerifiedAffiliate.reviewed_by = undefined;
+    demoState.pendingVerifiedAffiliate.reviewed_at = undefined;
+    demoState.pendingVerifiedAffiliate.review_note = 'Hồ sơ chờ phê duyệt sau khi đã xác thực email thành công.';
+    demoState.pendingVerifiedAffiliate.email_verified = true;
+
+    demoState.activeAffiliate.status = 'ACTIVE';
+    demoState.activeAffiliate.suspended_by = undefined;
+    demoState.activeAffiliate.suspended_at = undefined;
+    demoState.activeAffiliate.suspension_reason = undefined;
+
+    demoState.suspendedAffiliate.status = 'SUSPENDED';
+    demoState.suspendedAffiliate.suspension_reason = 'Tài khoản đang bị tạm ngưng do vi phạm chính sách truyền thông tuyển sinh.';
+    demoState.suspendedAffiliate.email_verified = true;
+
+    demoState.auditLogs = [];
+    return res.json({
+      success: true,
+      message: 'Đã thiết lập lại trạng thái demo thành công.',
+    });
+  });
+
+  // 2. Quản lý Khóa học (Yêu cầu A2.1: Danh sách, Tìm kiếm & Phân trang)
+  app.get('/api/v1/admin/courses', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const { search, page, limit } = req.query;
+
+      const pageNum = Math.max(1, parseInt(String(page || '1'), 10) || 1);
+      let limitNum = parseInt(String(limit || '20'), 10) || 20;
+      if (![20, 50, 100].includes(limitNum)) {
+        limitNum = 20;
+      }
+
+      const cleanSearch = typeof search === 'string' ? search.trim() : '';
+      const from = (pageNum - 1) * limitNum;
+      const to = from + limitNum - 1;
+
+      // 1. Truy vấn từ CSDL Supabase
+      try {
+        let query = supabase
+          .from('courses')
+          .select('id, code, title, slug, degree_level, duration_text, tuition_fee_estimate, is_active, updated_at, created_at', { count: 'exact' });
+
+        if (cleanSearch) {
+          // Xử lý an toàn ký tự đặc biệt, tránh phá vỡ cú pháp PostgREST .or()
+          const safeTerm = cleanSearch.replace(/[,()]/g, ' ').trim();
+          if (safeTerm) {
+            query = query.or(`code.ilike.%${safeTerm}%,title.ilike.%${safeTerm}%,degree_level.ilike.%${safeTerm}%`);
+          }
+        }
+
+        // Sắp xếp mặc định: ngày tạo mới nhất (created_at DESC), dùng thêm id (ASC) để giữ thứ tự ổn định
+        query = query.order('created_at', { ascending: false }).order('id', { ascending: true });
+
+        // Phân trang tại server / database
+        query = query.range(from, to);
+
+        const { data: dbCourses, count, error } = await query;
+
+        if (!error && dbCourses && dbCourses.length > 0) {
+          const total = count ?? dbCourses.length;
+          const totalPages = Math.max(1, Math.ceil(total / limitNum));
+          return res.json({
+            success: true,
+            data: dbCourses.map(attachCourseFull),
+            pagination: {
+              page: pageNum,
+              limit: limitNum,
+              total,
+              totalPages,
+            },
+          });
+        }
+
+        // Nếu count === 0 nghĩa là tìm kiếm không có kết quả khớp trong CSDL
+        if (!error && count === 0) {
+          return res.json({
+            success: true,
+            data: [],
+            pagination: {
+              page: pageNum,
+              limit: limitNum,
+              total: 0,
+              totalPages: 1,
+            },
+          });
+        }
+      } catch (dbErr: any) {
+        console.warn('[ADMIN COURSES DB QUERY WARNING]', dbErr?.message);
+      }
+
+      // 2. Dự phòng an toàn (Fallback sang INITIAL_COURSES nếu CSDL rỗng hoặc ngoại lệ)
+      let filtered = INITIAL_COURSES;
+      if (cleanSearch) {
+        const term = cleanSearch.toLowerCase();
+        filtered = INITIAL_COURSES.filter(c => 
+          (c.code && c.code.toLowerCase().includes(term)) ||
+          (c.title && c.title.toLowerCase().includes(term)) ||
+          (c.degree_level && c.degree_level.toLowerCase().includes(term))
+        );
+      }
+
+      const total = filtered.length;
+      const totalPages = Math.max(1, Math.ceil(total / limitNum));
+      const paginatedData = filtered.slice(from, to + 1).map((c, idx) => ({
+        id: (c as any).id || `course-${c.code.toLowerCase()}`,
+        code: c.code,
+        title: c.title,
+        degree_level: c.degree_level,
+        duration_text: c.duration_text,
+        tuition_fee_estimate: c.tuition_fee_estimate,
+        is_active: c.is_active,
+        updated_at: (c as any).updated_at || '2026-09-29T14:19:20.869801+00:00',
+      }));
+
+      return res.json({
+        success: true,
+        data: paginatedData.map(attachCourseFull),
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+        },
+      });
+    } catch (err: any) {
+      console.error('[ADMIN COURSES API EXCEPTION]', err);
+      return res.status(500).json({
+        success: false,
+        error: 'Lỗi truy vấn danh sách khóa học từ máy chủ.',
+      });
+    }
+  });
+
+  app.get('/api/v1/admin/courses/:id', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { data, error } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error || !data) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy khóa học.' });
+      }
+
+      return res.json({ success: true, data: attachCourseFull(data) });
+    } catch (err: any) {
+      console.error('[GET COURSE BY ID EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi lấy chi tiết khóa học.' });
+    }
+  });
+
+  app.post('/api/v1/admin/courses/upload', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const { imageBase64, fileName } = req.body;
+      if (!imageBase64 || typeof imageBase64 !== 'string') {
+        return res.status(400).json({ success: false, error: 'Thiếu dữ liệu ảnh tải lên.' });
+      }
+
+      let base64Data = imageBase64;
+      if (imageBase64.includes('base64,')) {
+        base64Data = imageBase64.split('base64,')[1];
+      }
+
+      let buffer: Buffer;
+      try {
+        buffer = Buffer.from(base64Data, 'base64');
+      } catch (e) {
+        return res.status(400).json({ success: false, error: 'Dữ liệu ảnh base64 không hợp lệ.' });
+      }
+
+      if (buffer.length === 0) {
+        return res.status(400).json({ success: false, error: 'File ảnh rỗng.' });
+      }
+      if (buffer.length > 5 * 1024 * 1024) {
+        return res.status(400).json({ success: false, error: 'Dung lượng ảnh vượt quá giới hạn 5 MB.' });
+      }
+
+      let mimeType = 'image/jpeg';
+      const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+      const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+      const isWebp = buffer.length > 12 && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 && buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50;
+
+      if (isJpeg) mimeType = 'image/jpeg';
+      else if (isPng) mimeType = 'image/png';
+      else if (isWebp) mimeType = 'image/webp';
+      else {
+        return res.status(400).json({ success: false, error: 'Định dạng file không hợp lệ. Chỉ chấp nhận ảnh JPEG, PNG và WebP.' });
+      }
+
+      const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+      const uniqueName = `course_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+
+      const { data: uploadData, error: uploadErr } = await supabase.storage
+        .from('course-thumbnails')
+        .upload(uniqueName, buffer, {
+          contentType: mimeType,
+          upsert: false,
+        });
+
+      if (uploadErr) {
+        console.error('[STORAGE UPLOAD ERROR]', uploadErr);
+        return res.status(400).json({ success: false, error: `Lỗi tải ảnh lên Storage: ${uploadErr.message}` });
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('course-thumbnails')
+        .getPublicUrl(uniqueName);
+
+      return res.json({
+        success: true,
+        url: publicUrl,
+        path: uniqueName,
+        message: 'Tải ảnh lên thành công!',
+      });
+    } catch (err: any) {
+      console.error('[COURSE UPLOAD EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi xử lý tải ảnh lên.' });
+    }
+  });
+
+  app.post('/api/v1/admin/courses', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const { code, title, degree_level, duration_text, tuition_fee_estimate, summary, description_html, benefits_title, benefits_content, thumbnail_url } = req.body;
+
+      if (!code || !title || !degree_level || !duration_text) {
+        return res.status(400).json({
+          success: false,
+          error: 'Vui lòng điền đầy đủ các thông tin bắt buộc: Mã khóa học, Tên khóa học, Hệ đào tạo và Thời lượng.',
+        });
+      }
+
+      const cleanCode = String(code).trim().toUpperCase();
+      const cleanTitle = String(title).trim();
+      const cleanDegree = String(degree_level).trim();
+      const VALID_DEGREE_LEVELS = ['Trung cấp', 'Ngắn hạn', 'Chuyên đề'];
+      if (!VALID_DEGREE_LEVELS.includes(cleanDegree)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Hệ đào tạo không hợp lệ. Vui lòng chọn một trong các hệ: Trung cấp, Ngắn hạn, Chuyên đề.',
+        });
+      }
+
+      const cleanDuration = String(duration_text).trim();
+      const tuitionFee = tuition_fee_estimate !== undefined && tuition_fee_estimate !== null && tuition_fee_estimate !== '' ? Number(tuition_fee_estimate) : null;
+
+      if (tuitionFee !== null && (isNaN(tuitionFee) || tuitionFee < 0)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Học phí phải là số không âm.',
+        });
+      }
+
+      const slug = cleanCode.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Math.random().toString(36).substring(2, 6);
+      const cleanBenefitsTitle = benefits_title !== undefined ? (benefits_title ? String(benefits_title).trim() : null) : null;
+      const cleanBenefitsContent = benefits_content !== undefined ? (benefits_content ? String(benefits_content).trim() : null) : null;
+
+      let insertPayload: any = {
+        code: cleanCode,
+        title: cleanTitle,
+        slug,
+        department: 'Khoa Du lịch - Khách sạn',
+        degree_level: cleanDegree,
+        duration_text: cleanDuration,
+        tuition_fee_estimate: tuitionFee,
+        summary: summary !== undefined ? (summary ? String(summary).trim() : null) : null,
+        description_html: description_html !== undefined ? (description_html ? String(description_html).trim() : null) : null,
+        benefits_title: cleanBenefitsTitle,
+        benefits_content: cleanBenefitsContent,
+        thumbnail_url: thumbnail_url !== undefined ? (thumbnail_url ? String(thumbnail_url).trim() : null) : null,
+        is_active: true,
+        sort_order: 0,
+      };
+
+      let { data, error } = await supabase
+        .from('courses')
+        .insert(insertPayload)
+        .select()
+        .single();
+
+      if (
+        error &&
+        (error.code === '42703' ||
+          error.code === 'PGRST204' ||
+          (error.message && (error.message.includes('schema cache') || error.message.includes('column'))))
+      ) {
+        // Fallback if benefits columns do not exist in DB yet
+        delete insertPayload.benefits_title;
+        delete insertPayload.benefits_content;
+        const res2 = await supabase.from('courses').insert(insertPayload).select().single();
+        data = res2.data;
+        error = res2.error;
+      }
+
+      if (error) {
+        if (error.code === '23505') {
+          return res.status(400).json({
+            success: false,
+            error: `Mã khóa học "${cleanCode}" đã tồn tại trong hệ thống. Vui lòng chọn mã khác.`,
+          });
+        }
+        return res.status(400).json({ success: false, error: error.message });
+      }
+
+      if (data && data.id) {
+        saveCourseBenefits(data.id, {
+          benefits_title: cleanBenefitsTitle,
+          benefits_content: cleanBenefitsContent,
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: 'Tạo khóa học mới thành công!',
+        data: attachCourseBenefits(data),
+      });
+    } catch (err: any) {
+      console.error('[CREATE COURSE EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi tạo khóa học.' });
+    }
   });
 
   app.patch('/api/v1/admin/courses/:id', requireStaffOrAdmin, async (req: Request, res: Response) => {
-    const { id } = req.params;
-    const { is_active, tuition_fee_estimate } = req.body;
+    try {
+      const { id } = req.params;
+      const { code, title, degree_level, duration_text, tuition_fee_estimate, summary, description_html, benefits_title, benefits_content, thumbnail_url, is_active, client_updated_at } = req.body;
 
-    const { data, error } = await supabase
-      .from('courses')
-      .update({ is_active, tuition_fee_estimate, updated_at: new Date().toISOString() })
-      .eq('id', id)
-      .select()
-      .single();
+      const { data: existing, error: fetchErr } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('id', id)
+        .single();
 
-    if (error) {
-      return res.status(500).json({ success: false, error: error.message });
+      if (fetchErr || !existing) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy khóa học cần cập nhật.' });
+      }
+
+      if (client_updated_at && existing.updated_at) {
+        const serverTime = new Date(existing.updated_at).getTime();
+        const clientTime = new Date(client_updated_at).getTime();
+        if (Math.abs(serverTime - clientTime) > 3000) {
+          return res.status(409).json({
+            success: false,
+            error: 'Xung đột cập nhật: Dữ liệu khóa học này đã được chỉnh sửa bởi người khác. Vui lòng tải lại trang để lấy thông tin mới nhất.',
+          });
+        }
+      }
+
+      const updatePayload: any = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (code !== undefined) {
+        const cleanCode = String(code).trim().toUpperCase();
+        if (!cleanCode) {
+          return res.status(400).json({ success: false, error: 'Mã khóa học không được để trống.' });
+        }
+        updatePayload.code = cleanCode;
+        updatePayload.slug = cleanCode.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + id.substring(0, 4);
+      }
+      if (title !== undefined) {
+        const cleanTitle = String(title).trim();
+        if (!cleanTitle) {
+          return res.status(400).json({ success: false, error: 'Tên khóa học không được để trống.' });
+        }
+        updatePayload.title = cleanTitle;
+      }
+      if (degree_level !== undefined) {
+        const cleanDegree = String(degree_level).trim();
+        const VALID_DEGREE_LEVELS = ['Trung cấp', 'Ngắn hạn', 'Chuyên đề'];
+        if (!VALID_DEGREE_LEVELS.includes(cleanDegree)) {
+          return res.status(400).json({
+            success: false,
+            error: 'Hệ đào tạo không hợp lệ. Vui lòng chọn một trong các hệ: Trung cấp, Ngắn hạn, Chuyên đề.',
+          });
+        }
+        updatePayload.degree_level = cleanDegree;
+      }
+      if (duration_text !== undefined) {
+        const cleanDuration = String(duration_text).trim();
+        if (!cleanDuration) {
+          return res.status(400).json({ success: false, error: 'Thời lượng không được để trống.' });
+        }
+        updatePayload.duration_text = cleanDuration;
+      }
+      if (tuition_fee_estimate !== undefined) {
+        const fee = tuition_fee_estimate === null || tuition_fee_estimate === '' ? null : Number(tuition_fee_estimate);
+        if (fee !== null && (isNaN(fee) || fee < 0)) {
+          return res.status(400).json({ success: false, error: 'Học phí phải là số không âm.' });
+        }
+        updatePayload.tuition_fee_estimate = fee;
+      }
+      if (summary !== undefined) {
+        updatePayload.summary = summary ? String(summary).trim() : null;
+      }
+      if (description_html !== undefined) {
+        updatePayload.description_html = description_html ? String(description_html).trim() : null;
+      }
+      if (benefits_title !== undefined) {
+        updatePayload.benefits_title = benefits_title ? String(benefits_title).trim() : null;
+      }
+      if (benefits_content !== undefined) {
+        updatePayload.benefits_content = benefits_content ? String(benefits_content).trim() : null;
+      }
+      if (thumbnail_url !== undefined) {
+        updatePayload.thumbnail_url = thumbnail_url ? String(thumbnail_url).trim() : null;
+      }
+      // Lưu ý: Form sửa A2.2 không được thay đổi trạng thái is_active/status ngoài các thao tác chuyên biệt A2.4
+
+      let { data, error } = await supabase
+        .from('courses')
+        .update(updatePayload)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (
+        error &&
+        (error.code === '42703' ||
+          error.code === 'PGRST204' ||
+          (error.message && (error.message.includes('schema cache') || error.message.includes('column'))))
+      ) {
+        // Fallback when columns not yet in DB schema
+        delete updatePayload.benefits_title;
+        delete updatePayload.benefits_content;
+        const res2 = await supabase
+          .from('courses')
+          .update(updatePayload)
+          .eq('id', id)
+          .select()
+          .single();
+        data = res2.data;
+        error = res2.error;
+      }
+
+      if (error) {
+        if (error.code === '23505') {
+          return res.status(400).json({
+            success: false,
+            error: `Mã khóa học này đã tồn tại trong hệ thống. Vui lòng chọn mã khác.`,
+          });
+        }
+        return res.status(400).json({ success: false, error: error.message });
+      }
+
+      if (benefits_title !== undefined || benefits_content !== undefined) {
+        saveCourseBenefits(id, {
+          benefits_title: benefits_title !== undefined ? (benefits_title ? String(benefits_title).trim() : null) : undefined,
+          benefits_content: benefits_content !== undefined ? (benefits_content ? String(benefits_content).trim() : null) : undefined,
+        });
+      }
+
+      // Safe cleanup of replaced or removed old thumbnail image (A2.3)
+      if (
+        thumbnail_url !== undefined &&
+        existing.thumbnail_url &&
+        existing.thumbnail_url !== updatePayload.thumbnail_url
+      ) {
+        try {
+          const oldUrl = existing.thumbnail_url;
+          if (oldUrl.includes('/course-thumbnails/')) {
+            const { count } = await supabase
+              .from('courses')
+              .select('id', { count: 'exact', head: true })
+              .eq('thumbnail_url', oldUrl)
+              .neq('id', id);
+
+            if (!count || count === 0) {
+              const parts = oldUrl.split('/course-thumbnails/');
+              if (parts.length > 1) {
+                const fileName = parts[1].split('?')[0];
+                if (fileName) {
+                  await supabase.storage.from('course-thumbnails').remove([fileName]);
+                }
+              }
+            }
+          }
+        } catch (cleanupErr) {
+          console.warn('[STORAGE CLEANUP WARNING]', cleanupErr);
+        }
+      }
+
+      return res.json({ success: true, message: 'Cập nhật khóa học thành công!', data: attachCourseFull(data) });
+    } catch (err: any) {
+      console.error('[UPDATE COURSE EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi cập nhật khóa học.' });
     }
+  });
 
-    res.json({ success: true, message: 'Cập nhật khóa học thành công!', data });
+  // A2.4 – CÔNG KHAI / NGỪNG GIỚI THIỆU / MỞ LẠI GIỚI THIỆU KHÓA HỌC
+  app.patch('/api/v1/admin/courses/:id/status', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { action, reason, note } = req.body;
+
+      if (!['PUBLISH', 'STOP_REFERRAL', 'REOPEN_REFERRAL'].includes(action)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Thao tác không hợp lệ. Chỉ chấp nhận các thao tác: PUBLISH, STOP_REFERRAL, REOPEN_REFERRAL.',
+        });
+      }
+
+      // Xác định người thực hiện từ phiên đăng nhập backend an toàn (A0.3)
+      const actorId = (req as any).user?.id || (demoState.currentRole === 'admin' ? demoState.adminUser.id : demoState.staffUser.id);
+      const actorName = (req as any).user?.full_name || (demoState.currentRole === 'admin' ? demoState.adminUser.full_name : demoState.staffUser.full_name);
+      const actorEmail = (req as any).user?.email || (demoState.currentRole === 'admin' ? demoState.adminUser.email : demoState.staffUser.email);
+
+      // Tra cứu khóa học hiện tại từ CSDL
+      let currentCourse: any = null;
+      const { data: dbCourse, error: fetchErr } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (dbCourse) {
+        currentCourse = attachCourseFull(dbCourse);
+      } else {
+        const fb = INITIAL_COURSES.find(c => (c as any).id === id || c.code.toLowerCase() === id.toLowerCase());
+        if (fb) currentCourse = attachCourseFull(fb);
+      }
+
+      if (!currentCourse) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy khóa học cần chuyển trạng thái.' });
+      }
+
+      const currentStatus = currentCourse.status; // 'DRAFT' | 'ACTIVE' | 'STOPPED'
+
+      // Kiểm tra trạng thái hiện tại để tránh xử lý trùng hoặc ghi đè thao tác đồng thời
+      if (action === 'PUBLISH') {
+        if (currentStatus === 'ACTIVE') {
+          return res.status(400).json({
+            success: false,
+            error: 'Khóa học đã ở trạng thái Công khai và đang nhận giới thiệu.',
+          });
+        }
+        // Kiểm tra tối thiểu trước khi công khai: mã, tên, hệ đào tạo, thời lượng, mô tả ngắn hợp lệ
+        if (!currentCourse.code?.trim() || !currentCourse.title?.trim() || !currentCourse.degree_level?.trim() || !currentCourse.duration_text?.trim() || !currentCourse.summary?.trim()) {
+          return res.status(400).json({
+            success: false,
+            error: 'Khóa học phải có đầy đủ thông tin tối thiểu hợp lệ trước khi công khai: Mã khóa học, Tên khóa học, Hệ đào tạo, Thời lượng và Mô tả ngắn.',
+          });
+        }
+      } else if (action === 'STOP_REFERRAL') {
+        if (currentStatus === 'STOPPED') {
+          return res.status(400).json({
+            success: false,
+            error: 'Khóa học đã ở trạng thái Ngừng tiếp nhận giới thiệu.',
+          });
+        }
+        if (!reason || !String(reason).trim()) {
+          return res.status(400).json({
+            success: false,
+            error: 'Bắt buộc phải nhập lý do khi ngừng giới thiệu khóa học.',
+          });
+        }
+      } else if (action === 'REOPEN_REFERRAL') {
+        if (currentStatus === 'ACTIVE') {
+          return res.status(400).json({
+            success: false,
+            error: 'Khóa học hiện đang mở nhận giới thiệu bình thường.',
+          });
+        }
+      }
+
+      // Xác định trạng thái mới
+      let newStatus: 'DRAFT' | 'ACTIVE' | 'STOPPED' = 'ACTIVE';
+      let newIsActive = true;
+      let newAcceptsReferrals = true;
+      let newStopReason: string | null = null;
+      let newStatusNote: string | null = null;
+
+      if (action === 'PUBLISH') {
+        newStatus = 'ACTIVE';
+        newIsActive = true;
+        newAcceptsReferrals = true;
+        newStatusNote = note ? String(note).trim() : null;
+      } else if (action === 'STOP_REFERRAL') {
+        newStatus = 'STOPPED';
+        newIsActive = true;
+        newAcceptsReferrals = false;
+        newStopReason = String(reason).trim();
+      } else if (action === 'REOPEN_REFERRAL') {
+        newStatus = 'ACTIVE';
+        newIsActive = true;
+        newAcceptsReferrals = true;
+        newStatusNote = note ? String(note).trim() : null;
+      }
+
+      const nowIso = new Date().toISOString();
+      const updatePayload: any = {
+        is_active: newIsActive,
+        status: newStatus,
+        accepts_referrals: newAcceptsReferrals,
+        stop_reason: newStopReason,
+        status_note: newStatusNote,
+        status_updated_at: nowIso,
+        status_updated_by: actorId,
+        updated_at: nowIso,
+      };
+
+      // Cập nhật CSDL Supabase với cơ chế dự phòng an toàn
+      let { data: updatedDb, error: updateErr } = await supabase
+        .from('courses')
+        .update(updatePayload)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (
+        updateErr &&
+        (updateErr.code === '42703' ||
+          updateErr.code === 'PGRST204' ||
+          (updateErr.message && (updateErr.message.includes('schema cache') || updateErr.message.includes('column'))))
+      ) {
+        // Fallback: chỉ cập nhật is_active và updated_at nếu các cột mở rộng chưa tạo trong remote cache
+        const fallbackRes = await supabase
+          .from('courses')
+          .update({ is_active: newIsActive, updated_at: nowIso })
+          .eq('id', id)
+          .select()
+          .single();
+        updatedDb = fallbackRes.data;
+      }
+
+      // Lưu trạng thái vào persistent companion store
+      saveCourseStatus(id, {
+        status: newStatus,
+        accepts_referrals: newAcceptsReferrals,
+        stop_reason: newStopReason,
+        status_note: newStatusNote,
+        status_updated_at: nowIso,
+        status_updated_by: actorId,
+      });
+
+      // Ghi nhật ký kiểm toán (audit_logs)
+      const auditActionMap: Record<string, string> = {
+        PUBLISH: 'COURSE_PUBLISHED',
+        STOP_REFERRAL: 'COURSE_REFERRAL_STOPPED',
+        REOPEN_REFERRAL: 'COURSE_REFERRAL_REOPENED',
+      };
+      const auditAction = auditActionMap[action] || 'COURSE_STATUS_CHANGED';
+      const auditReason = newStopReason || newStatusNote || (action === 'PUBLISH' ? 'Công khai khóa học' : 'Mở lại giới thiệu khóa học');
+
+      const auditRecord = {
+        id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        actor_id: actorId,
+        action: auditAction,
+        entity_name: 'courses',
+        entity_id: id,
+        old_values: {
+          status: currentStatus,
+          is_active: currentCourse.is_active,
+          accepts_referrals: currentCourse.accepts_referrals,
+        },
+        new_values: {
+          status: newStatus,
+          is_active: newIsActive,
+          accepts_referrals: newAcceptsReferrals,
+        },
+        reason: auditReason,
+        actor: {
+          id: actorId,
+          full_name: actorName,
+          email: actorEmail,
+        },
+        created_at: nowIso,
+      };
+
+      demoState.auditLogs.unshift(auditRecord);
+
+      try {
+        await supabase.from('audit_logs').insert({
+          actor_id: actorId,
+          action: auditAction,
+          entity_name: 'courses',
+          entity_id: id,
+          old_values: auditRecord.old_values,
+          new_values: auditRecord.new_values,
+          reason: auditReason,
+        });
+      } catch (auditDbErr) {
+        console.warn('[AUDIT LOG DB NOTICE]', auditDbErr);
+      }
+
+      const finalCourse = attachCourseFull(updatedDb || { ...currentCourse, ...updatePayload });
+
+      const successMessages: Record<string, string> = {
+        PUBLISH: 'Công khai khóa học thành công! Khóa học hiện đã hiển thị và tiếp nhận đăng ký.',
+        STOP_REFERRAL: 'Ngừng tiếp nhận giới thiệu thành công! Link cũ vẫn xem được nội dung nhưng không tạo đăng ký mới.',
+        REOPEN_REFERRAL: 'Mở lại tiếp nhận giới thiệu thành công! Link cũ và quyền giới thiệu đã được khôi phục.',
+      };
+
+      return res.json({
+        success: true,
+        message: successMessages[action] || 'Cập nhật trạng thái khóa học thành công!',
+        data: finalCourse,
+      });
+    } catch (err: any) {
+      console.error('[COURSE STATUS CHANGE EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi thay đổi trạng thái khóa học.' });
+    }
   });
 
   // 3. Quản lý Leads

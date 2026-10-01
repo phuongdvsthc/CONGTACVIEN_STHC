@@ -13,6 +13,8 @@ import {
   AlertCircle,
   RefreshCw,
   FileText,
+  PauseCircle,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface AffiliateDashboardProps {
@@ -131,6 +133,7 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
 
   const name = dashboardData?.full_name || fullName;
   const code = dashboardData?.affiliate_code || affiliateCode;
+  const isSuspended = dashboardData?.affiliate_status === 'SUSPENDED';
   const metrics = dashboardData?.metrics || {
     total_leads_referred: 0,
     enrolled_valid_leads: 0,
@@ -146,14 +149,25 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-fade-in">
       
       {/* 1. PHẦN CHÀO MỪNG (WELCOME BANNER) */}
-      <div className="bg-gradient-to-r from-blue-900 via-blue-950 to-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
+      <div className={`text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden ${
+        isSuspended
+          ? 'bg-gradient-to-r from-slate-900 via-amber-950 to-slate-900 border border-amber-500/30'
+          : 'bg-gradient-to-r from-blue-900 via-blue-950 to-slate-900'
+      }`}>
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                Đang hoạt động
-              </span>
+              {isSuspended ? (
+                <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/40 text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                  <PauseCircle className="w-3.5 h-3.5 text-amber-400" />
+                  Tạm ngưng hoạt động
+                </span>
+              ) : (
+                <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  Đang hoạt động
+                </span>
+              )}
               <span className="text-xs text-blue-200">Cổng Tiếp Thị Tuyển Sinh STHC</span>
             </div>
 
@@ -188,7 +202,9 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
             </div>
 
             <p className="text-xs sm:text-sm text-blue-100/90 font-medium max-w-xl pt-1">
-              Chọn khóa học, chia sẻ link hoặc mã QR và theo dõi khách hàng đăng ký qua bạn.
+              {isSuspended
+                ? 'Tài khoản của bạn hiện đang bị tạm ngưng quyền tiếp thị. Các chức năng lấy link và mã QR tạm thời bị khóa.'
+                : 'Chọn khóa học, chia sẻ link hoặc mã QR và theo dõi khách hàng đăng ký qua bạn.'}
             </p>
           </div>
 
@@ -204,6 +220,7 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
               <span className="flex items-center gap-2">
                 <BookOpen className="w-4 h-4" />
                 <span>Xem khóa học</span>
+                {isSuspended && <span className="text-[10px] text-amber-950/80 font-normal">(Tạm khóa link)</span>}
               </span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
@@ -221,6 +238,32 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* CẢNH BÁO TẠM NGƯNG QUYỀN GIỚI THIỆU (A1.4) */}
+      {isSuspended && (
+        <div className="p-5 bg-amber-50 border border-amber-300 text-amber-950 rounded-2xl shadow-sm flex items-start gap-3.5 text-xs animate-fade-in">
+          <div className="p-2 bg-amber-100 rounded-xl border border-amber-300/80 shrink-0 mt-0.5">
+            <AlertTriangle className="w-5 h-5 text-amber-700" />
+          </div>
+          <div className="space-y-1.5 flex-1">
+            <h4 className="font-extrabold text-amber-900 text-sm">
+              Tài khoản đang bị TẠM NGƯNG quyền giới thiệu
+            </h4>
+            <p className="text-amber-900/90 leading-relaxed text-xs">
+              {dashboardData?.suspension_reason
+                ? `Lý do: "${dashboardData.suspension_reason}". `
+                : 'Tài khoản của bạn hiện đang bị tạm dừng quyền tiếp thị theo quyết định của Ban Tuyển sinh. '}
+              Các chức năng lấy link tuyển sinh và tạo mã QR mới đã bị tạm dừng. Các liên kết tiếp thị cũ sẽ ngừng tiếp nhận đăng ký mới từ người học. Toàn bộ dữ liệu khách hàng và kết quả tuyển sinh trước đây của bạn vẫn được giữ nguyên vẹn.
+            </p>
+            <p className="text-amber-800 font-semibold pt-1 flex items-center gap-1.5">
+              <span>Liên hệ hỗ trợ:</span>
+              <span className="underline">tuyensinh@sthc.edu.vn</span>
+              <span>- Hotline:</span>
+              <span className="font-mono font-bold">028 3844 2277</span>
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* 2. CÁC THẺ THỐNG KÊ (4 THẺ KPI) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

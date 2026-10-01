@@ -16,6 +16,7 @@ import {
 import { UserSessionProfile, AffiliateSessionProfile } from '../../utils/navigationGuard';
 import { AffiliateLandingConfig } from '../../types/landingConfig';
 import { ADMIN_NAV_ITEMS, AFFILIATE_NAV_ITEMS, NavItem } from '../../config/navConfig';
+import { ProfileDetailView } from './ProfileDetailView';
 
 interface AppLayoutProps {
   role: 'staff' | 'admin' | 'affiliate_active' | 'affiliate_pending' | string;
@@ -43,6 +44,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [p1NoticeModalMessage, setP1NoticeModalMessage] = useState<string | null>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
 
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const notificationRef = useRef<HTMLDivElement>(null);
@@ -262,8 +265,17 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                 onClick={() => setAccountMenuOpen(!accountMenuOpen)}
                 className="flex items-center gap-2.5 p-1.5 rounded-2xl hover:bg-slate-100 transition-colors border border-slate-200/80 bg-white"
               >
-                <div className="w-9 h-9 rounded-xl bg-blue-900 text-amber-400 font-bold flex items-center justify-center text-xs shadow-inner uppercase tracking-wider">
-                  {getInitials(displayName)}
+                <div className="w-9 h-9 rounded-xl bg-blue-900 text-amber-400 font-bold flex items-center justify-center text-xs shadow-inner uppercase tracking-wider overflow-hidden">
+                  {user?.avatar_url && !avatarError ? (
+                    <img
+                      src={user.avatar_url}
+                      alt={displayName}
+                      className="w-full h-full object-cover"
+                      onError={() => setAvatarError(true)}
+                    />
+                  ) : (
+                    getInitials(displayName)
+                  )}
                 </div>
                 <div className="hidden md:flex flex-col text-left truncate max-w-[150px]">
                   <span className="text-xs font-bold text-slate-900 truncate">{displayName}</span>
@@ -284,7 +296,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                     <button
                       onClick={() => {
                         setAccountMenuOpen(false);
-                        setP1NoticeModalMessage('Chức năng quản lý Thông tin cá nhân sẽ được bổ sung ở bước P1.');
+                        onNavigate(isAdminOrStaff ? '/admin/profile' : '/portal/profile');
                       }}
                       className="w-full text-left px-4 py-2.5 text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition-colors font-medium"
                     >
@@ -346,6 +358,16 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
             </button>
           </div>
         </div>
+      )}
+
+      {/* PERSONAL PROFILE MODAL */}
+      {isProfileModalOpen && (
+        <ProfileDetailView
+          isModal={true}
+          onClose={() => setIsProfileModalOpen(false)}
+          currentUser={user}
+          currentRole={role}
+        />
       )}
     </div>
   );

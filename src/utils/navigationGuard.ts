@@ -8,6 +8,8 @@ export interface UserSessionProfile {
   email: string;
   full_name: string;
   phone?: string;
+  avatar_url?: string | null;
+  tax_code?: string | null;
   role: 'affiliate' | 'staff' | 'admin' | string;
   is_active: boolean;
 }
@@ -289,7 +291,7 @@ export function checkRouteAccess(path: string, auth: AuthSessionData | null): Ro
   }
 
   // 7. Kiểm tra quyền trên route /admin (Khu vực Quản trị & Cán bộ Tuyển sinh)
-  if (cleanPath === '/admin' || cleanPath === '/staff') {
+  if (cleanPath === '/admin' || cleanPath.startsWith('/admin/') || cleanPath === '/staff' || cleanPath.startsWith('/staff/')) {
     if (role === 'admin' || role === 'staff') {
       return { allowed: true };
     }

@@ -19,12 +19,17 @@ export const AffiliateRegisterModal: React.FC<AffiliateRegisterModalProps> = ({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [idCardNumber, setIdCardNumber] = useState('');
+  const [idCardIssuedDate, setIdCardIssuedDate] = useState('');
   const [occupation, setOccupation] = useState('');
   const [address, setAddress] = useState('');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [bankName, setBankName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  const todayStr = new Date().toISOString().split('T')[0];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,6 +40,21 @@ export const AffiliateRegisterModal: React.FC<AffiliateRegisterModalProps> = ({
       return;
     }
 
+    if (idCardIssuedDate) {
+      const parsed = new Date(idCardIssuedDate);
+      const today = new Date();
+      if (isNaN(parsed.getTime())) {
+        setError('Ngày cấp CCCD không hợp lệ.');
+        return;
+      }
+      const issuedOnly = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+      const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      if (issuedOnly > todayOnly) {
+        setError('Ngày cấp CCCD không thể lớn hơn ngày hiện tại.');
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const res = await api.registerAffiliate({
@@ -42,8 +62,11 @@ export const AffiliateRegisterModal: React.FC<AffiliateRegisterModalProps> = ({
         email: email.trim(),
         phone: phone.trim(),
         id_card_number: idCardNumber.trim() || undefined,
+        id_card_issued_date: idCardIssuedDate || undefined,
         occupation: occupation.trim() || undefined,
         address: address.trim() || undefined,
+        bank_account_number: bankAccountNumber.trim() || undefined,
+        bank_name: bankName.trim() || undefined,
       });
 
       if (res.success) {
@@ -149,6 +172,49 @@ export const AffiliateRegisterModal: React.FC<AffiliateRegisterModalProps> = ({
 
             <div>
               <label className="block font-semibold text-slate-800 mb-1">
+                Ngày cấp CCCD
+              </label>
+              <input
+                type="date"
+                max={todayStr}
+                value={idCardIssuedDate}
+                onChange={(e) => setIdCardIssuedDate(e.target.value)}
+                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block font-semibold text-slate-800 mb-1">
+                Số tài khoản ngân hàng
+              </label>
+              <input
+                type="text"
+                value={bankAccountNumber}
+                onChange={(e) => setBankAccountNumber(e.target.value)}
+                placeholder="Ví dụ: 0901234567"
+                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-xs font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-800 mb-1">
+                Ngân hàng & Chi nhánh
+              </label>
+              <input
+                type="text"
+                value={bankName}
+                onChange={(e) => setBankName(e.target.value)}
+                placeholder="Ví dụ: Vietcombank - CN Bến Thành"
+                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block font-semibold text-slate-800 mb-1">
                 Nghề nghiệp / Đơn vị công tác
               </label>
               <input
@@ -159,19 +225,19 @@ export const AffiliateRegisterModal: React.FC<AffiliateRegisterModalProps> = ({
                 className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-xs"
               />
             </div>
-          </div>
 
-          <div>
-            <label className="block font-semibold text-slate-800 mb-1">
-              Địa chỉ cư trú
-            </label>
-            <input
-              type="text"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Quận/Huyện, Tỉnh/TP"
-              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-xs"
-            />
+            <div>
+              <label className="block font-semibold text-slate-800 mb-1">
+                Địa chỉ cư trú
+              </label>
+              <input
+                type="text"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="Quận/Huyện, Tỉnh/TP"
+                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-xs"
+              />
+            </div>
           </div>
 
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-start gap-2 text-[11px] text-slate-500">

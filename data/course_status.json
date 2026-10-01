@@ -1,0 +1,10 @@
+{
+  "13e2cf6a-b792-4ae0-8562-c6c1e6ae0db1": {
+    "status": "ACTIVE",
+    "accepts_referrals": true,
+    "stop_reason": null,
+    "status_note": "Mở lại khóa học",
+    "status_updated_at": "2026-10-01T14:32:28.317Z",
+    "status_updated_by": "879a11fc-ff89-4019-b2f4-57d7843b631b"
+  }
+}
