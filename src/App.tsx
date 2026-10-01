@@ -445,6 +445,7 @@ export default function App() {
               currentUser={authSession.user}
               currentRole={authSession.role}
               onBack={() => navigate('/portal')}
+              onAvatarUpdated={loadSession}
             />
           )}
 
@@ -468,6 +469,7 @@ export default function App() {
               currentUser={authSession.user}
               currentRole={authSession.role}
               onBack={() => navigate('/admin')}
+              onAvatarUpdated={loadSession}
             />
           )}
 

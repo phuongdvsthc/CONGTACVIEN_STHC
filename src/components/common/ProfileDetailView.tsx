@@ -21,6 +21,8 @@ import {
   PauseCircle,
   Shield,
   FileText,
+  Camera,
+  Edit3,
 } from 'lucide-react';
 
 interface ProfileDetailViewProps {
@@ -29,6 +31,7 @@ interface ProfileDetailViewProps {
   isModal?: boolean;
   onClose?: () => void;
   onBack?: () => void;
+  onAvatarUpdated?: () => void;
 }
 
 export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
@@ -37,11 +40,36 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
   isModal = false,
   onClose,
   onBack,
+  onAvatarUpdated,
 }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState<boolean>(false);
+
+  // P3 Edit Profile States
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [editForm, setEditForm] = useState({
+    address: '',
+    tax_code: '',
+    id_card_number: '',
+    id_card_issued_date: '',
+    occupation: '',
+    bank_account_number: '',
+    bank_name: '',
+  });
+  const [saving, setSaving] = useState<boolean>(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+
+  // P4 Avatar Change States
+  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [avatarLoading, setAvatarLoading] = useState(false);
+  const [avatarErrorMsg, setAvatarErrorMsg] = useState<string | null>(null);
+  const [avatarSuccessMsg, setAvatarSuccessMsg] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // requestId để chống race condition khi đổi tài khoản
   const requestIdRef = useRef<number>(0);
@@ -54,7 +82,6 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
 
     try {
       const res = await api.getUserProfile();
-      // Chống stale response ghi đè hồ sơ tài khoản mới
       if (currentReqId !== requestIdRef.current) return;
 
       if (res.success && res.data) {
@@ -74,11 +101,145 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
 
   useEffect(() => {
     fetchProfile();
-    // Dọn dẹp cache/state khi unmount hoặc đổi tài khoản
     return () => {
       requestIdRef.current++;
     };
   }, [currentUser?.id, currentRole]);
+
+  const handleStartEdit = () => {
+    if (!profile) return;
+    setEditForm({
+      address: profile.address || '',
+      tax_code: profile.tax_code || '',
+      id_card_number: profile.id_card_number || '',
+      id_card_issued_date: profile.id_card_issued_date ? profile.id_card_issued_date.slice(0, 10) : '',
+      occupation: profile.occupation || '',
+      bank_account_number: profile.bank_account_number || '',
+      bank_name: profile.bank_name || '',
+    });
+    setSaveError(null);
+    setSaveSuccess(null);
+    setIsEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setSaveError(null);
+    setSaveSuccess(null);
+  };
+
+  const handleSaveProfile = async () => {
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+
+    if (editForm.id_card_issued_date) {
+      const d = new Date(editForm.id_card_issued_date);
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (isNaN(d.getTime()) || new Date(d.getFullYear(), d.getMonth(), d.getDate()) > today) {
+        setSaving(false);
+        setSaveError('Ngày cấp CCCD không hợp lệ hoặc không thể lớn hơn ngày hiện tại.');
+        return;
+      }
+    }
+
+    try {
+      const res = await api.updateUserProfile({
+        address: editForm.address.trim(),
+        tax_code: editForm.tax_code.trim(),
+        id_card_number: editForm.id_card_number.trim(),
+        id_card_issued_date: editForm.id_card_issued_date || undefined,
+        occupation: editForm.occupation.trim(),
+        bank_account_number: editForm.bank_account_number.trim(),
+        bank_name: editForm.bank_name.trim(),
+      });
+
+      setSaving(false);
+      if (res.success) {
+        setSaveSuccess('Cập nhật hồ sơ cá nhân thành công.');
+        setIsEditing(false);
+        await fetchProfile();
+        if (onAvatarUpdated) onAvatarUpdated();
+      } else {
+        setSaveError(res.error || 'Lỗi khi cập nhật hồ sơ cá nhân.');
+      }
+    } catch (err: any) {
+      setSaving(false);
+      setSaveError(err?.message || 'Lỗi kết nối máy chủ khi lưu hồ sơ.');
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAvatarErrorMsg(null);
+    setAvatarSuccessMsg(null);
+
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setAvatarErrorMsg('Chỉ hỗ trợ định dạng ảnh JPEG, PNG hoặc WebP.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarErrorMsg('Dung lượng ảnh vượt quá giới hạn cho phép (tối đa 5MB).');
+      return;
+    }
+
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+
+    setSelectedFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+  };
+
+  const handleSaveAvatar = async () => {
+    if (!selectedFile) return;
+    setAvatarLoading(true);
+    setAvatarErrorMsg(null);
+    setAvatarSuccessMsg(null);
+
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(selectedFile);
+      reader.onload = async () => {
+        const base64String = reader.result as string;
+        const res = await api.updateAvatar(base64String);
+        setAvatarLoading(false);
+
+        if (res.success && res.data?.avatar_url) {
+          setAvatarSuccessMsg('Đổi ảnh đại diện thành công.');
+          setProfile(prev => prev ? { ...prev, avatar_url: res.data!.avatar_url } : prev);
+          if (onAvatarUpdated) onAvatarUpdated();
+          setTimeout(() => {
+            setIsAvatarModalOpen(false);
+            setSelectedFile(null);
+            if (previewUrl) URL.revokeObjectURL(previewUrl);
+            setPreviewUrl(null);
+            setAvatarSuccessMsg(null);
+          }, 1000);
+        } else {
+          setAvatarErrorMsg(res.error || 'Lỗi khi đổi ảnh đại diện.');
+        }
+      };
+      reader.onerror = () => {
+        setAvatarLoading(false);
+        setAvatarErrorMsg('Không thể đọc file ảnh. Vui lòng thử lại.');
+      };
+    } catch (err: any) {
+      setAvatarLoading(false);
+      setAvatarErrorMsg(err?.message || 'Lỗi hệ thống khi tải ảnh lên.');
+    }
+  };
+
+  const handleCancelAvatar = () => {
+    setIsAvatarModalOpen(false);
+    setSelectedFile(null);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
+    setAvatarErrorMsg(null);
+    setAvatarSuccessMsg(null);
+  };
 
   const formatDateVN = (isoString?: string | null) => {
     if (!isoString) return 'Chưa cập nhật';
@@ -122,14 +283,12 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
     return (words[0][0] + words[words.length - 1][0]).toUpperCase();
   };
 
-  // Helper hiển thị an toàn: rỗng/null/undefined hiển thị "Chưa cập nhật"
   const renderText = (val?: string | null, placeholder: string = 'Chưa cập nhật') => {
     if (val === undefined || val === null) return placeholder;
     const str = String(val).trim();
     return str !== '' ? str : placeholder;
   };
 
-  // 1. Trạng thái Đang tải (Loading State)
   if (loading) {
     const loadingContent = (
       <div className="p-8 sm:p-12 max-w-4xl mx-auto flex flex-col items-center justify-center min-h-[360px] text-center space-y-4 animate-fade-in">
@@ -155,7 +314,6 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
     return loadingContent;
   }
 
-  // 2. Trạng thái Lỗi tải hồ sơ (Error State)
   if (error) {
     const errorContent = (
       <div className="p-8 sm:p-12 max-w-3xl mx-auto animate-fade-in space-y-4">
@@ -205,7 +363,6 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
     return errorContent;
   }
 
-  // 3. Trạng thái Trống / Chưa có hồ sơ (Empty State)
   if (!profile) {
     const emptyContent = (
       <div className="p-8 sm:p-12 max-w-3xl mx-auto text-center space-y-4 animate-fade-in">
@@ -247,7 +404,6 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
     return emptyContent;
   }
 
-  // 4. Trạng thái Hiển thị đầy đủ (Full State)
   const isAffiliate = profile.role === 'affiliate';
   const isAdmin = profile.role === 'admin';
   const isStaff = profile.role === 'staff';
@@ -291,6 +447,36 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
         </div>
 
         <div className="flex items-center gap-3 self-start sm:self-auto">
+          {!isEditing ? (
+            <button
+              type="button"
+              onClick={handleStartEdit}
+              className="inline-flex items-center gap-2 text-xs font-bold text-white bg-blue-900 hover:bg-blue-800 px-4 py-2 rounded-xl transition-colors shadow-sm"
+            >
+              <Edit3 className="w-4 h-4" /> Sửa hồ sơ
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-white px-3.5 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors shadow-xs"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveProfile}
+                disabled={saving}
+                className="inline-flex items-center gap-2 text-xs font-bold text-white bg-blue-900 hover:bg-blue-800 px-4 py-2 rounded-xl transition-colors shadow-sm disabled:opacity-50"
+              >
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                Lưu thay đổi
+              </button>
+            </div>
+          )}
+
           {onBack && !isModal && (
             <button
               onClick={onBack}
@@ -313,6 +499,20 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
         </div>
       </div>
 
+      {saveError && (
+        <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl text-rose-800 text-xs flex items-center gap-2.5 animate-fade-in">
+          <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+          <span>{saveError}</span>
+        </div>
+      )}
+
+      {saveSuccess && (
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs flex items-center gap-2.5 animate-fade-in">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          <span>{saveSuccess}</span>
+        </div>
+      )}
+
       {/* Grid Content: Left Summary Card + Right Detailed Groups */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* ========================================================================= */}
@@ -320,23 +520,38 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
         {/* ========================================================================= */}
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
           <div className="flex flex-col items-center text-center pb-5 border-b border-slate-100">
-            {/* Avatar thật hoặc biểu tượng mặc định / Chữ cái từ tên thật */}
-            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-900 to-indigo-950 text-white flex items-center justify-center text-2xl font-bold shadow-md mb-3 overflow-hidden relative border border-slate-200">
-              {profile.avatar_url && !avatarError ? (
-                <img
-                  src={profile.avatar_url}
-                  alt={profile.full_name}
-                  className="w-full h-full object-cover"
-                  onError={() => setAvatarError(true)}
-                />
-              ) : profile.full_name ? (
-                <span>{getInitials(profile.full_name)}</span>
-              ) : (
-                <User className="w-8 h-8 text-blue-200" />
-              )}
+            {/* Avatar thật hoặc biểu tượng mặc định / Chữ cái từ tên thật kèm nút Đổi ảnh */}
+            <div className="flex flex-col items-center">
+              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-900 to-indigo-950 text-white flex items-center justify-center text-2xl font-bold shadow-md mb-2 overflow-hidden relative border border-slate-200">
+                {profile.avatar_url && !avatarError ? (
+                  <img
+                    src={profile.avatar_url}
+                    alt={profile.full_name}
+                    className="w-full h-full object-cover"
+                    onError={() => setAvatarError(true)}
+                  />
+                ) : profile.full_name ? (
+                  <span>{getInitials(profile.full_name)}</span>
+                ) : (
+                  <User className="w-8 h-8 text-blue-200" />
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setAvatarErrorMsg(null);
+                  setAvatarSuccessMsg(null);
+                  setSelectedFile(null);
+                  setPreviewUrl(null);
+                  setIsAvatarModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl shadow-xs transition-colors mt-1"
+              >
+                <Camera className="w-3.5 h-3.5 text-blue-900" /> Đổi ảnh
+              </button>
             </div>
 
-            <h2 className="font-bold text-slate-900 text-base">{renderText(profile.full_name)}</h2>
+            <h2 className="font-bold text-slate-900 text-base mt-2">{renderText(profile.full_name)}</h2>
             <p className="text-xs text-slate-500 font-mono mt-0.5">{renderText(profile.email)}</p>
             <span className={`mt-2 text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border ${roleBadgeColor}`}>
               {roleLabel}
@@ -426,32 +641,61 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
               Thông tin liên hệ & Định danh
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              {/* Họ và tên (Bảo vệ - Chỉ đọc) */}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
-                <span className="text-slate-500 flex items-center gap-1.5 font-medium">
-                  <User className="w-3.5 h-3.5 text-slate-400" /> Họ và tên (Chỉ đọc)
-                </span>
-                <p className="font-semibold text-slate-900">{renderText(profile.full_name)}</p>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 flex items-center gap-1.5 font-medium">
+                    <User className="w-3.5 h-3.5 text-slate-400" /> Họ và tên
+                  </span>
+                  <span className="text-[10px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                    Thông tin này không được chỉnh sửa tại đây
+                  </span>
+                </div>
+                <p className="font-semibold text-slate-900 pt-1">{renderText(profile.full_name)}</p>
               </div>
 
+              {/* Email đăng nhập (Bảo vệ - Chỉ đọc) */}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
-                <span className="text-slate-500 flex items-center gap-1.5 font-medium">
-                  <Mail className="w-3.5 h-3.5 text-slate-400" /> Email đăng nhập (Chỉ đọc)
-                </span>
-                <p className="font-semibold font-mono text-slate-900">{renderText(profile.email)}</p>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 flex items-center gap-1.5 font-medium">
+                    <Mail className="w-3.5 h-3.5 text-slate-400" /> Email đăng nhập
+                  </span>
+                  <span className="text-[10px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                    Thông tin này không được chỉnh sửa tại đây
+                  </span>
+                </div>
+                <p className="font-semibold font-mono text-slate-900 pt-1">{renderText(profile.email)}</p>
               </div>
 
+              {/* Số điện thoại (Bảo vệ - Chỉ đọc) */}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
-                <span className="text-slate-500 flex items-center gap-1.5 font-medium">
-                  <Phone className="w-3.5 h-3.5 text-slate-400" /> Số điện thoại (Chỉ đọc)
-                </span>
-                <p className="font-semibold font-mono text-slate-900">{renderText(profile.phone)}</p>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 flex items-center gap-1.5 font-medium">
+                    <Phone className="w-3.5 h-3.5 text-slate-400" /> Số điện thoại
+                  </span>
+                  <span className="text-[10px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                    Thông tin này không được chỉnh sửa tại đây
+                  </span>
+                </div>
+                <p className="font-semibold font-mono text-slate-900 pt-1">{renderText(profile.phone)}</p>
               </div>
 
+              {/* Địa chỉ cư trú (Được sửa) */}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
                 <span className="text-slate-500 flex items-center gap-1.5 font-medium">
                   <MapPin className="w-3.5 h-3.5 text-slate-400" /> Địa chỉ cư trú
                 </span>
-                <p className="font-semibold text-slate-900">{renderText(profile.address)}</p>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editForm.address}
+                    onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+                    placeholder="Nhập địa chỉ cư trú..."
+                    className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-900"
+                  />
+                ) : (
+                  <p className="font-semibold text-slate-900 pt-1">{renderText(profile.address)}</p>
+                )}
               </div>
             </div>
           </div>
@@ -465,71 +709,114 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
               Thông tin bổ sung
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-              {/* Trường "Mã số thuế" – Áp dụng cho cả Admin, Staff và CTV */}
+              {/* Mã số thuế */}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
                 <span className="text-slate-500 flex items-center gap-1.5 font-medium">
                   <CreditCard className="w-3.5 h-3.5 text-slate-400" /> Mã số thuế
                 </span>
-                <p className="font-semibold font-mono text-slate-900">
-                  {renderText(profile.tax_code)}
-                </p>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editForm.tax_code}
+                    onChange={(e) => setEditForm({ ...editForm, tax_code: e.target.value })}
+                    placeholder="Nhập mã số thuế..."
+                    className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-blue-900"
+                  />
+                ) : (
+                  <p className="font-semibold font-mono text-slate-900 pt-1">{renderText(profile.tax_code)}</p>
+                )}
               </div>
 
-              {/* Các trường nghiệp vụ theo vai trò */}
-              {isAffiliate ? (
-                <>
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
-                    <span className="text-slate-500 flex items-center gap-1.5 font-medium">
-                      <CreditCard className="w-3.5 h-3.5 text-slate-400" /> Số CCCD (phục vụ đối soát)
-                    </span>
-                    <p className="font-semibold font-mono text-slate-900">
-                      {renderText(profile.id_card_number)}
-                    </p>
-                  </div>
+              {/* Số CCCD */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+                <span className="text-slate-500 flex items-center gap-1.5 font-medium">
+                  <CreditCard className="w-3.5 h-3.5 text-slate-400" /> Số CCCD (giữ số 0 ở đầu)
+                </span>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editForm.id_card_number}
+                    onChange={(e) => setEditForm({ ...editForm, id_card_number: e.target.value })}
+                    placeholder="Nhập số CCCD..."
+                    className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-blue-900"
+                  />
+                ) : (
+                  <p className="font-semibold font-mono text-slate-900 pt-1">{renderText(profile.id_card_number)}</p>
+                )}
+              </div>
 
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
-                    <span className="text-slate-500 flex items-center gap-1.5 font-medium">
-                      <Calendar className="w-3.5 h-3.5 text-slate-400" /> Ngày cấp CCCD
-                    </span>
-                    <p className="font-semibold font-mono text-slate-900">
-                      {profile.id_card_issued_date ? formatDateOnlyVN(profile.id_card_issued_date) : 'Chưa cập nhật'}
-                    </p>
-                  </div>
-
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1 sm:col-span-2">
-                    <span className="text-slate-500 flex items-center gap-1.5 font-medium">
-                      <Building2 className="w-3.5 h-3.5 text-slate-400" /> Nghề nghiệp / Đơn vị công tác
-                    </span>
-                    <p className="font-semibold text-slate-900">{renderText(profile.occupation)}</p>
-                  </div>
-
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
-                    <span className="text-slate-500 flex items-center gap-1.5 font-medium">
-                      <CreditCard className="w-3.5 h-3.5 text-slate-400" /> Số tài khoản ngân hàng
-                    </span>
-                    <p className="font-semibold font-mono text-slate-900">
-                      {renderText(profile.bank_account_number)}
-                    </p>
-                  </div>
-
-                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
-                    <span className="text-slate-500 flex items-center gap-1.5 font-medium">
-                      <Landmark className="w-3.5 h-3.5 text-slate-400" /> Ngân hàng & Chi nhánh
-                    </span>
-                    <p className="font-semibold text-slate-900">{renderText(profile.bank_name)}</p>
-                  </div>
-                </>
-              ) : (
-                /* Với Admin / Staff: Không ép các trường chỉ phục vụ nghiệp vụ CTV */
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
-                  <span className="text-slate-500 flex items-center gap-1.5 font-medium">
-                    <Building2 className="w-3.5 h-3.5 text-slate-400" /> Đơn vị công tác / Bộ phận
-                  </span>
-                  <p className="font-semibold text-slate-900">
-                    Ban Tuyển sinh & Hợp tác doanh nghiệp – Trường Saigontourist
+              {/* Ngày cấp CCCD */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+                <span className="text-slate-500 flex items-center gap-1.5 font-medium">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400" /> Ngày cấp CCCD
+                </span>
+                {isEditing ? (
+                  <input
+                    type="date"
+                    value={editForm.id_card_issued_date}
+                    onChange={(e) => setEditForm({ ...editForm, id_card_issued_date: e.target.value })}
+                    className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-blue-900"
+                  />
+                ) : (
+                  <p className="font-semibold font-mono text-slate-900 pt-1">
+                    {profile.id_card_issued_date ? formatDateOnlyVN(profile.id_card_issued_date) : 'Chưa cập nhật'}
                   </p>
-                </div>
-              )}
+                )}
+              </div>
+
+              {/* Nghề nghiệp / Đơn vị công tác */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1 sm:col-span-2">
+                <span className="text-slate-500 flex items-center gap-1.5 font-medium">
+                  <Building2 className="w-3.5 h-3.5 text-slate-400" /> Nghề nghiệp / Đơn vị công tác
+                </span>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editForm.occupation}
+                    onChange={(e) => setEditForm({ ...editForm, occupation: e.target.value })}
+                    placeholder="Nhập nghề nghiệp hoặc đơn vị công tác..."
+                    className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-900"
+                  />
+                ) : (
+                  <p className="font-semibold text-slate-900 pt-1">{renderText(profile.occupation)}</p>
+                )}
+              </div>
+
+              {/* Số tài khoản ngân hàng */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+                <span className="text-slate-500 flex items-center gap-1.5 font-medium">
+                  <CreditCard className="w-3.5 h-3.5 text-slate-400" /> Số tài khoản ngân hàng
+                </span>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editForm.bank_account_number}
+                    onChange={(e) => setEditForm({ ...editForm, bank_account_number: e.target.value })}
+                    placeholder="Nhập số tài khoản..."
+                    className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-blue-900"
+                  />
+                ) : (
+                  <p className="font-semibold font-mono text-slate-900 pt-1">{renderText(profile.bank_account_number)}</p>
+                )}
+              </div>
+
+              {/* Ngân hàng & Chi nhánh */}
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1">
+                <span className="text-slate-500 flex items-center gap-1.5 font-medium">
+                  <Landmark className="w-3.5 h-3.5 text-slate-400" /> Ngân hàng & Chi nhánh
+                </span>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={editForm.bank_name}
+                    onChange={(e) => setEditForm({ ...editForm, bank_name: e.target.value })}
+                    placeholder="Nhập tên ngân hàng & chi nhánh..."
+                    className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-900"
+                  />
+                ) : (
+                  <p className="font-semibold text-slate-900 pt-1">{renderText(profile.bank_name)}</p>
+                )}
+              </div>
             </div>
           </div>
 
@@ -556,7 +843,7 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
                 </p>
               </div>
 
-              {/* Thông tin phê duyệt CTV (chỉ hiển thị khi phù hợp với quyền xem của chính CTV) */}
+              {/* Thông tin phê duyệt CTV */}
               {isAffiliate && profile.reviewed_at && (
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1 sm:col-span-2">
                   <span className="text-slate-500 font-medium">Thông tin duyệt hồ sơ CTV</span>
@@ -566,7 +853,7 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
                 </div>
               )}
 
-              {/* Thông tin tạm ngưng CTV (nếu có) */}
+              {/* Thông tin tạm ngưng CTV */}
               {isAffiliate && affiliateStatus === 'SUSPENDED' && (
                 <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-200 space-y-1 sm:col-span-2">
                   <span className="text-amber-900 font-semibold flex items-center gap-1.5">
@@ -582,6 +869,98 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Avatar Modal */}
+      {isAvatarModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-5 relative">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                <Camera className="w-5 h-5 text-blue-900" /> Đổi ảnh đại diện
+              </h3>
+              <button
+                onClick={handleCancelAvatar}
+                disabled={avatarLoading}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-col items-center justify-center space-y-4">
+              <div className="w-28 h-28 rounded-2xl bg-slate-100 border-2 border-dashed border-slate-300 overflow-hidden flex items-center justify-center relative shadow-inner">
+                {previewUrl ? (
+                  <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                ) : profile.avatar_url && !avatarError ? (
+                  <img src={profile.avatar_url} alt="Current" className="w-full h-full object-cover" />
+                ) : (
+                  <User className="w-12 h-12 text-slate-400" />
+                )}
+              </div>
+
+              <div className="text-center space-y-1">
+                <p className="text-xs text-slate-500">
+                  Hỗ trợ định dạng: <span className="font-semibold text-slate-700">JPEG, PNG, WebP</span>.
+                </p>
+                <p className="text-xs text-slate-500">
+                  Dung lượng tối đa: <span className="font-semibold text-slate-700">5 MB</span>.
+                </p>
+              </div>
+
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+              />
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={avatarLoading}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors border border-slate-200"
+              >
+                Chọn ảnh từ máy tính
+              </button>
+            </div>
+
+            {avatarErrorMsg && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{avatarErrorMsg}</span>
+              </div>
+            )}
+
+            {avatarSuccessMsg && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                <span>{avatarSuccessMsg}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={handleCancelAvatar}
+                disabled={avatarLoading}
+                className="px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold rounded-xl transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAvatar}
+                disabled={avatarLoading || !selectedFile}
+                className="px-5 py-2 bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors shadow-sm inline-flex items-center gap-2"
+              >
+                {avatarLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                Lưu ảnh
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 

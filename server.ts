@@ -532,6 +532,25 @@ function getStoredTaxCode(userId?: string | null): string | null {
   return all[userId] || null;
 }
 
+const EXTENDED_PROFILES_FILE = path.join(__dirname, 'data', 'user_extended_profiles.json');
+
+function loadExtendedProfiles(): Record<string, any> {
+  try {
+    if (fs.existsSync(EXTENDED_PROFILES_FILE)) {
+      return JSON.parse(fs.readFileSync(EXTENDED_PROFILES_FILE, 'utf-8'));
+    }
+  } catch (e) {}
+  return {};
+}
+
+function saveExtendedProfiles(data: Record<string, any>) {
+  try {
+    const dir = path.dirname(EXTENDED_PROFILES_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(EXTENDED_PROFILES_FILE, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (e) {}
+}
+
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '10mb' }));
@@ -1945,6 +1964,9 @@ async function startServer() {
         ? authUserEmailConfirmed
         : (role !== 'affiliate' || dbAff?.email_verified !== false);
 
+      const extProfiles = loadExtendedProfiles();
+      const userExt = extProfiles[dbProf.id] || {};
+
       const userProfilePayload: any = {
         id: dbProf.id,
         email: dbProf.email,
@@ -1954,8 +1976,13 @@ async function startServer() {
         role: dbProf.role,
         is_active: dbProf.is_active,
         email_verified: isEmailVerified,
-        tax_code: storedTaxCode || dbProf.tax_code || (dbAff?.tax_code ?? null),
-        address: dbAff?.address || null,
+        tax_code: storedTaxCode || dbProf.tax_code || userExt.tax_code || (dbAff?.tax_code ?? null),
+        address: userExt.address || dbAff?.address || null,
+        occupation: userExt.occupation || dbAff?.occupation || null,
+        id_card_number: userExt.id_card_number || dbAff?.id_card_number || null,
+        id_card_issued_date: userExt.id_card_issued_date || dbAff?.id_card_issued_date || null,
+        bank_account_number: userExt.bank_account_number || dbAff?.bank_account_number || null,
+        bank_name: userExt.bank_name || dbAff?.bank_name || null,
         created_at: dbProf.created_at,
         updated_at: dbProf.updated_at || dbProf.created_at,
       };
@@ -1964,11 +1991,6 @@ async function startServer() {
       if (role === 'affiliate' && dbAff) {
         userProfilePayload.affiliate_code = dbAff.affiliate_code;
         userProfilePayload.affiliate_status = dbAff.status;
-        userProfilePayload.id_card_number = dbAff.id_card_number || null;
-        userProfilePayload.id_card_issued_date = dbAff.id_card_issued_date || null;
-        userProfilePayload.occupation = dbAff.occupation || null;
-        userProfilePayload.bank_account_number = dbAff.bank_account_number || null;
-        userProfilePayload.bank_name = dbAff.bank_name || null;
         userProfilePayload.reviewed_at = dbAff.reviewed_at || null;
         userProfilePayload.reviewer_name = dbAff.reviewer?.full_name || (dbAff.reviewed_at ? 'Cán bộ Tuyển sinh' : null);
         if (dbAff.status === 'SUSPENDED') {
@@ -1988,6 +2010,263 @@ async function startServer() {
     } catch (err: any) {
       console.error('[API GET USER PROFILE EXCEPTION]', err?.message);
       return res.status(500).json({ success: false, error: 'Lỗi tải hồ sơ cá nhân.' });
+    }
+  });
+
+  // PUT /api/v1/user/profile - Cập nhật hồ sơ cá nhân cho Admin, Staff, CTV
+  app.put('/api/v1/user/profile', async (req: Request, res: Response) => {
+    try {
+      let resolvedUserId: string | null = null;
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+          const token = authHeader.replace('Bearer ', '');
+          const { data: { user }, error: authErr } = await supabaseAuth.auth.getUser(token);
+          if (!authErr && user) {
+            resolvedUserId = user.id;
+          }
+        } catch (e) {}
+      }
+
+      if (!resolvedUserId) {
+        if (demoState.currentUser?.id) {
+          resolvedUserId = demoState.currentUser.id;
+        } else if (demoState.currentRole === 'admin') {
+          resolvedUserId = demoState.adminUser.id;
+        } else if (demoState.currentRole === 'staff') {
+          resolvedUserId = demoState.staffUser.id;
+        } else if (demoState.currentRole === 'affiliate_active') {
+          resolvedUserId = demoState.activeAffiliate.user_id;
+        } else if (demoState.currentRole === 'affiliate_pending') {
+          resolvedUserId = demoState.pendingAffiliate.user_id;
+        }
+      }
+
+      if (!resolvedUserId) {
+        return res.status(401).json({ success: false, error: 'Chưa đăng nhập. Vui lòng đăng nhập để cập nhật hồ sơ.' });
+      }
+
+      const {
+        full_name,
+        email,
+        phone,
+        role,
+        status,
+        affiliate_code,
+        reviewed_by,
+        reviewed_at,
+        review_note,
+        address,
+        occupation,
+        id_card_number,
+        id_card_issued_date,
+        bank_account_number,
+        bank_name,
+        tax_code,
+      } = req.body;
+
+      if (
+        full_name !== undefined ||
+        email !== undefined ||
+        phone !== undefined ||
+        role !== undefined ||
+        status !== undefined ||
+        affiliate_code !== undefined ||
+        reviewed_by !== undefined ||
+        reviewed_at !== undefined ||
+        review_note !== undefined
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: 'Bảo mật: Họ và tên, Email, Số điện thoại và thông tin quản trị không được phép chỉnh sửa tại đây.',
+        });
+      }
+
+      let cleanIssuedDate: string | null | undefined;
+      if (id_card_issued_date !== undefined) {
+        if (!id_card_issued_date) {
+          cleanIssuedDate = null;
+        } else {
+          const dateStr = String(id_card_issued_date).trim();
+          const parsedDate = new Date(dateStr);
+          const now = new Date();
+          if (isNaN(parsedDate.getTime())) {
+            return res.status(400).json({ success: false, error: 'Ngày cấp CCCD không hợp lệ.' });
+          }
+          const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const issuedOnly = new Date(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate());
+          if (issuedOnly > today) {
+            return res.status(400).json({ success: false, error: 'Ngày cấp CCCD không thể lớn hơn ngày hiện tại.' });
+          }
+          cleanIssuedDate = dateStr.slice(0, 10);
+        }
+      }
+
+      const cleanTaxCode = tax_code !== undefined ? (tax_code ? String(tax_code).trim() : null) : undefined;
+      const cleanAddress = address !== undefined ? (address ? String(address).trim() : null) : undefined;
+      const cleanOccupation = occupation !== undefined ? (occupation ? String(occupation).trim() : null) : undefined;
+      const cleanIdCard = id_card_number !== undefined ? (id_card_number ? String(id_card_number).trim() : null) : undefined;
+      const cleanBankAcc = bank_account_number !== undefined ? (bank_account_number ? String(bank_account_number).trim() : null) : undefined;
+      const cleanBankName = bank_name !== undefined ? (bank_name ? String(bank_name).trim() : null) : undefined;
+
+      if (cleanTaxCode !== undefined) {
+        saveTaxCode(resolvedUserId, cleanTaxCode);
+        try {
+          await supabase.from('profiles').update({ tax_code: cleanTaxCode, updated_at: new Date().toISOString() }).eq('id', resolvedUserId);
+        } catch (e) {}
+      }
+
+      const extProfiles = loadExtendedProfiles();
+      const currentExt = extProfiles[resolvedUserId] || {};
+      if (cleanAddress !== undefined) currentExt.address = cleanAddress;
+      if (cleanOccupation !== undefined) currentExt.occupation = cleanOccupation;
+      if (cleanIdCard !== undefined) currentExt.id_card_number = cleanIdCard;
+      if (cleanIssuedDate !== undefined) currentExt.id_card_issued_date = cleanIssuedDate;
+      if (cleanBankAcc !== undefined) currentExt.bank_account_number = cleanBankAcc;
+      if (cleanBankName !== undefined) currentExt.bank_name = cleanBankName;
+      if (cleanTaxCode !== undefined) currentExt.tax_code = cleanTaxCode;
+      currentExt.updated_at = new Date().toISOString();
+      extProfiles[resolvedUserId] = currentExt;
+      saveExtendedProfiles(extProfiles);
+
+      if (resolvedUserId && !resolvedUserId.startsWith('u0000000')) {
+        const affUpdates: any = { updated_at: new Date().toISOString() };
+        if (cleanAddress !== undefined) affUpdates.address = cleanAddress;
+        if (cleanOccupation !== undefined) affUpdates.occupation = cleanOccupation;
+        if (cleanIdCard !== undefined) affUpdates.id_card_number = cleanIdCard;
+        if (cleanIssuedDate !== undefined) affUpdates.id_card_issued_date = cleanIssuedDate;
+        if (cleanBankAcc !== undefined) affUpdates.bank_account_number = cleanBankAcc;
+        if (cleanBankName !== undefined) affUpdates.bank_name = cleanBankName;
+        try {
+          await supabase.from('affiliate_profiles').update(affUpdates).eq('user_id', resolvedUserId);
+        } catch (e) {}
+      }
+
+      return res.json({
+        success: true,
+        message: 'Cập nhật hồ sơ cá nhân thành công.',
+      });
+    } catch (err: any) {
+      console.error('[API UPDATE USER PROFILE EXCEPTION]', err?.message);
+      return res.status(500).json({ success: false, error: 'Lỗi khi cập nhật hồ sơ cá nhân.' });
+    }
+  });
+
+  // P4: POST /api/v1/user/avatar - Đổi ảnh avatar cho Admin/Staff/CTV
+  app.post('/api/v1/user/avatar', async (req: Request, res: Response) => {
+    try {
+      let resolvedUserId: string | null = null;
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        try {
+          const token = authHeader.replace('Bearer ', '');
+          const { data: { user }, error: authErr } = await supabaseAuth.auth.getUser(token);
+          if (!authErr && user) {
+            resolvedUserId = user.id;
+          }
+        } catch (e) {}
+      }
+
+      if (!resolvedUserId) {
+        if (demoState.currentUser?.id) {
+          resolvedUserId = demoState.currentUser.id;
+        } else if (demoState.currentRole === 'admin') {
+          resolvedUserId = demoState.adminUser.id;
+        } else if (demoState.currentRole === 'staff') {
+          resolvedUserId = demoState.staffUser.id;
+        } else if (demoState.currentRole === 'affiliate_active') {
+          resolvedUserId = demoState.activeAffiliate.user_id;
+        } else if (demoState.currentRole === 'affiliate_pending') {
+          resolvedUserId = demoState.pendingAffiliate.user_id;
+        }
+      }
+
+      if (!resolvedUserId) {
+        return res.status(401).json({ success: false, error: 'Chưa đăng nhập. Vui lòng đăng nhập để đổi ảnh đại diện.' });
+      }
+
+      const { image } = req.body;
+      if (!image || typeof image !== 'string') {
+        return res.status(400).json({ success: false, error: 'Vui lòng cung cấp dữ liệu ảnh hợp lệ.' });
+      }
+
+      const matches = image.match(/^data:(image\/(jpeg|png|webp));base64,(.+)$/);
+      if (!matches) {
+        return res.status(400).json({ success: false, error: 'Định dạng ảnh không hợp lệ. Chỉ chấp nhận JPEG, PNG hoặc WebP.' });
+      }
+
+      const mimeType = matches[1];
+      const base64Data = matches[3];
+      const buffer = Buffer.from(base64Data, 'base64');
+
+      if (buffer.length > 5 * 1024 * 1024) {
+        return res.status(400).json({ success: false, error: 'Dung lượng ảnh vượt quá giới hạn cho phép (tối đa 5MB).' });
+      }
+
+      let ext = 'jpg';
+      if (mimeType === 'image/png') {
+        ext = 'png';
+        if (buffer.length < 8 || buffer[0] !== 0x89 || buffer[1] !== 0x50 || buffer[2] !== 0x4E || buffer[3] !== 0x47) {
+          return res.status(400).json({ success: false, error: 'File ảnh PNG không hợp lệ hoặc bị giả mạo.' });
+        }
+      } else if (mimeType === 'image/jpeg') {
+        ext = 'jpg';
+        if (buffer.length < 3 || buffer[0] !== 0xFF || buffer[1] !== 0xD8 || buffer[2] !== 0xFF) {
+          return res.status(400).json({ success: false, error: 'File ảnh JPEG không hợp lệ hoặc bị giả mạo.' });
+        }
+      } else if (mimeType === 'image/webp') {
+        ext = 'webp';
+        if (buffer.length < 12 || buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WEBP') {
+          return res.status(400).json({ success: false, error: 'File ảnh WebP không hợp lệ hoặc bị giả mạo.' });
+        }
+      }
+
+      const fileName = `${resolvedUserId}/avatar_${Date.now()}.${ext}`;
+
+      const { data: uploadData, error: uploadErr } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, buffer, {
+          contentType: mimeType,
+          upsert: true,
+        });
+
+      if (uploadErr) {
+        console.error('[API UPLOAD AVATAR ERROR]', uploadErr.message);
+        return res.status(500).json({ success: false, error: 'Lỗi tải ảnh lên hệ thống lưu trữ. Vui lòng thử lại.' });
+      }
+
+      const { data: publicUrlData } = supabase.storage.from('avatars').getPublicUrl(fileName);
+      const publicUrl = publicUrlData.publicUrl;
+
+      const { error: dbErr } = await supabase
+        .from('profiles')
+        .update({ avatar_url: publicUrl, updated_at: new Date().toISOString() })
+        .eq('id', resolvedUserId);
+
+      if (dbErr) {
+        console.error('[API UPDATE PROFILE AVATAR DB ERROR]', dbErr.message);
+        try {
+          await supabase.storage.from('avatars').remove([fileName]);
+        } catch (e) {}
+        return res.status(500).json({ success: false, error: 'Lỗi lưu tham chiếu ảnh vào cơ sở dữ liệu.' });
+      }
+
+      if (resolvedUserId === demoState.adminUser.id) (demoState.adminUser as any).avatar_url = publicUrl;
+      if (resolvedUserId === demoState.staffUser.id) (demoState.staffUser as any).avatar_url = publicUrl;
+      if (resolvedUserId === demoState.activeAffiliate.user_id) (demoState.activeAffiliate as any).avatar_url = publicUrl;
+      if (resolvedUserId === demoState.pendingAffiliate.user_id) (demoState.pendingAffiliate as any).avatar_url = publicUrl;
+      if (demoState.currentUser && demoState.currentUser.id === resolvedUserId) {
+        (demoState.currentUser as any).avatar_url = publicUrl;
+      }
+
+      return res.json({
+        success: true,
+        message: 'Đổi ảnh đại diện thành công.',
+        data: { avatar_url: publicUrl },
+      });
+    } catch (err: any) {
+      console.error('[API UPLOAD AVATAR EXCEPTION]', err?.message);
+      return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi đổi ảnh đại diện.' });
     }
   });
 

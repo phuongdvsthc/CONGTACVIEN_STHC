@@ -137,6 +137,32 @@ export const api = {
     return res.json();
   },
 
+  async updateUserProfile(payload: {
+    address?: string;
+    occupation?: string;
+    id_card_number?: string;
+    id_card_issued_date?: string;
+    bank_account_number?: string;
+    bank_name?: string;
+    tax_code?: string;
+  }): Promise<{ success: boolean; data?: any; error?: string }> {
+    const res = await fetch('/api/v1/user/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return res.json();
+  },
+
+  async updateAvatar(image: string): Promise<{ success: boolean; data?: { avatar_url: string }; error?: string }> {
+    const res = await fetch('/api/v1/user/avatar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image }),
+    });
+    return res.json();
+  },
+
   async resendVerification(email: string) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 20000);
