@@ -63,6 +63,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
     title: string;
     referralUrl: string;
     affiliateCode: string;
+    courseCode?: string;
   } | null>(null);
 
   const fetchCourses = useCallback(async () => {
@@ -560,13 +561,25 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
                       </button>
 
                       <button
-                        onClick={() => setQrCourse({
-                          title: course.title,
-                          referralUrl: course.referral_url,
-                          affiliateCode: course.affiliate_code,
-                        })}
-                        className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 hover:text-blue-900 shadow-xs transition-all shrink-0"
-                        title="Xem mã QR tuyển sinh"
+                        onClick={() => {
+                          if (!course.referral_url) {
+                            alert(course.referral_url_error || 'Chưa thể mở mã QR do hệ thống chưa cấu hình domain công khai (APP_BASE_URL).');
+                            return;
+                          }
+                          setQrCourse({
+                            title: course.title,
+                            referralUrl: course.referral_url,
+                            affiliateCode: course.affiliate_code || '',
+                            courseCode: course.code || course.slug,
+                          });
+                        }}
+                        disabled={!course.referral_url}
+                        className={`inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold shadow-xs transition-all shrink-0 ${
+                          !course.referral_url
+                            ? 'text-slate-400 bg-slate-100 border border-slate-200 cursor-not-allowed'
+                            : 'text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 hover:text-blue-900'
+                        }`}
+                        title={course.referral_url ? 'Xem mã QR tuyển sinh' : (course.referral_url_error || 'Chưa có cấu hình domain công khai')}
                       >
                         <QrCode className="w-3.5 h-3.5 text-blue-900" />
                         <span className="hidden sm:inline">QR</span>
@@ -623,6 +636,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
           title={qrCourse.title}
           referralUrl={qrCourse.referralUrl}
           affiliateCode={qrCourse.affiliateCode}
+          courseCode={qrCourse.courseCode}
         />
       )}
     </div>

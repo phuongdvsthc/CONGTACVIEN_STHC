@@ -26,9 +26,18 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
   const [preferredContactTime, setPreferredContactTime] = useState('Buổi sáng (08h - 11h30)');
   const [customerNote, setCustomerNote] = useState('');
   const [consentAccepted, setConsentAccepted] = useState(true);
-
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (selectedCourseId) {
+      setCourseId(selectedCourseId);
+    } else if (!courseId && courses.length > 0) {
+      setCourseId(courses[0].id);
+    }
+  }, [selectedCourseId, courses]);
+
+  const effectiveRefCode = refCode || (typeof window !== 'undefined' ? localStorage.getItem('sthc_affiliate_ref') : null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,9 +64,9 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
         preferred_contact_time: preferredContactTime,
         customer_note: customerNote.trim() || undefined,
         consent_accepted: consentAccepted,
-        ref_code: refCode || undefined,
+        ref_code: effectiveRefCode || undefined,
         utm_source: 'web_portal',
-        utm_medium: refCode ? 'affiliate_link' : 'direct',
+        utm_medium: effectiveRefCode ? 'affiliate_link' : 'direct',
         utm_campaign: 'tuyensinh_2026',
       });
 

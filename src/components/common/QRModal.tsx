@@ -8,6 +8,7 @@ interface QRModalProps {
   title: string;
   referralUrl: string;
   affiliateCode: string;
+  courseCode?: string;
 }
 
 export const QRModal: React.FC<QRModalProps> = ({
@@ -16,6 +17,7 @@ export const QRModal: React.FC<QRModalProps> = ({
   title,
   referralUrl,
   affiliateCode,
+  courseCode,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [copied, setCopied] = useState(false);
@@ -26,8 +28,8 @@ export const QRModal: React.FC<QRModalProps> = ({
         canvasRef.current,
         referralUrl,
         {
-          width: 260,
-          margin: 2,
+          width: 280,
+          margin: 3,
           color: {
             dark: '#0F2C59', // Brand Navy
             light: '#FFFFFF',
@@ -43,16 +45,22 @@ export const QRModal: React.FC<QRModalProps> = ({
   if (!isOpen) return null;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(referralUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (!referralUrl) return;
+    navigator.clipboard.writeText(referralUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch((err) => {
+      console.error('Không thể sao chép tự động:', err);
+    });
   };
 
   const handleDownload = () => {
     if (!canvasRef.current) return;
     const url = canvasRef.current.toDataURL('image/png');
+    const cleanAff = (affiliateCode || 'CTV').replace(/[^a-zA-Z0-9_-]/g, '');
+    const cleanCourse = (courseCode || 'COURSE').replace(/[^a-zA-Z0-9_-]/g, '');
     const link = document.createElement('a');
-    link.download = `QR-${affiliateCode}.png`;
+    link.download = `QR-${cleanCourse}-${cleanAff}.png`;
     link.href = url;
     link.click();
   };

@@ -209,11 +209,23 @@ export default function App() {
     const urlRedirect = params.get('redirect_to');
 
     if (urlRef) {
-      setRefCode(urlRef.trim());
-      localStorage.setItem('sthc_affiliate_ref', urlRef.trim());
+      const cleanRef = urlRef.trim();
+      setRefCode(cleanRef);
+      localStorage.setItem('sthc_affiliate_ref', cleanRef);
+      localStorage.setItem('sthc_affiliate_ref_time', Date.now().toString());
     } else {
       const savedRef = localStorage.getItem('sthc_affiliate_ref');
-      if (savedRef) setRefCode(savedRef);
+      const savedRefTime = localStorage.getItem('sthc_affiliate_ref_time');
+      if (savedRef) {
+        const elapsed = savedRefTime ? Date.now() - Number(savedRefTime) : 0;
+        const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+        if (!savedRefTime || elapsed < THIRTY_DAYS_MS) {
+          setRefCode(savedRef);
+        } else {
+          localStorage.removeItem('sthc_affiliate_ref');
+          localStorage.removeItem('sthc_affiliate_ref_time');
+        }
+      }
     }
 
     if (urlRedirect) {
@@ -231,7 +243,10 @@ export default function App() {
     loadSession();
 
     if (urlCourse) {
-      navigate('/catalog');
+      localStorage.setItem('sthc_selected_course', urlCourse.trim());
+      // Giữ nguyên query params (?ref=...&course=...) khi chuyển hướng sang /catalog
+      const search = window.location.search;
+      navigate(`/catalog${search}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

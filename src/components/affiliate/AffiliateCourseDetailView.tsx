@@ -57,6 +57,10 @@ export const AffiliateCourseDetailView: React.FC<AffiliateCourseDetailViewProps>
     setLoading(true);
     setError(null);
     setNotFound(false);
+    setCourse(null);
+    setQrDataUrl(null);
+    setQrError(null);
+    setCopied(false);
 
     try {
       const res = await api.getAffiliateCourseDetail(courseId);
@@ -84,7 +88,7 @@ export const AffiliateCourseDetailView: React.FC<AffiliateCourseDetailViewProps>
   useEffect(() => {
     if (!course?.referral_url) {
       setQrDataUrl(null);
-      setQrError(null);
+      setQrError(course?.referral_url_error || null);
       return;
     }
 
@@ -93,8 +97,8 @@ export const AffiliateCourseDetailView: React.FC<AffiliateCourseDetailViewProps>
       QRCode.toDataURL(
         course.referral_url,
         {
-          width: 220,
-          margin: 2,
+          width: 320,
+          margin: 3,
           color: {
             dark: '#0B1E3F', // STHC Navy
             light: '#FFFFFF',
@@ -115,22 +119,24 @@ export const AffiliateCourseDetailView: React.FC<AffiliateCourseDetailViewProps>
       setQrError('Định dạng referral URL không hợp lệ để tạo mã QR.');
       setQrDataUrl(null);
     }
-  }, [course?.referral_url]);
+  }, [course?.referral_url, course?.referral_url_error]);
 
   const handleCopyLink = () => {
     if (!course?.referral_url) return;
     navigator.clipboard.writeText(course.referral_url).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
-    }).catch(() => {
-      alert('Không thể sao chép tự động. Vui lòng sao chép thủ công: ' + course.referral_url);
+    }).catch((err) => {
+      console.error('Không thể sao chép tự động:', err);
     });
   };
 
   const handleDownloadQr = () => {
     if (!qrDataUrl || !course) return;
+    const cleanAff = (course.affiliate_code || 'CTV').replace(/[^a-zA-Z0-9_-]/g, '');
+    const cleanCourse = (course.code || course.slug || 'COURSE').replace(/[^a-zA-Z0-9_-]/g, '');
     const link = document.createElement('a');
-    link.download = `QR-${course.affiliate_code || 'CTV'}-${course.code || 'COURSE'}.png`;
+    link.download = `QR-${cleanCourse}-${cleanAff}.png`;
     link.href = qrDataUrl;
     link.click();
   };
@@ -410,91 +416,107 @@ export const AffiliateCourseDetailView: React.FC<AffiliateCourseDetailViewProps>
           <div className="flex-1 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900">Link giới thiệu khóa học của bạn</h3>
-              <a
-                href={course.referral_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs font-medium text-blue-900 hover:underline flex items-center gap-1"
-                title="Mở thử trang tuyển sinh công khai"
-              >
-                <span>Mở xem trang công khai</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+              {course.referral_url && (
+                <a
+                  href={course.referral_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-medium text-blue-900 hover:underline flex items-center gap-1"
+                  title="Mở thử trang tuyển sinh công khai"
+                >
+                  <span>Mở xem trang công khai</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
             </div>
 
-            {/* Hộp link và nút sao chép */}
-            <div className="flex items-center gap-2.5">
-              <div
-                className="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-xs font-mono text-slate-700 truncate select-all shadow-inner"
-                title={course.referral_url}
-              >
-                {course.referral_url}
+            {course.referral_url ? (
+              <>
+                {/* Hộp link và nút sao chép */}
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-xs font-mono text-slate-700 truncate select-all shadow-inner"
+                    title={course.referral_url}
+                  >
+                    {course.referral_url}
+                  </div>
+                  <button
+                    onClick={handleCopyLink}
+                    className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-semibold shadow-xs transition-all shrink-0 ${
+                      copied
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-blue-900 hover:bg-blue-950 text-white'
+                    }`}
+                    title="Sao chép liên kết tiếp thị"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Đã sao chép</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-4 h-4" />
+                        <span>Sao chép link</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Dòng “Chia sẻ qua:” với 3 nút chỉ hiển thị icon (Zalo, Facebook, Mail) */}
+                <div className="flex items-center gap-3 pt-1">
+                  <span className="text-xs text-slate-600 font-medium">Chia sẻ qua:</span>
+                  <div className="flex items-center gap-2">
+                    {/* 1. Nút Zalo */}
+                    <button
+                      type="button"
+                      onClick={handleShareZalo}
+                      className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-300 text-[#0068FF] flex items-center justify-center transition-colors shadow-2xs"
+                      title="Chia sẻ qua Zalo"
+                      aria-label="Chia sẻ qua Zalo"
+                    >
+                      <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 2C6.48 2 2 6.03 2 11c0 2.87 1.5 5.42 3.84 7.04L5 22l4.24-1.39C10.14 20.84 11.05 21 12 21c5.52 0 10-4.03 10-9s-4.48-9-10-9zm1.09 12.35h-3.2c-.3 0-.54-.24-.54-.54 0-.17.08-.32.21-.42l2.35-2.73h-2.1c-.3 0-.54-.24-.54-.54s.24-.54.54-.54h3.11c.3 0 .54.24.54.54 0 .17-.08.32-.21.42l-2.42 2.73h2.47c.3 0 .54.24.54.54s-.25.54-.54.54zm3.01 0h-1.2c-.3 0-.54-.24-.54-.54V8.69c0-.3.24-.54.54-.54s.54.24.54.54v4.58h.66c.3 0 .54.24.54.54s-.24.54-.54.54z" />
+                      </svg>
+                    </button>
+
+                    {/* 2. Nút Facebook */}
+                    <button
+                      type="button"
+                      onClick={handleShareFacebook}
+                      className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-300 text-[#1877F2] flex items-center justify-center transition-colors shadow-2xs"
+                      title="Chia sẻ qua Facebook"
+                      aria-label="Chia sẻ qua Facebook"
+                    >
+                      <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
+                      </svg>
+                    </button>
+
+                    {/* 3. Nút Mail */}
+                    <button
+                      type="button"
+                      onClick={handleShareMail}
+                      className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-amber-50 hover:border-amber-300 text-amber-700 flex items-center justify-center transition-colors shadow-2xs"
+                      title="Chia sẻ qua Email"
+                      aria-label="Chia sẻ qua Email"
+                    >
+                      <Mail className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs space-y-1">
+                <div className="flex items-center gap-2 font-bold text-amber-900">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Chưa thể tạo liên kết & mã QR chia sẻ công khai</span>
+                </div>
+                <p className="text-amber-800 leading-relaxed pl-6">
+                  {course.referral_url_error || 'Hệ thống chưa được cấu hình biến môi trường APP_BASE_URL trên máy chủ.'}
+                </p>
               </div>
-              <button
-                onClick={handleCopyLink}
-                className={`inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-semibold shadow-xs transition-all shrink-0 ${
-                  copied
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-blue-900 hover:bg-blue-950 text-white'
-                }`}
-                title="Sao chép liên kết tiếp thị"
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-4 h-4" />
-                    <span>Đã sao chép</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-4 h-4" />
-                    <span>Sao chép link</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Dòng “Chia sẻ qua:” với 3 nút chỉ hiển thị icon (Zalo, Facebook, Mail) */}
-            <div className="flex items-center gap-3 pt-1">
-              <span className="text-xs text-slate-600 font-medium">Chia sẻ qua:</span>
-              <div className="flex items-center gap-2">
-                {/* 1. Nút Zalo */}
-                <button
-                  type="button"
-                  onClick={handleShareZalo}
-                  className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-300 text-[#0068FF] flex items-center justify-center transition-colors shadow-2xs"
-                  title="Chia sẻ qua Zalo"
-                  aria-label="Chia sẻ qua Zalo"
-                >
-                  <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 2C6.48 2 2 6.03 2 11c0 2.87 1.5 5.42 3.84 7.04L5 22l4.24-1.39C10.14 20.84 11.05 21 12 21c5.52 0 10-4.03 10-9s-4.48-9-10-9zm1.09 12.35h-3.2c-.3 0-.54-.24-.54-.54 0-.17.08-.32.21-.42l2.35-2.73h-2.1c-.3 0-.54-.24-.54-.54s.24-.54.54-.54h3.11c.3 0 .54.24.54.54 0 .17-.08.32-.21.42l-2.42 2.73h2.47c.3 0 .54.24.54.54s-.25.54-.54.54zm3.01 0h-1.2c-.3 0-.54-.24-.54-.54V8.69c0-.3.24-.54.54-.54s.54.24.54.54v4.58h.66c.3 0 .54.24.54.54s-.24.54-.54.54z" />
-                  </svg>
-                </button>
-
-                {/* 2. Nút Facebook */}
-                <button
-                  type="button"
-                  onClick={handleShareFacebook}
-                  className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-blue-50 hover:border-blue-300 text-[#1877F2] flex items-center justify-center transition-colors shadow-2xs"
-                  title="Chia sẻ qua Facebook"
-                  aria-label="Chia sẻ qua Facebook"
-                >
-                  <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-                  </svg>
-                </button>
-
-                {/* 3. Nút Mail */}
-                <button
-                  type="button"
-                  onClick={handleShareMail}
-                  className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-amber-50 hover:border-amber-300 text-amber-700 flex items-center justify-center transition-colors shadow-2xs"
-                  title="Chia sẻ qua Email"
-                  aria-label="Chia sẻ qua Email"
-                >
-                  <Mail className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Cột phải: Khối hiển thị mã QR trực tiếp & Nút tải ảnh PNG */}

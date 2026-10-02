@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
@@ -1422,16 +1423,22 @@ async function startServer() {
     let capturedCode: string | null = null;
 
     // 1.1 Kiểm tra trạng thái công khai và tiếp nhận đăng ký của khóa học (Yêu cầu A2.4)
+    let resolvedCourseDbId: string | null = null;
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(course_id || ''));
+
     if (course_id) {
       let targetCourse: any = null;
       try {
-        const { data: dbCourse } = await supabase
-          .from('courses')
-          .select('*')
-          .or(`id.eq.${course_id},code.eq.${course_id}`)
-          .maybeSingle();
+        let query = supabase.from('courses').select('*');
+        if (isUUID) {
+          query = query.or(`id.eq.${course_id},code.eq.${course_id},slug.eq.${course_id}`);
+        } else {
+          query = query.or(`code.eq.${course_id},slug.eq.${course_id}`);
+        }
+        const { data: dbCourse } = await query.maybeSingle();
         if (dbCourse) {
           targetCourse = attachCourseFull(dbCourse);
+          resolvedCourseDbId = dbCourse.id;
         }
       } catch (dbErr) {
         // Fallback
@@ -1439,7 +1446,16 @@ async function startServer() {
 
       if (!targetCourse) {
         const fb = INITIAL_COURSES.find(c => (c as any).id === course_id || c.code === course_id || c.slug === course_id);
-        if (fb) targetCourse = attachCourseFull(fb);
+        if (fb) {
+          targetCourse = attachCourseFull(fb);
+          // Tra cứu thử DB xem có course nào có code hoặc slug trùng để lấy UUID thật
+          const { data: matchedDb } = await supabase
+            .from('courses')
+            .select('id')
+            .or(`code.eq.${fb.code},slug.eq.${fb.slug}`)
+            .maybeSingle();
+          if (matchedDb) resolvedCourseDbId = matchedDb.id;
+        }
       }
 
       if (targetCourse) {
@@ -1483,7 +1499,16 @@ async function startServer() {
           });
         }
       } else if (eligibility.affiliate) {
-        assignedAffiliateId = eligibility.affiliate.id;
+        if (eligibility.affiliate.id && !eligibility.affiliate.id.startsWith('a0000000-')) {
+          assignedAffiliateId = eligibility.affiliate.id;
+        } else {
+          const { data: realDbAff } = await supabase
+            .from('affiliate_profiles')
+            .select('id')
+            .eq('affiliate_code', cleanRef)
+            .maybeSingle();
+          assignedAffiliateId = realDbAff?.id || null;
+        }
       }
     }
 
@@ -1513,7 +1538,7 @@ async function startServer() {
       phone: cleanPhone,
       email: email ? email.trim() : null,
       province: province || 'TP. Hồ Chí Minh',
-      course_id: course_id || null,
+      course_id: resolvedCourseDbId || (isUUID ? course_id : null),
       affiliate_id: assignedAffiliateId,
       affiliate_code_captured: capturedCode,
       counseling_status: 'NEW',
@@ -1619,20 +1644,176 @@ async function startServer() {
     });
   });
 
-  app.get('/api/v1/affiliate/courses', requireActiveAffiliate, async (req: Request, res: Response) => {
-    // Kiểm tra quyền giới thiệu của CTV có hiệu lực (Yêu cầu A1.4)
-    if (demoState.activeAffiliate.status === 'SUSPENDED') {
-      return res.status(403).json({
+  // Hàm phân giải Domain cho link giới thiệu và mã QR chuẩn C1.4
+  function resolveReferralBaseUrl(req: Request): { baseUrl: string | null; error: string | null } {
+    const isProd = process.env.NODE_ENV === 'production';
+    const rawAppBaseUrl = process.env.APP_BASE_URL?.trim();
+
+    // 1. Kiểm tra cấu hình APP_BASE_URL từ môi trường (Ưu tiên cao nhất)
+    if (rawAppBaseUrl) {
+      try {
+        const parsed = new URL(rawAppBaseUrl);
+        if (!parsed.protocol.startsWith('http')) {
+          return {
+            baseUrl: null,
+            error: 'Biến môi trường APP_BASE_URL không hợp lệ: phải bắt đầu bằng http:// hoặc https://',
+          };
+        }
+        return {
+          baseUrl: rawAppBaseUrl.replace(/\/+$/, ''),
+          error: null,
+        };
+      } catch {
+        return {
+          baseUrl: null,
+          error: 'Biến môi trường APP_BASE_URL không đúng định dạng URL hợp lệ.',
+        };
+      }
+    }
+
+    // 2. Nếu ở Production (Render / Cloud Production):
+    // TUYỆT ĐỐI KHÔNG tự động fallback về localhost hoặc URL preview
+    if (isProd) {
+      return {
+        baseUrl: null,
+        error: 'Hệ thống chưa được cấu hình biến môi trường APP_BASE_URL trên máy chủ Render. Vui lòng thiết lập biến môi trường APP_BASE_URL trong Render Dashboard > Environment để kích hoạt liên kết chia sẻ và mã QR công khai.',
+      };
+    }
+
+    // 3. Trong môi trường Development nội bộ:
+    const host = req.get('host') || '';
+
+    // Chặn không lấy URL nội bộ của môi trường preview (*.run.app, google.com, aistudio) làm domain chia sẻ công khai
+    if (host.includes('.run.app') || host.includes('aistudio') || host.includes('google.com')) {
+      return {
+        baseUrl: null,
+        error: 'Môi trường xem trước nội bộ (preview) không thể dùng làm domain chia sẻ công khai cho khách hàng. Vui lòng thiết lập biến môi trường APP_BASE_URL (ví dụ: https://sthc-ctv-system.onrender.com) để tạo liên kết và mã QR.',
+      };
+    }
+
+    // Localhost chỉ được dùng trong môi trường phát triển được cấu hình rõ
+    if (host.includes('localhost') || host.includes('127.0.0.1')) {
+      const protocol = req.get('x-forwarded-proto') || req.protocol || 'http';
+      return {
+        baseUrl: `${protocol}://${host}`,
+        error: null,
+      };
+    }
+
+    return {
+      baseUrl: null,
+      error: 'Chưa cấu hình biến môi trường APP_BASE_URL cho hệ thống. Vui lòng thiết lập APP_BASE_URL trỏ về tên miền tuyển sinh công khai.',
+    };
+  }
+
+  interface AuthenticatedAffiliateInfo {
+    id: string;
+    user_id: string;
+    affiliate_code: string;
+    status: string;
+    full_name: string;
+  }
+
+  // Hàm xác thực danh tính CTV thực tế từ CSDL hoặc phiên làm việc hợp lệ (C1.4)
+  async function resolveAffiliateSession(req: Request): Promise<{
+    affiliate: AuthenticatedAffiliateInfo | null;
+    status: 'ACTIVE' | 'PENDING_REVIEW' | 'SUSPENDED' | 'REJECTED' | 'UNAUTHORIZED';
+    error?: string;
+  }> {
+    // 1. Kiểm tra Bearer token nếu có (phiên đăng nhập thật từ Supabase Auth)
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.replace('Bearer ', '');
+        const { data: { user }, error: authErr } = await supabaseAuth.auth.getUser(token);
+        if (!authErr && user) {
+          const { data: dbAff, error: affErr } = await supabase
+            .from('affiliate_profiles')
+            .select('id, user_id, affiliate_code, status')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          if (dbAff && !affErr) {
+            const { data: prof } = await supabase
+              .from('profiles')
+              .select('full_name')
+              .eq('id', user.id)
+              .maybeSingle();
+
+            const info: AuthenticatedAffiliateInfo = {
+              id: dbAff.id,
+              user_id: dbAff.user_id,
+              affiliate_code: dbAff.affiliate_code,
+              status: dbAff.status,
+              full_name: prof?.full_name || 'Cộng tác viên',
+            };
+
+            if (dbAff.status === 'SUSPENDED') {
+              return {
+                affiliate: info,
+                status: 'SUSPENDED',
+                error: 'Tài khoản Cộng tác viên của bạn hiện đang bị TẠM NGƯNG quyền giới thiệu. Các chức năng lấy link và mã QR tiếp thị tuyển sinh bị tạm khóa. Vui lòng liên hệ Ban Tuyển sinh để được hỗ trợ.',
+              };
+            }
+
+            if (dbAff.status !== 'ACTIVE') {
+              return {
+                affiliate: info,
+                status: 'PENDING_REVIEW',
+                error: 'Tài khoản Cộng tác viên của bạn đang ở trạng thái CHỜ DUYỆT (PENDING_REVIEW). Vui lòng đợi Ban Tuyển sinh phê duyệt hồ sơ trước khi truy cập link tiếp thị.',
+              };
+            }
+
+            return { affiliate: info, status: 'ACTIVE' };
+          }
+        }
+      } catch (tokenErr) {
+        console.error('[RESOLVE AFFILIATE ERROR]', tokenErr);
+      }
+    }
+
+    // 2. Fallback sang demoState switcher nếu không có Bearer token
+    if (demoState.currentRole === 'affiliate_pending') {
+      return {
+        affiliate: demoState.pendingAffiliate as any,
+        status: 'PENDING_REVIEW',
+        error: 'Tài khoản Cộng tác viên của bạn đang ở trạng thái CHỜ DUYỆT (PENDING_REVIEW). Vui lòng đợi Ban Tuyển sinh phê duyệt hồ sơ trước khi truy cập link tiếp thị và dữ liệu.',
+      };
+    }
+
+    if (demoState.currentRole === 'affiliate_active' || demoState.currentRole === 'admin') {
+      const aff = demoState.activeAffiliate;
+      if (aff.status === 'SUSPENDED') {
+        return {
+          affiliate: aff as any,
+          status: 'SUSPENDED',
+          error: 'Tài khoản Cộng tác viên của bạn hiện đang bị TẠM NGƯNG quyền giới thiệu. Các chức năng lấy link và mã QR tiếp thị tuyển sinh bị tạm khóa. Vui lòng liên hệ Ban Tuyển sinh để được hỗ trợ.',
+        };
+      }
+      return { affiliate: aff as any, status: 'ACTIVE' };
+    }
+
+    return {
+      affiliate: null,
+      status: 'UNAUTHORIZED',
+      error: 'Yêu cầu đăng nhập tài khoản Cộng tác viên hoạt động (ACTIVE).',
+    };
+  }
+
+  // GET /api/v1/affiliate/courses (Danh sách khóa học kèm link giới thiệu định danh CTV)
+  app.get('/api/v1/affiliate/courses', async (req: Request, res: Response) => {
+    const authResult = await resolveAffiliateSession(req);
+    if (!authResult.affiliate || authResult.status !== 'ACTIVE') {
+      return res.status(authResult.status === 'UNAUTHORIZED' ? 401 : 403).json({
         success: false,
-        error: 'Tài khoản Cộng tác viên của bạn hiện đang bị TẠM NGƯNG quyền giới thiệu. Các chức năng lấy link và mã QR tiếp thị tuyển sinh bị tạm khóa. Vui lòng liên hệ Ban Tuyển sinh để được hỗ trợ.',
-        affiliate_status: 'SUSPENDED',
+        error: authResult.error || 'Yêu cầu đăng nhập tài khoản Cộng tác viên hoạt động (ACTIVE).',
+        affiliate_status: authResult.status,
       });
     }
 
-    const code = demoState.activeAffiliate.affiliate_code;
-    const host = req.get('host') || 'localhost:3000';
-    const protocol = req.protocol || 'http';
-    const baseUrl = `${protocol}://${host}`;
+    const affiliate = authResult.affiliate;
+    const code = affiliate.affiliate_code;
+    const urlResolution = resolveReferralBaseUrl(req);
 
     const { data: courses } = await supabase
       .from('courses')
@@ -1647,10 +1828,14 @@ async function startServer() {
       .filter(c => c.is_active && c.accepts_referrals);
 
     const data = activeReferralCourses.map(c => {
-      const referralUrl = `${baseUrl}/?ref=${code}&course=${c.slug}`;
+      const courseSlug = encodeURIComponent(c.slug || c.code || c.id);
+      const referralUrl = urlResolution.baseUrl
+        ? `${urlResolution.baseUrl}/?ref=${encodeURIComponent(code)}&course=${courseSlug}`
+        : null;
       return {
         ...c,
         referral_url: referralUrl,
+        referral_url_error: urlResolution.error,
         affiliate_code: code,
       };
     });
@@ -1659,12 +1844,13 @@ async function startServer() {
   });
 
   // GET /api/v1/affiliate/courses/:courseId (Chi tiết khóa học cho CTV)
-  app.get('/api/v1/affiliate/courses/:courseId', requireActiveAffiliate, async (req: Request, res: Response) => {
-    if (demoState.activeAffiliate.status === 'SUSPENDED') {
-      return res.status(403).json({
+  app.get('/api/v1/affiliate/courses/:courseId', async (req: Request, res: Response) => {
+    const authResult = await resolveAffiliateSession(req);
+    if (!authResult.affiliate || authResult.status !== 'ACTIVE') {
+      return res.status(authResult.status === 'UNAUTHORIZED' ? 401 : 403).json({
         success: false,
-        error: 'Tài khoản Cộng tác viên của bạn hiện đang bị TẠM NGƯNG quyền giới thiệu.',
-        affiliate_status: 'SUSPENDED',
+        error: authResult.error || 'Yêu cầu đăng nhập tài khoản Cộng tác viên hoạt động (ACTIVE).',
+        affiliate_status: authResult.status,
       });
     }
 
@@ -1674,10 +1860,9 @@ async function startServer() {
     }
 
     const cleanId = courseId.trim();
-    const code = demoState.activeAffiliate.affiliate_code;
-    const host = req.get('host') || 'localhost:3000';
-    const protocol = req.protocol || 'http';
-    const baseUrl = `${protocol}://${host}`;
+    const affiliate = authResult.affiliate;
+    const code = affiliate.affiliate_code;
+    const urlResolution = resolveReferralBaseUrl(req);
 
     try {
       let course: any = null;
@@ -1707,10 +1892,15 @@ async function startServer() {
         return res.status(404).json({ success: false, error: 'Khóa học không tồn tại hoặc không còn được công khai.' });
       }
 
-      const referralUrl = `${baseUrl}/?ref=${code}&course=${fullCourse.slug}`;
+      const courseSlug = encodeURIComponent(fullCourse.slug || fullCourse.code || fullCourse.id);
+      const referralUrl = urlResolution.baseUrl
+        ? `${urlResolution.baseUrl}/?ref=${encodeURIComponent(code)}&course=${courseSlug}`
+        : null;
+
       const data = {
         ...fullCourse,
         referral_url: referralUrl,
+        referral_url_error: urlResolution.error,
         affiliate_code: code,
       };
 

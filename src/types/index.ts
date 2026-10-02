@@ -44,6 +44,9 @@ export interface Course {
   status_updated_by?: string | null;
   sort_order: number;
   registered_count?: number | null;
+  referral_url?: string | null;
+  referral_url_error?: string | null;
+  affiliate_code?: string;
   created_at?: string;
   updated_at?: string;
 }

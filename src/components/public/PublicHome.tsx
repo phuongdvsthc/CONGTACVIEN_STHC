@@ -43,7 +43,7 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
   // Tự động mở modal chi tiết khóa học nếu truy cập qua link tiếp thị có kèm slug (?course=...)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const courseParam = params.get('course');
+    const courseParam = params.get('course') || (typeof window !== 'undefined' ? localStorage.getItem('sthc_selected_course') : null);
     if (courseParam && courses.length > 0 && !selectedCourseForDetail) {
       const matched = courses.find(
         (c) =>
@@ -53,6 +53,7 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
       );
       if (matched) {
         setSelectedCourseForDetail(matched);
+        setSelectedCourseForForm(matched.id);
       }
     }
   }, [courses]);

@@ -487,3 +487,76 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
    - `compile_applet`: Build succeeded 100%.
    - `npm run lint`: PASS 100% (0 lỗi, 0 cảnh báo).
    - Không chạy seed hay thay đổi dữ liệu nghiệp vụ CSDL.
+
+---
+
+## 18. Hoàn Thiện & Nghiệm Thu C1.4 — Hoàn Thiện & Nghiệm Thu Link Giới Thiệu và QR
+
+- **Mã nhiệm vụ:** `STHC-CTV-C1.4-COMPLETED`
+- **Phân hệ:** Cổng Cộng tác viên Tuyển sinh — Module Khóa học & Tiếp thị Tuyển sinh (`/portal/courses`, `/portal/courses/:courseId`, `/catalog`, `/api/v1/affiliate/courses`, `/api/v1/public/leads`)
+- **Trạng thái:** Hoàn thành toàn diện, sẵn sàng bàn giao và nghiệm thu.
+
+### 1. Kiểm kê & phân định chức năng hiện có vs nâng cấp C1.4
+- **API Referral:** `/api/v1/affiliate/courses` và `/api/v1/affiliate/courses/:courseId` đã được chuẩn hóa để nhận diện CTV từ phiên đăng nhập thực tế (Supabase Auth Bearer token hoặc demo session), không nhận mã CTV do frontend truyền tự do.
+- **Nguồn mã CTV & Định danh khóa:** Mã CTV lấy từ trường `affiliate_code` thực tế trong CSDL (`affiliate_profiles`). Định danh khóa học dùng `slug` hoặc `code` an toàn, được mã hóa URL bằng `encodeURIComponent`.
+- **Cấu hình Domain:** Loại bỏ triệt để hardcode `localhost:3000`. Hệ thống sử dụng biến môi trường chuẩn `APP_BASE_URL`.
+- **Component QR:** Tái sử dụng `QRModal` trên trang danh sách C1.2 và component QR trực tiếp trên trang chi tiết C1.3. Cả hai đều xuất ra QR có cùng nội dung referral URL, ảnh PNG sắc nét (320px, margin 3, nền trắng), đặt tên file chuẩn `QR-[CourseCode]-[AffiliateCode].png`.
+- **Sửa cửa sổ xem QR (QRModal)** theo ảnh và yêu cầu người dùng:
+  - Text thanh tiêu đề canh giữa: `text-center uppercase`.
+  - Xóa biểu tượng icon trước thanh tiêu đề.
+  - Xóa bỏ hoàn toàn dòng "Trường Du lịch Saigontourist (STHC)".
+  - Xóa chữ "STHC" ở dòng chú thích: chuyển thành "Quét camera để truy cập form tuyển sinh".
+  - Toàn bộ thiết kế sau này không tự gán cứng STHC hay tên trường để dễ dàng thích ứng khi đổi thương hiệu.
+
+### 2. Sửa domain của link giới thiệu & Cơ chế biến môi trường
+- **Nguyên nhân link cũ dùng localhost:3000:** Trong code backend `server.ts` trước đây, referral URL được tạo bằng `req.get('host') || 'localhost:3000'`. Khi chạy thử ở local dev hoặc qua proxy dev server, `host` là `localhost:3000`. Không có cơ chế đọc biến môi trường domain công khai.
+- **Giải pháp chuẩn C1.4:**
+  - Xây dựng hàm trung tâm `resolveReferralBaseUrl(req)`.
+  - **Ưu tiên số 1:** Đọc và làm sạch biến môi trường `APP_BASE_URL` (ví dụ: `https://sthc-ctv-system.onrender.com` hoặc `https://tuyensinh.sthc.edu.vn`).
+  - **Môi trường Production (`NODE_ENV === 'production'`):** TUYỆT ĐỐI KHÔNG tự động fallback sang localhost hoặc URL nội bộ. Nếu thiếu `APP_BASE_URL`, backend trả về `referral_url: null` và `referral_url_error` hướng dẫn cấu hình rõ ràng, frontend hiển thị thông báo cảnh báo cấu hình thân thiện, ngăn chặn việc cấp link hoặc mã QR sai.
+  - **Môi trường Development:** Chỉ cho phép dùng `localhost:3000` khi chạy trên môi trường dev nội bộ (`host.includes('localhost')`). Nếu chạy trên container preview Cloud Run mà không có `APP_BASE_URL`, hệ thống ngăn chặn việc dùng domain nội bộ (`*.run.app`) làm domain chia sẻ vì khách không thể truy cập nếu chưa xác thực nội bộ.
+  - **Vị trí cấu hình trên Render:**
+    - File cấu hình: `render.yaml` đã được khai báo biến `APP_BASE_URL` (sync: false).
+    - Hướng dẫn cấu hình trên Render: Truy cập **Render Dashboard** -> Chọn Web Service `sthc-ctv-system` -> Tab **Environment** -> Thêm `APP_BASE_URL` với giá trị là domain công khai của ứng dụng (ví dụ: `https://sthc-ctv-system.onrender.com`).
+  - Cấu trúc link công khai được duy trì chuẩn: `${APP_BASE_URL}/?ref=${affiliate_code}&course=${course_slug}`.
+
+### 3. Bảo đảm link đúng CTV và đúng khóa học
+- Backend lấy CTV trực tiếp từ token xác thực của phiên đăng nhập (`req.headers.authorization`) tra cứu bảng `affiliate_profiles`, hoặc qua demo switcher session.
+- Bác bỏ mọi tham số mã CTV do client tự gửi lên.
+- Kiểm tra điều kiện `status === 'ACTIVE'`: nếu CTV đang ở trạng thái `SUSPENDED` hoặc `PENDING_REVIEW`, API từ chối cấp link và trả về thông báo lỗi rõ ràng.
+- Khóa học trong danh sách của CTV bắt buộc phải thỏa mãn: `is_active === true` VÀ `accepts_referrals === true`.
+- Tra cứu khóa học hỗ trợ cả UUID, slug và code, không gán cứng mã khóa là UUID.
+- Tất cả các điểm chạm (hiển thị, sao chép, mở trang công khai, mã QR canvas, ảnh PNG tải xuống, chia sẻ Zalo/Facebook/Mail) đều dùng chung **duy nhất một nguồn referral URL** được cấp từ backend.
+- Đổi khóa học trên trang chi tiết lập tức xóa dữ liệu và QR của khóa trước (`setCourse(null)`, `setQrDataUrl(null)`), tránh tình trạng hiển thị nhầm QR khóa cũ.
+
+### 4. Hoàn thiện thao tác tương tác Link và QR
+- **Sao chép link:** Chỉ kích hoạt trạng thái "Đã sao chép" khi `navigator.clipboard.writeText` trả về Promise resolved thành công.
+- **Mở trang công khai:** Liên kết mở thẻ mới an toàn với `rel="noopener noreferrer"`, chuyển hướng đúng khóa kèm theo tham số `?ref=...&course=...`.
+- **Chất lượng QR & PNG:** Canvas và ảnh PNG tải xuống có kích thước 320x320px, viền trắng tĩnh 3 modules (`margin: 3`), màu sắc chuẩn navy `#0B1E3F` trên nền trắng `#FFFFFF`, không có logo che mất vùng quét.
+- **Tên file tải xuống:** Đã làm sạch ký tự đặc biệt, chuẩn hóa thành `QR-[CourseCode]-[AffiliateCode].png`.
+- **Chia sẻ mạng xã hội:**
+  - Dòng "Chia sẻ qua:" với 3 icon Zalo, Facebook, Mail đồng bộ kích thước 36x36px bo tròn 12px, có tooltip và aria-label.
+  - **Facebook:** Sử dụng endpoint chính thức `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}` mở popup 600x520.
+  - **Mail:** Sử dụng giao thức `mailto:?subject=${encodedSubject}&body=${encodedBody}` với tiêu đề và nội dung chứa tên khóa, mã khóa và link giới thiệu; không đặt sẵn người nhận.
+  - **Zalo:** Sử dụng Zalo Web Share Plugin `https://sp.zalo.me/plugins/share?href=${encodedUrl}` mở popup 600x560. *Lưu ý cấu hình:* Để hiển thị đầy đủ thẻ OpenGraph hình ảnh và mô tả trên ứng dụng Zalo, cần hoàn thiện đăng ký Zalo App ID hoặc Official Account trên `developers.zalo.me`.
+
+### 5. Hoàn thiện luồng công khai & Bảo hộ nguồn giới thiệu
+- **Khách không cần đăng nhập:**
+  - Khách quét QR hoặc click link tiếp thị `/?ref=...&course=...`.
+  - `App.tsx` tiếp nhận tham số, ghi nhận mã giới thiệu vào `localStorage` kèm dấu thời gian.
+  - Chuyển hướng người học vào `/catalog?ref=...&course=...`, tự động mở modal chi tiết khóa học tương ứng và đặt sẵn khóa học trong form tư vấn.
+  - Người học bấm "Đăng ký" và điền form tư vấn. Quá trình gửi form và chuyển sang màn hình cảm ơn hoàn toàn không đòi hỏi đăng nhập hay chuyển hướng vào `/portal`.
+  - Khách tải lại trang hoặc điều hướng qua các tab: nguồn giới thiệu được bảo lưu trong `localStorage` theo cơ chế **Last-Click Attribution trong 30 ngày**.
+- **Backend ghi nhận nguồn (`POST /api/v1/public/leads`):**
+  - Xác thực chấp thuận Nghị định 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân.
+  - Kiểm tra trạng thái CTV còn hiệu lực (`ACTIVE`). Nếu CTV bị tạm ngưng (`SUSPENDED`), hệ thống chặn đăng ký kèm thông báo và tuyệt đối không chuyển nguồn sang CTV khác.
+  - Tra cứu an toàn và lưu trữ khóa ngoại `course_id` (UUID thật từ bảng `courses`) và mã CTV ghi nhận (`affiliate_code_captured`).
+  - **Chính sách bảo hộ nguồn tuyển sinh 90 ngày (Anti-Tampering):** Nếu số điện thoại của người học đã tồn tại trong vòng 90 ngày, hệ thống đánh dấu trùng lặp `is_duplicate = true` và **giữ nguyên vẹn `affiliate_id` của CTV ban đầu**, ngăn ngừa hoàn toàn việc nộp lại form để đổi nguồn giới thiệu.
+
+### 6. Tổng kết kiểm thử kỹ thuật
+- `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+- `compile_applet` (`npm run build`): **Build succeeded 100%**.
+- Kiểm thử API:
+  - `GET /api/v1/affiliate/courses`: Trả về 8 khóa học hợp lệ với referral_url trỏ về `APP_BASE_URL`.
+  - `GET /api/v1/affiliate/courses/:courseId`: Trả về chi tiết kèm referral_url định danh CTV.
+  - `POST /api/v1/public/leads`: Tiếp nhận lead thành công, sinh mã hẹn `appointment_code`, lưu chính xác vào Supabase DB với `affiliate_id`, `course_id`, và bảo lưu nguồn khi phát hiện trùng số điện thoại.
