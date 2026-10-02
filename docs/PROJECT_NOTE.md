@@ -337,13 +337,61 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
 | **Thời gian duyệt** | Chỉ CTV | Affiliate Profiles | `public.affiliate_profiles.reviewed_at` | Không | Chỉ đọc |
 | **Thông tin tạm ngưng** | Chỉ CTV | Affiliate Profiles | `public.affiliate_profiles.suspension_reason` | Không | Chỉ đọc |
 
-### 11.2 P2 – Màn Hình Thông Tin Cá Nhân Chỉ Đọc (Read-Only Profile)
-1. **Endpoint API Mới**:
-   - `GET /api/v1/user/profile`: Xác thực danh tính từ Bearer token hoặc demo session, trả về đúng thông tin profile cá nhân theo vai trò (Admin, Staff, hoặc CTV) mà không bị ghi đè hay lộ ghi chú nội bộ bảo mật.
-2. **Quy tắc hiển thị giao diện**:
-   - Dùng lại cấu trúc thẻ (cards) và bố cục tương tự "Chi tiết hồ sơ CTV" (`AffiliateDetailView`), đảm bảo nhất quán giao diện hệ thống.
-   - Trường trống (ví dụ: Số CCCD, Ngân hàng, Mã số thuế nếu chưa cập nhật) hiển thị rõ chuỗi **"Chưa cập nhật"**, không ẩn phần tử hoặc điền dữ liệu mẫu.
-   - Trường **Mã số thuế** hỗ trợ kiểu `TEXT` bảo toàn số 0 ở đầu (ví dụ: `0312345678`), tuân thủ quy tắc không log mã số thuế ra console.
-   - Ngày giờ hiển thị chuẩn múi giờ Việt Nam (`Asia/Ho_Chi_Minh`).
-   - Hỗ trợ cả 2 chế độ: Mở trực tiếp qua route (`/portal/profile` và `/admin/profile`) và mở qua modal từ menu tài khoản trên header.
-   - Toàn bộ ở P2 là chế độ chỉ đọc (chưa bật form sửa thông tin hay tải ảnh đại diện).
+340: ### 11.2 P2 – Màn Hình Thông Tin Cá Nhân Chỉ Đọc (Read-Only Profile)
+341: 1. **Endpoint API Mới**:
+342:    - `GET /api/v1/user/profile`: Xác thực danh tính từ Bearer token hoặc demo session, trả về đúng thông tin profile cá nhân theo vai trò (Admin, Staff, hoặc CTV) mà không bị ghi đè hay lộ ghi chú nội bộ bảo mật.
+343: 2. **Quy tắc hiển thị giao diện**:
+344:    - Dùng lại cấu trúc thẻ (cards) và bố cục tương tự "Chi tiết hồ sơ CTV" (`AffiliateDetailView`), đảm bảo nhất quán giao diện hệ thống.
+345:    - Trường trống (ví dụ: Số CCCD, Ngân hàng, Mã số thuế nếu chưa cập nhật) hiển thị rõ chuỗi **"Chưa cập nhật"**, không ẩn phần tử hoặc điền dữ liệu mẫu.
+346:    - Trường **Mã số thuế** hỗ trợ kiểu `TEXT` bảo toàn số 0 ở đầu (ví dụ: `0312345678`), tuân thủ quy tắc không log mã số thuế ra console.
+347:    - Ngày giờ hiển thị chuẩn múi giờ Việt Nam (`Asia/Ho_Chi_Minh`).
+348:    - Hỗ trợ cả 2 chế độ: Mở trực tiếp qua route (`/portal/profile` và `/admin/profile`) và mở qua modal từ menu tài khoản trên header.
+349:    - Toàn bộ ở P2 là chế độ chỉ đọc (chưa bật form sửa thông tin hay tải ảnh đại diện).
+350: 
+351: ---
+352: 
+353: ## 12. Kiểm Kê C1.1 — Kiểm Kê Và Chốt Đặc Tả Module Khóa Học Trong Cổng CTV
+354: 
+355: 1. **Mục tiêu & Phạm vi thực hiện**:
+356:    - Đã thực hiện kiểm kê toàn diện tài liệu thiết kế, mã nguồn hiện tại, API backend, cấu trúc cơ sở dữ liệu `courses`, cơ chế link/QR giới thiệu, và trạng thái hiển thị của module Khóa học tại Cổng CTV (`/portal/courses`).
+357:    - Đã lập báo cáo chi tiết tại `/docs/CTV_C1_1_COURSES_AUDIT.md`.
+358: 2. **Kết quả kiểm kê**:
+359:    - Xác định route `/portal/courses` hiện đang hiển thị `AffiliatePlaceholderPage` (đang phát triển), chưa tích hợp danh sách thẻ khóa học thật.
+360:    - Xác định API backend `GET /api/v1/affiliate/courses` đã sẵn sàng trả về danh sách khóa học kèm `referral_url` và `affiliate_code` khi CTV có trạng thái `ACTIVE`.
+361:    - Chốt đặc tả giao diện danh sách thẻ khóa học, thông tin chi tiết, link giới thiệu, mã QR, và tài liệu tuyển sinh cho các bước tiếp theo (C1.2 đến C1.6).
+362: 3. **Trạng thái module**:
+    - Bước C1.1 là bước kiểm kê tĩnh, chưa triển khai mã nguồn mới và chưa đánh dấu module Khóa học Cổng CTV là PASS.
+364: 
+365: ---
+366: 
+367: ## 13. Triển Khai C1.2 — Danh Sách Khóa Học Trong Cổng CTV
+368: 
+369: 1. **Mục tiêu & Phạm vi thực hiện**:
+370:    - Thay thế trang placeholder tại `/portal/courses` bằng component danh sách khóa học dạng thẻ thật (`AffiliateCourseListView.tsx`).
+371:    - Kết nối API `GET /api/v1/affiliate/courses`, áp dụng strict filtering (chỉ hiển thị khóa học `is_active = true` và `accepts_referrals = true`).
+372:    - Xây dựng hệ thống tìm kiếm không dấu, bộ lọc theo Khoa & Hệ đào tạo, sắp xếp A-Z / Z-A, và phân trang 12 khóa/trang.
+373:    - Hiển thị thông tin học phí, chính sách thưởng 500k cố định kèm chú thích đối soát, và tính năng sao chép link tiếp thị cá nhân hóa.
+374: 2. **Kết quả kiểm tra**:
+375:    - Build TypeScript và Vite Production thành công 100%.
+376:    - Toàn bộ tính năng tìm kiếm, lọc, sắp xếp, phân trang và sao chép link hoạt động ổn định, tuân thủ nguyên tắc frontend design và bảo mật backend.
+377:    - Báo cáo chi tiết tại `/docs/CTV_C1_2_COURSES_LIST.md`.
+378: 3. **Trạng thái module**:
+379:    - Hoàn thành C1.2.
+380: 
+381: ---
+382: 
+383: ## 14. Triển Khai C1.3 — Trang Chi Tiết Khóa Học Trong Cổng CTV
+384: 
+385: 1. **Mục tiêu & Phạm vi thực hiện**:
+386:    - Chuyển từ phương án Modal sang **trang chi tiết riêng biệt** (`AffiliateCourseDetailView.tsx`) tại route `/portal/courses/:courseId` (hỗ trợ slug hoặc ID).
+387:    - Bổ sung nút "Chi tiết" trên mỗi thẻ khóa học tại danh sách C1.2 để điều hướng sang trang chi tiết đúng khóa.
+388:    - Xây dựng API backend `GET /api/v1/affiliate/courses/:courseId` kiểm tra phiên CTV `ACTIVE`, kiểm tra vòng đời công khai, và trả về 404 chuẩn nếu khóa không tồn tại hoặc bị ẩn.
+389:    - Trình bày đầy đủ thông tin: ảnh đại diện, tên, mã, khoa, hệ đào tạo, thời lượng, học phí, mô tả chi tiết / chương trình học được làm sạch an toàn qua `sanitizeHtml`, section quyền lợi sinh viên (nếu có), chính sách thưởng 500k đối soát, và khối link giới thiệu cá nhân hóa của CTV kèm nút sao chép link.
+2. **Kết quả kiểm tra**:
+   - Build TypeScript và Vite Production thành công 100%.
+   - Định tuyến URL trực tiếp, tải lại trang, nút "Quay lại danh sách", xử lý khóa không tồn tại (404) hoạt động hoàn hảo.
+   - Báo cáo chi tiết tại `/docs/CTV_C1_3_COURSE_DETAIL.md`.
+3. **Trạng thái module**:
+   - Hoàn thành C1.3. Dừng sau C1.3.
+
+

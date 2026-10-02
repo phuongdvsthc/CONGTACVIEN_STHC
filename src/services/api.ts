@@ -232,6 +232,11 @@ export const api = {
     return res.json();
   },
 
+  async getAffiliateCourseDetail(courseId: string): Promise<{ success: boolean; data?: Course & { referral_url: string; affiliate_code: string }; error?: string }> {
+    const res = await fetch(`/api/v1/affiliate/courses/${encodeURIComponent(courseId)}`);
+    return res.json();
+  },
+
   async getAffiliateLeads(): Promise<{ success: boolean; data: any[] }> {
     const res = await fetch('/api/v1/affiliate/leads');
     return res.json();

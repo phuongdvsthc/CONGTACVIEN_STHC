@@ -13,6 +13,8 @@ import { ThankYouScreen } from './components/public/ThankYouScreen';
 import { AffiliateDashboard } from './components/affiliate/AffiliateDashboard';
 import { AffiliateLayout } from './components/affiliate/AffiliateLayout';
 import { AffiliatePlaceholderPage } from './components/affiliate/AffiliatePlaceholderPage';
+import { AffiliateCourseListView } from './components/affiliate/AffiliateCourseListView';
+import { AffiliateCourseDetailView } from './components/affiliate/AffiliateCourseDetailView';
 import { AffiliatePendingScreen } from './components/affiliate/AffiliatePendingScreen';
 import { AffiliateRegisterModal } from './components/affiliate/AffiliateRegisterModal';
 import { AdminPortal } from './components/admin/AdminPortal';
@@ -449,10 +451,15 @@ export default function App() {
             />
           )}
 
-          {currentPath.startsWith('/portal/courses') && (
-            <AffiliatePlaceholderPage
-              title="Khóa học"
+          {currentPath.match(/^\/portal\/courses\/.+/) ? (
+            <AffiliateCourseDetailView
+              courseId={currentPath.replace('/portal/courses/', '')}
+              onBack={() => navigate('/portal/courses')}
+            />
+          ) : currentPath.startsWith('/portal/courses') && (
+            <AffiliateCourseListView
               onNavigateToOverview={() => navigate('/portal')}
+              onSelectCourse={(courseSlug) => navigate(`/portal/courses/${courseSlug}`)}
             />
           )}
 

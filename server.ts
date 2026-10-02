@@ -1658,6 +1658,66 @@ async function startServer() {
     res.json({ success: true, data });
   });
 
+  // GET /api/v1/affiliate/courses/:courseId (Chi tiết khóa học cho CTV)
+  app.get('/api/v1/affiliate/courses/:courseId', requireActiveAffiliate, async (req: Request, res: Response) => {
+    if (demoState.activeAffiliate.status === 'SUSPENDED') {
+      return res.status(403).json({
+        success: false,
+        error: 'Tài khoản Cộng tác viên của bạn hiện đang bị TẠM NGƯNG quyền giới thiệu.',
+        affiliate_status: 'SUSPENDED',
+      });
+    }
+
+    const { courseId } = req.params;
+    if (!courseId || typeof courseId !== 'string' || !courseId.trim()) {
+      return res.status(400).json({ success: false, error: 'Mã định danh khóa học không hợp lệ.' });
+    }
+
+    const cleanId = courseId.trim();
+    const code = demoState.activeAffiliate.affiliate_code;
+    const host = req.get('host') || 'localhost:3000';
+    const protocol = req.protocol || 'http';
+    const baseUrl = `${protocol}://${host}`;
+
+    try {
+      let course: any = null;
+      
+      const { data: dbCourse } = await supabase
+        .from('courses')
+        .select('*')
+        .or(`id.eq.${cleanId},slug.eq.${cleanId},code.eq.${cleanId}`)
+        .maybeSingle();
+
+      if (dbCourse) {
+        course = dbCourse;
+      } else {
+        course = INITIAL_COURSES.find(c => c.id === cleanId || c.slug === cleanId || c.code === cleanId);
+      }
+
+      if (!course) {
+        return res.status(404).json({ success: false, error: 'Khóa học không tồn tại.' });
+      }
+
+      const fullCourse = attachCourseFull(course);
+
+      if (!fullCourse.is_active || !fullCourse.accepts_referrals) {
+        return res.status(404).json({ success: false, error: 'Khóa học không tồn tại hoặc không còn được công khai.' });
+      }
+
+      const referralUrl = `${baseUrl}/?ref=${code}&course=${fullCourse.slug}`;
+      const data = {
+        ...fullCourse,
+        referral_url: referralUrl,
+        affiliate_code: code,
+      };
+
+      return res.json({ success: true, data });
+    } catch (err: any) {
+      console.error('[AFFILIATE COURSE DETAIL ERROR]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi tải chi tiết khóa học.' });
+    }
+  });
+
   // GET /api/v1/affiliate/leads (BẢO MẬT: Che 4 số cuối điện thoại)
   app.get('/api/v1/affiliate/leads', requireActiveAffiliate, async (req: Request, res: Response) => {
     const affiliateId = demoState.activeAffiliate.id;
