@@ -197,6 +197,11 @@ export const api = {
     return res.json();
   },
 
+  async getPublicAffiliateReferrer(refCode: string): Promise<{ success: boolean; data?: { full_name: string; affiliate_code: string }; error?: string }> {
+    const res = await fetch(`/api/v1/public/affiliate-referrer?ref=${encodeURIComponent(refCode)}`);
+    return res.json();
+  },
+
   async submitLead(payload: {
     full_name: string;
     phone: string;

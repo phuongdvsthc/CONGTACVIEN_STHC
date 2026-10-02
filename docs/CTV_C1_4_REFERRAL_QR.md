@@ -1,4 +1,4 @@
-# BÁO CÁO KỸ THUẬT C1.4: CHUYỂN POPUP CHI TIẾT KHÓA HỌC THÀNH TRANG CÔNG KHAI ĐỘC LẬP & CHUẨN HÓA ĐIỀU HƯỚNG TIẾP THỊ
+# BÁO CÁO KỸ THUẬT C1.4: TRANG CÔNG KHAI CHI TIẾT KHÓA HỌC & ĐĂNG KÝ HỌC THEO YÊU CẦU MỚI
 
 Tài liệu này ghi nhận nguyên nhân gốc rễ, toàn bộ các thay đổi kiến trúc và kết quả kiểm thử thực tế cho yêu cầu C1.4 thuộc Cổng Cộng tác viên Tuyển sinh STHC.
 
@@ -7,7 +7,7 @@ Tài liệu này ghi nhận nguyên nhân gốc rễ, toàn bộ các thay đổ
 ## 1. Nguyên nhân gốc rễ (Root Cause Analysis)
 
 ### 1.1. Nguyên nhân tự động chuyển hướng sang `/catalog`
-- **Vị trí lỗi cũ:** `src/App.tsx` (hook `useEffect` mount ban đầu, dòng 245–250).
+- **Vị trí lỗi cũ:** `src/App.tsx` (hook `useEffect` mount ban đầu, dòng 245–250 cũ).
 - **Cơ chế cũ:** Khi khách truy cập link tiếp thị có tham số `?course=...` tại trang chủ `/`, đoạn code cũ thực hiện:
   ```ts
   if (urlCourse) {
@@ -18,95 +18,109 @@ Tài liệu này ghi nhận nguyên nhân gốc rễ, toàn bộ các thay đổ
   ```
 - **Hệ quả:** Bất kỳ ai mở link `/?ref=...&course=...` đều bị router chuyển hướng tự động sang `/catalog?ref=...&course=...`, làm mất ngữ cảnh trang chủ và phá vỡ cấu trúc URL công khai chuẩn `/?ref=...&course=...`.
 
-### 1.2. Nguyên nhân tự động mở modal/popup chi tiết
-- **Vị trí lỗi cũ:** `src/components/public/PublicHome.tsx` (dòng 43–58).
+### 1.2. Nguyên nhân tự động mở modal/popup chi tiết toàn bộ khóa học
+- **Vị trí lỗi cũ:** `src/components/public/PublicHome.tsx` (dòng 43–58 cũ).
 - **Cơ chế cũ:** Khi route `/catalog` nạp component `PublicHome.tsx`, một `useEffect` đọc `courseParam` từ URL hoặc `localStorage`, sau đó tự động gọi `setSelectedCourseForDetail(matched)`.
 - **Hệ quả:** Component `CourseDetailModal.tsx` bị kích hoạt mở lên dưới dạng một modal popup với nền tối mờ (`bg-slate-950/70 backdrop-blur-sm`), nút đóng `X`, và khung cuộn nội bộ nhỏ (`overflow-y-auto max-h-[90vh]`), gây ức chế cho người dùng điện thoại và không tạo cảm giác một trang tuyển sinh chính thức.
 
 ---
 
-## 2. Giải pháp kỹ thuật & Các thành phần đã triển khai
+## 2. Giải pháp kỹ thuật & Cập nhật thiết kế mới theo yêu cầu
 
 ### 2.1. Quy tắc định tuyến chuẩn tại trang chủ (`/`)
-- **Khi có tham số `course` hợp lệ:** Giữ nguyên pathname `/` và các tham số `?ref=...&course=...`. Hiển thị trực tiếp component trang độc lập `PublicCourseDetailPage.tsx`. Không tự chuyển hướng sang `/catalog`, không mở modal/popup, không yêu cầu đăng nhập.
+- **Khi có tham số `course` hợp lệ:** Giữ nguyên pathname `/` và các tham số `?ref=...&course=...`. Hiển thị trực tiếp component trang độc lập `PublicCourseDetailPage.tsx`. Không tự chuyển hướng sang `/catalog`, không đưa nội dung chi tiết khóa học vào popup, không yêu cầu đăng nhập.
 - **Khi không có `course`:** Giữ nguyên trang chủ tiếp thị CTV hiện tại (`AffiliateLandingPage.tsx`).
 - **Khi có `ref` nhưng không có `course`:** Lưu trữ `ref_code` vào state và `localStorage` (thời hạn 30 ngày theo cơ chế Last-Click Attribution), hiển thị trang chủ tiếp thị CTV bình thường.
 - **Khi truy cập link cũ `/catalog?ref=...&course=...`:** `App.tsx` tự động chuyển hướng chuẩn về `/?ref=...&course=...` (giữ nguyên đầy đủ tham số), đảm bảo người dùng truy cập từ link cũ đều được đưa về trang công khai chuẩn.
 - **Khi `course` không tồn tại hoặc bị ẩn (`is_active === false`):** Hiển thị màn hình thông báo lỗi trang trọng ("Khóa học không tồn tại hoặc đã ngừng công khai trên hệ thống") kèm nút quay lại danh mục hoặc trang chủ. Tuyệt đối không tự ý mở khóa khác hoặc nạp dữ liệu mẫu.
 
-### 2.2. Thiết kế trang công khai theo bố cục TTL.png & Chuẩn thương hiệu STHC
-Component mới: `src/components/public/PublicCourseDetailPage.tsx`.
-- **Header gọn:** 
-  - Logo và tên trường bên trái: "TRƯỜNG DU LỊCH SAIGONTOURIST (STHC)" kèm biểu tượng STHC.
-  - Hotline chính thức bên phải: `1800 5588 27` (Miễn phí cước gọi), gắn link gọi trực tiếp `tel:1800558827`.
-  - Không sử dụng sidebar hay header quản trị của cổng CTV. Không hiển thị thù lao, link tiếp thị hay công cụ chia sẻ của CTV.
-- **Bố cục tổng thể:**
-  - Nền xám nhạt (`bg-slate-100/90`), khối nội dung thẻ trắng (`bg-white rounded-2xl shadow-sm border border-slate-200/90`), độ rộng tối đa chuẩn 1100–1200px (`max-w-6xl`).
-  - Trang cuộn tự nhiên toàn màn hình (`window` scroll), loại bỏ triệt để khung cuộn nhỏ bên trong.
-- **Phần đầu 2 cột (Desktop 2 cột, Mobile 1 cột không tràn ngang):**
-  - Cột trái: Ảnh đại diện khóa học thật từ CSDL (`thumbnail_url`), có fallback container trang trọng nếu ảnh lỗi. Huy hiệu hệ đào tạo nổi trên ảnh.
-  - Cột phải: 
-    - Nhãn phân loại không dùng pill: Tên khoa, nhóm nghề, mã khóa.
-    - Tên khóa học tiêu đề lớn, sắc nét.
-    - Mô tả tóm tắt khóa học.
-    - Hộp 4 thông số: Thời gian đào tạo, Học phí dự kiến (định dạng VNĐ), Văn bằng/chứng chỉ, Hình thức xét tuyển học bạ.
-    - Nút Call To Action "ĐĂNG KÝ TƯ VẤN NGAY", bấm vào cuộn mượt mà xuống form đăng ký bên dưới.
-- **Nội dung đào tạo & Lịch khai giảng:**
-  - `description_html` được làm sạch an toàn bằng `sanitizeHtml`.
-  - Hiển thị đầy đủ thông tin: Lịch khai giảng theo các tháng, ca học, đối tượng tuyển sinh, học phí trọn gói.
-- **Đặc quyền học viên STHC:**
-  - Hiển thị khi `benefits_content` có dữ liệu (Giảm 5% học phí khi đăng ký sớm, thực tập hưởng lương tại Saigontourist Group, cam kết 100% giới thiệu việc làm).
+### 2.2. Header mới
+- Nền header đổi thành màu xanh thương hiệu Saigontourist (`bg-[#0B1E3F]`), đồng bộ với token nhận diện thương hiệu.
+- Đã loại bỏ hoàn toàn tên trường và dòng mô tả hardcode trước đây.
+- Logo và hotline sẽ được lấy từ module cấu hình trang home của Admin khi nguồn cấu hình này được triển khai.
+- **Trạng thái hiện tại:** Chưa triển khai module cấu hình home của Admin -> Tuyệt đối không hiển thị logo/hotline mẫu hoặc fallback hardcode.
+- Chiều cao header được thu gọn tối ưu (`min-h-[46px]`), không tạo khoảng trống thừa.
 
-### 2.3. Form đăng ký tư vấn tích hợp ngay trong trang
-- Vị trí: Đặt ngay bên dưới phần nội dung (id `dang-ky-tu-van`), không mở popup.
-- Tái sử dụng: Dùng `LeadConsultationForm.tsx` kết hợp prop mới `lockCourse={true}`:
-  - Khóa đang xem được chọn sẵn và cố định (locked view), ngăn chặn học viên chọn nhầm khóa khác.
-  - Giữ nguyên `ref_code` từ URL và gửi lên backend qua API `POST /api/v1/public/leads`.
-  - Xác thực consent theo Nghị định 13/2023/NĐ-CP.
-  - Chặn spam gửi liên tiếp bằng trạng thái `loading`, vô hiệu hóa nút submit.
-  - Sau khi backend lưu thành công, hiển thị trực tiếp `ThankYouScreen` với mã hẹn `appointment_code`.
+### 2.3. Các card thông tin khóa học (Dữ liệu thật & Loại bỏ suy diễn)
+- **Kiểm tra từng card và ánh xạ dữ liệu thật từ CSDL Supabase:**
+  - Card 1: **Thời gian đào tạo** — ánh xạ trực tiếp từ trường `duration_text` của bảng `courses`.
+  - Card 2: **Học phí** — ánh xạ từ trường `tuition_fee_estimate` của bảng `courses` (được định dạng chuẩn tiền tệ VNĐ). Không tự động thêm chữ "dự kiến" nếu không có căn cứ.
+- **Loại bỏ hoàn toàn các card suy diễn hoặc tự gán:**
+  - Không suy ra "Văn bằng" từ `degree_level` (trường này chỉ là Hệ đào tạo).
+  - Không tự gán "Hình thức: Xét tuyển học bạ" hoặc các nội dung mặc định không có trong CSDL.
+- **Khối phân loại đầu trang:**
+  - Giữ lại "Hệ đào tạo" (`degree_level`), "Nhóm nghề" (`career_group`), và "Mã khóa" (`code`) theo dữ liệu thật.
+  - Không hiển thị "Khoa đào tạo" (`department`) trong khối đầu trang này.
+- **Tự động co giãn bố cục:** Ẩn hoàn toàn các card không có dữ liệu, các card còn lại tự động co giãn (`grid-cols-1 sm:grid-cols-2`), tuyệt đối không để ô trống.
 
-### 2.4. Bảo hộ nguồn CTV & Chống gian lận (Anti-Tampering)
-- Backend kiểm tra điều kiện `status === 'ACTIVE'` của CTV tại thời điểm gửi form. Nếu CTV bị `SUSPENDED`, backend từ chối với HTTP 400 và không chuyển nguồn sang CTV khác.
-- Backend tự giải quyết `affiliate_code` thành `affiliate_id` thật từ CSDL Supabase, tuyệt đối không tin cậy `affiliate_id` do client truyền.
-- Chính sách bảo hộ 90 ngày: Khi số điện thoại đã tồn tại trong vòng 90 ngày, backend đánh dấu `is_duplicate = true` và **bảo toàn nguyên vẹn `affiliate_id` của CTV ban đầu**.
+### 2.4. Nút "ĐĂNG KÝ HỌC" và Popup Form Đăng Ký
+- Đổi tên nút hành động chính từ "ĐĂNG KÝ TƯ VẤN NGAY" thành **"ĐĂNG KÝ HỌC"**.
+- Bấm nút mở popup modal chứa form đăng ký cho chính khóa học đang xem:
+  - Tiêu đề popup: **“Đăng ký học — [Tên khóa học]”**.
+  - Nút gửi: **“Gửi đăng ký học”**.
+  - Khóa học được chọn sẵn và cố định (`lockCourse={true}`), không cho phép đổi sang khóa khác.
+  - Tái sử dụng component `LeadConsultationForm.tsx`, bảo toàn đầy đủ validation, consent và endpoint `POST /api/v1/public/leads`.
+  - **Consent bắt buộc:** Không tích chọn sẵn mặc định (`consentAccepted = false`). Học viên bắt buộc phải chủ động tích chọn chấp thuận Nghị định 13/2023/NĐ-CP mới gửi được form.
+  - Hỗ trợ đóng popup bằng nút `X`, phím `Escape`, nhấp ngoài nền mờ; ngăn ngừa việc mở nhiều popup khi bấm liên tiếp.
+  - Đóng/mở popup không làm thay đổi URL hoặc mất nguồn giới thiệu `ref` và `course`.
+  - Nghiệp vụ: Gửi form ghi nhận đăng ký ban đầu thành công, sinh mã hẹn `appointment_code`, không tự động đánh dấu đã nhập học, đã đóng học phí hay tạo thưởng CTV.
+
+### 2.5. Thông tin người giới thiệu (Referrer Info)
+- Thay thế dòng phụ dưới nút đăng ký thành:
+  **“Bạn được giới thiệu bởi đối tác [Họ và tên CTV]”** (in đậm họ và tên CTV).
+- **Backend API an toàn:** Bổ sung endpoint `GET /api/v1/public/affiliate-referrer?ref=...`.
+  - Tra cứu mã `ref` từ bảng `affiliate_profiles` kết hợp bảng `profiles` (`profiles!affiliate_profiles_user_id_fkey`).
+  - Kiểm tra trạng thái CTV còn hiệu lực (`status === 'ACTIVE'`).
+  - **Bảo mật PII:** Chỉ trả về họ và tên hiển thị công khai và mã CTV; tuyệt đối không để lộ email, số điện thoại, số CCCD hay dữ liệu tài khoản ngân hàng.
+  - Nếu `ref` không tồn tại, CTV bị tạm ngưng (`SUSPENDED`) hoặc chưa duyệt: API trả về không hợp lệ, giao diện ẩn hoàn toàn câu xác nhận người giới thiệu.
+  - Khi gửi form, backend tiếp tục kiểm tra lại tính hợp lệ của CTV tại thời điểm submit, không phụ thuộc vào kết quả tra cứu lúc tải trang.
+
+### 2.6. Bỏ form nằm dưới trang & Rút gọn Footer
+- **Bỏ form dưới trang:** Xóa toàn bộ section "Đăng Ký Tư Vấn & Xét Tuyển Học Nghề" ở đáy trang. Toàn bộ trải nghiệm đăng ký tập trung vào popup mở từ nút "ĐĂNG KÝ HỌC".
+- **Footer rút gọn:** Xóa tên trường, thông tin đơn vị, hotline, địa chỉ, email, giờ làm việc và link chính sách hardcode. Chỉ giữ lại duy nhất dòng bản quyền:
+  `© 2026 STHC - Saigontourist Group. Tất cả quyền được bảo lưu.`
+  Chiều cao footer được thu gọn tối đa. Nội dung đầy đủ sẽ được liên kết từ module cấu hình home của Admin sau này.
 
 ---
 
-## 3. Danh sách tệp đã tạo & sửa đổi
+## 3. Danh sách tệp đã cập nhật
 
 | STT | Tệp tin | Nội dung thay đổi |
 | :--- | :--- | :--- |
-| 1 | `/src/components/public/PublicCourseDetailPage.tsx` | **[Tạo mới]** Component trang chi tiết khóa học công khai độc lập theo thiết kế TTL.png, header logo/hotline 1800558827, 2 cột responsive, cuộn tự nhiên, tích hợp form tư vấn khóa cứng. |
-| 2 | `/src/components/public/LeadConsultationForm.tsx` | Bổ sung prop `lockCourse?: boolean`, hiển thị ngành học cố định khi xem từ trang khóa học, chặn đổi nhầm khóa. |
-| 3 | `/src/components/public/PublicHome.tsx` | Loại bỏ `useEffect` tự động mở modal khi có tham số `course`, bổ sung prop `onViewCourseDetail` chuyển hướng mượt mà sang `/?course=...`. |
-| 4 | `/src/App.tsx` | Loại bỏ redirect cũ sang `/catalog`. Thêm state `courseSlugParam`. Đồng bộ `navigate` và `popstate`. Chuyển hướng link cũ `/catalog?ref=...&course=...` về `/?ref=...&course=...`. Render `PublicCourseDetailPage` trên `/` khi có `course`. Ẩn footer chung khi ở trang chi tiết riêng biệt. |
-| 5 | `/src/services/api.ts` | Cập nhật hàm `getPublicCourse(slug)` mã hóa an toàn slug qua `encodeURIComponent`. |
-| 6 | `/server.ts` | Mở rộng `GET /api/v1/public/courses/:slug` hỗ trợ tra cứu linh hoạt theo `slug`, `code` hoặc `id` UUID; bảo đảm trả về đúng khóa học đang công khai. |
-| 7 | `/docs/CTV_C1_4_REFERRAL_QR.md` | Tài liệu báo cáo kỹ thuật chi tiết phân hệ C1.4. |
-| 8 | `/docs/PROJECT_NOTE.md` | Cập nhật tổng thể tiến độ và biên bản nghiệm thu C1.4. |
+| 1 | `/src/components/public/PublicCourseDetailPage.tsx` | Cập nhật header nền xanh Saigontourist `#0B1E3F`, loại bỏ hardcode logo/hotline; hiển thị card theo trường thật; đổi nút sang "ĐĂNG KÝ HỌC" mở popup modal; hiển thị "Bạn được giới thiệu bởi đối tác [Họ và tên CTV]"; xóa form ở đáy trang; thu gọn footer. |
+| 2 | `/src/components/public/LeadConsultationForm.tsx` | Khởi tạo consent mặc định `false`; hỗ trợ prop `title`, `submitButtonText`, `badge`, `subtitle` tùy biến linh hoạt cho popup. |
+| 3 | `/src/services/api.ts` | Bổ sung hàm `getPublicAffiliateReferrer(refCode)` gọi API lấy thông tin hiển thị công khai của CTV. |
+| 4 | `/server.ts` | Nâng cấp hàm `checkAffiliateReferralEligibility` đọc `full_name` từ bảng `profiles`; bổ sung endpoint `GET /api/v1/public/affiliate-referrer` bảo vệ dữ liệu PII. |
+| 5 | `/docs/CTV_C1_4_REFERRAL_QR.md` | Cập nhật tài liệu kỹ thuật chi tiết theo yêu cầu mới. |
+| 6 | `/docs/PROJECT_NOTE.md` | Cập nhật hồ sơ dự án và biên bản bàn giao. |
 
 ---
 
 ## 4. Kết quả kiểm tra thực tế (Verification Results)
 
 1. **Kiểm tra biên dịch & Lint:**
-   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
    - `compile_applet`: **Build succeeded 100%**.
-2. **Kiểm tra API dữ liệu khóa học thật:**
-   - `GET /api/v1/public/courses/ba-13e2`: Trả về đúng khóa học **"Bánh Âu"** (Mã: `BA`, slug: `ba-13e2`, học phí: `13.000.000 ₫`, đầy đủ lịch khai giảng và ảnh đại diện thật từ Supabase Storage).
-   - `GET /api/v1/public/courses/quan-tri-khach-san-khu-nghi-duong`: Trả về đúng khóa Quản trị Khách sạn.
-   - `GET /api/v1/public/courses/khoa-hoc-khong-ton-tai`: Trả về HTTP 404 `{"success":false,"error":"Không tìm thấy khóa học"}`.
-3. **Kiểm tra gửi form tư vấn tuyển sinh (`POST /api/v1/public/leads`):**
-   - Thiếu chấp thuận Nghị định 13: Bị từ chối với HTTP 400.
-   - Mã giới thiệu của CTV bị tạm ngưng (`STHCCTV3033` - `SUSPENDED`): Bị từ chối với HTTP 400 (`AFFILIATE_SUSPENDED`), không chuyển nguồn sang CTV khác.
-   - Mã giới thiệu chưa kích hoạt (`STHCCTV9001` - `PENDING_REVIEW`): Bị từ chối với HTTP 400 (`AFFILIATE_NOT_ACTIVE`).
-   - Mã giới thiệu CTV hoạt động (`STHCCTV6993` - `ACTIVE`): Tiếp nhận thành công, sinh mã hẹn `STHC-TS-643399`. Kiểm tra bản ghi CSDL Supabase: lưu chính xác `affiliate_id: "d12347a4-ebc1-402b-b4e7-763eb6127c07"` và `course_id: "13e2cf6a-b792-4ae0-8562-c6c1e6ae0db1"`.
-   - Nộp lại form với cùng số điện thoại và mã giới thiệu khác (`STHCCTV3042`): Tiếp nhận thành công. Kiểm tra bản ghi CSDL Supabase: ghi nhận `is_duplicate: true`, lý do trùng lặp 90 ngày, và **giữ nguyên vẹn `affiliate_id` của CTV ban đầu (`d12347a4-...`)**, ngăn chặn hành vi cướp nguồn.
-   - Dọn dẹp an toàn các bản ghi thử nghiệm sau khi xác thực.
-4. **Kiểm tra điều hướng:**
-   - Truy cập `/?ref=STHCCTV1088&course=ba-13e2`: Giữ nguyên URL trên thanh địa chỉ, hiển thị trực tiếp trang Bánh Âu, không có modal popup, không yêu cầu đăng nhập.
-   - Tải lại trang (F5): Giữ nguyên trang chi tiết Bánh Âu.
-   - Truy cập `/`: Hiển thị trang chủ giới thiệu CTV bình thường.
-   - Truy cập `/?ref=STHCCTV1088`: Hiển thị trang chủ giới thiệu CTV với mã giới thiệu được lưu trong `localStorage`.
-   - Cổng quản trị `/admin` và cổng CTV `/portal` vẫn hoạt động độc lập và bình thường.
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+2. **Kiểm tra tra cứu người giới thiệu qua 4 kịch bản:**
+   - CTV Demo hoạt động (`STHCCTV1088`): Trả về `full_name: "Trần Thị Thu Thảo"`.
+   - CTV Thật trong CSDL hoạt động (`STHCCTV6993`): Trả về `full_name: "admin"`.
+   - CTV Tạm ngưng (`STHCCTV3033` - `SUSPENDED`): Trả về `eligible: false`, không hiển thị thông tin CTV.
+   - Mã giới thiệu không hợp lệ (`INVALID123`): Trả về `eligible: false`, không hiển thị thông tin CTV.
+3. **Kiểm tra card thông tin khóa học thật:**
+   - Khóa "Bánh Âu" (`ba-13e2`): Hiển thị đúng 2 card gồm "Thời gian đào tạo: 2 tháng" và "Học phí: 13.000.000 ₫".
+   - Không xuất hiện card suy diễn "Văn bằng" hay "Hình thức".
+   - Khối đầu trang hiển thị "Hệ đào tạo: Ngắn hạn · Nhóm nghề: Làm bánh · Mã: BA", không có Khoa đào tạo.
+4. **Kiểm tra Popup Đăng Ký Học:**
+   - Click nút "ĐĂNG KÝ HỌC" mở popup có tiêu đề: `Đăng ký học — Bánh Âu`.
+   - Nút gửi mang nhãn `Gửi đăng ký học`.
+   - Khóa học Bánh Âu bị khóa cố định, không thể đổi khóa khác.
+   - Checkbox consent chưa được tích chọn mặc định; nếu bấm gửi khi chưa tích consent sẽ báo lỗi hợp lệ.
+   - Bấm phím Escape hoặc nút `X` đóng popup mượt mà, URL giữ nguyên `/?ref=...&course=...`.
+5. **Giao diện & Footer:**
+   - Header màu xanh thương hiệu Saigontourist `#0B1E3F`, không có hardcode logo hay hotline.
+   - Đáy trang không còn form thừa.
+   - Footer chỉ hiển thị duy nhất dòng bản quyền © 2026 STHC - Saigontourist Group.
+   - Đã kiểm tra responsive trên mobile và desktop: không tràn ngang.
+
+### 5. Phần chưa xác minh thực tế
+- **Module Cấu hình Home của Admin:** Do yêu cầu chỉ định chưa triển khai module cấu hình trang home trong lần này, phần hiển thị logo, hotline và nội dung footer đầy đủ lấy động từ Admin sẽ được kết nối sau khi module cấu hình home được xây dựng.

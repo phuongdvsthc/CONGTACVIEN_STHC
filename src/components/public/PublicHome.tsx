@@ -294,11 +294,15 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => {
-                        if (onViewCourseDetail) {
-                          onViewCourseDetail(course);
-                        } else {
-                          setSelectedCourseForDetail(course);
+                        const courseParam = course.slug || course.code || course.id;
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const refCode = urlParams.get('ref');
+                        let targetUrl = `/?course=${encodeURIComponent(courseParam)}`;
+                        if (refCode) {
+                          targetUrl += `&ref=${encodeURIComponent(refCode)}`;
                         }
+                        window.history.pushState({}, '', targetUrl);
+                        window.dispatchEvent(new PopStateEvent('popstate'));
                       }}
                       className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-blue-900 hover:bg-slate-50 rounded-lg transition-colors"
                     >

@@ -8,6 +8,11 @@ interface LeadConsultationFormProps {
   selectedCourseId?: string;
   refCode?: string | null;
   lockCourse?: boolean;
+  title?: string;
+  subtitle?: string | null;
+  badge?: string | null;
+  submitButtonText?: string;
+  defaultConsent?: boolean;
   onSuccess: (result: { appointment_code?: string; message: string }) => void;
   onCancel?: () => void;
 }
@@ -17,6 +22,11 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
   selectedCourseId,
   refCode,
   lockCourse = false,
+  title,
+  subtitle,
+  badge,
+  submitButtonText,
+  defaultConsent = false,
   onSuccess,
   onCancel,
 }) => {
@@ -27,7 +37,7 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
   const [courseId, setCourseId] = useState(selectedCourseId || (courses[0]?.id || ''));
   const [preferredContactTime, setPreferredContactTime] = useState('Buổi sáng (08h - 11h30)');
   const [customerNote, setCustomerNote] = useState('');
-  const [consentAccepted, setConsentAccepted] = useState(true);
+  const [consentAccepted, setConsentAccepted] = useState(defaultConsent);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -96,20 +106,26 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
       {/* Form Header */}
       <div className="flex items-start justify-between pb-5 border-b border-slate-100">
         <div>
-          <span className="text-xs font-semibold text-blue-900 bg-blue-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
-            Tuyển sinh năm học 2026
-          </span>
-          <h3 className="mt-2 text-xl font-bold text-slate-900 tracking-tight">
-            Đăng Ký Tư Vấn & Xét Tuyển Học Nghề
+          {badge !== null && (
+            <span className="text-xs font-semibold text-blue-900 bg-blue-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
+              {badge || 'Tuyển sinh năm học 2026'}
+            </span>
+          )}
+          <h3 className={`font-bold text-slate-900 tracking-tight ${badge !== null ? 'mt-2 text-xl' : 'text-xl'}`}>
+            {title || 'Đăng Ký Tư Vấn & Xét Tuyển Học Nghề'}
           </h3>
-          <p className="text-xs text-slate-500 mt-1">
-            Không thi tuyển - Xét tuyển học bạ THCS / THPT - Nhập học ngay
-          </p>
+          {subtitle !== null && (
+            <p className="text-xs text-slate-500 mt-1">
+              {subtitle || 'Không thi tuyển - Xét tuyển học bạ THCS / THPT - Nhập học ngay'}
+            </p>
+          )}
         </div>
         {onCancel && (
           <button
             onClick={onCancel}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            type="button"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            title="Đóng cửa sổ"
           >
             <X className="w-5 h-5" />
           </button>
@@ -304,7 +320,7 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
             ) : (
               <>
                 <Send className="w-4 h-4 text-amber-400" />
-                <span>Gửi Đăng Ký Tư Vấn Ngay</span>
+                <span>{submitButtonText || 'Gửi Đăng Ký Tư Vấn Ngay'}</span>
               </>
             )}
           </button>

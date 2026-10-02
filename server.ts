@@ -1350,7 +1350,9 @@ async function startServer() {
 
     // 2. Tra cứu từ CSDL Supabase
     try {
-      let query = supabase.from('affiliate_profiles').select('id, user_id, affiliate_code, status');
+      let query = supabase
+        .from('affiliate_profiles')
+        .select('id, user_id, affiliate_code, status, profile:profiles!affiliate_profiles_user_id_fkey(full_name)');
       if (identifier.id) {
         query = query.eq('id', identifier.id);
       } else if (identifier.code) {
@@ -1366,11 +1368,16 @@ async function startServer() {
         };
       }
 
+      const affObj = {
+        ...dbAff,
+        full_name: (dbAff.profile as any)?.full_name || 'Cộng tác viên Tuyển sinh',
+      };
+
       if (dbAff.status === 'SUSPENDED') {
         return {
           eligible: false,
           status: 'SUSPENDED',
-          affiliate: dbAff,
+          affiliate: affObj,
           error_message: 'Mã giới thiệu của Cộng tác viên hiện đang tạm ngưng tiếp nhận đăng ký tư vấn mới. Vui lòng liên hệ trực tiếp Ban Tuyển sinh Trường Saigontourist để được hỗ trợ.',
         };
       }
@@ -1379,7 +1386,7 @@ async function startServer() {
         return {
           eligible: false,
           status: dbAff.status,
-          affiliate: dbAff,
+          affiliate: affObj,
           error_message: 'Mã giới thiệu của Cộng tác viên chưa được kích hoạt quyền giới thiệu.',
         };
       }
@@ -1387,7 +1394,7 @@ async function startServer() {
       return {
         eligible: true,
         status: 'ACTIVE',
-        affiliate: dbAff,
+        affiliate: affObj,
       };
     } catch (err: any) {
       return {
@@ -1397,6 +1404,36 @@ async function startServer() {
       };
     }
   };
+
+  // GET /api/v1/public/affiliate-referrer?ref=... (Tra cứu thông tin công khai an toàn của người giới thiệu)
+  app.get('/api/v1/public/affiliate-referrer', async (req: Request, res: Response) => {
+    const ref = req.query.ref ? String(req.query.ref).trim() : '';
+    if (!ref) {
+      return res.status(400).json({ success: false, error: 'Thiếu mã giới thiệu.' });
+    }
+
+    try {
+      const eligibility = await checkAffiliateReferralEligibility({ code: ref });
+      if (!eligibility.eligible || !eligibility.affiliate) {
+        return res.json({
+          success: false,
+          eligible: false,
+          error: 'Cộng tác viên không tồn tại hoặc không ở trạng thái hoạt động.',
+        });
+      }
+
+      // BẢO VỆ PII & BẢO MẬT: Chỉ trả về tên hiển thị và mã giới thiệu, tuyệt đối không lộ email, SĐT, CCCD, v.v.
+      return res.json({
+        success: true,
+        data: {
+          full_name: eligibility.affiliate.full_name || 'Cộng tác viên Tuyển sinh',
+          affiliate_code: eligibility.affiliate.affiliate_code,
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi tra cứu người giới thiệu.' });
+    }
+  });
 
   // POST /api/v1/public/leads (Người học tự gửi form tư vấn, không hỏi CCCD, bảo vệ dữ liệu PII)
   app.post('/api/v1/public/leads', async (req: Request, res: Response) => {
