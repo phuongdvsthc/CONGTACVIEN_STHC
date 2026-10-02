@@ -64,8 +64,20 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
       return;
     }
 
+    // Kiểm tra Email bắt buộc và đúng định dạng
+    const emailClean = email.trim();
+    if (!emailClean) {
+      setErrorMessage('Vui lòng nhập Địa chỉ Email liên hệ.');
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailClean)) {
+      setErrorMessage('Địa chỉ email không hợp lệ. Vui lòng kiểm tra lại.');
+      return;
+    }
+
     if (!consentAccepted) {
-      setErrorMessage('Bạn cần tích chọn đồng ý cho phép Nhà trường liên hệ tư vấn tuyển sinh.');
+      setErrorMessage('Bạn phải tích chọn đồng ý điều kiện để gửi đăng ký.');
       return;
     }
 
@@ -74,10 +86,8 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
       const res = await api.submitLead({
         full_name: fullName.trim(),
         phone: phone.trim(),
-        email: email.trim() || undefined,
-        province,
+        email: emailClean,
         course_id: courseId || undefined,
-        preferred_contact_time: preferredContactTime,
         customer_note: customerNote.trim() || undefined,
         consent_accepted: consentAccepted,
         ref_code: effectiveRefCode || undefined,
@@ -168,7 +178,7 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
           />
         </div>
 
-        {/* Số điện thoại & Email */}
+        {/* Số điện thoại & Email (Email bắt buộc) */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block font-semibold text-slate-800 mb-1">
@@ -186,10 +196,11 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
 
           <div>
             <label className="block font-semibold text-slate-800 mb-1">
-              Email (không bắt buộc)
+              Địa chỉ Email <span className="text-rose-500">*</span>
             </label>
             <input
               type="email"
+              required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="email@example.com"
@@ -198,81 +209,31 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
           </div>
         </div>
 
-        {/* Tỉnh thành & Ngành học quan tâm */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block font-semibold text-slate-800 mb-1">
-              Tỉnh / Thành phố hiện tại
-            </label>
-            <select
-              value={province}
-              onChange={(e) => setProvince(e.target.value)}
-              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-colors text-sm bg-white"
-            >
-              <option value="TP. Hồ Chí Minh">TP. Hồ Chí Minh</option>
-              <option value="Bình Dương">Bình Dương</option>
-              <option value="Đồng Nai">Đồng Nai</option>
-              <option value="Long An">Long An</option>
-              <option value="Bà Rịa - Vũng Tàu">Bà Rịa - Vũng Tàu</option>
-              <option value="Tây Ninh">Tây Ninh</option>
-              <option value="Tiền Giang">Tiền Giang</option>
-              <option value="Cần Thơ">Cần Thơ</option>
-              <option value="Tỉnh thành khác">Tỉnh thành khác</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block font-semibold text-slate-800 mb-1">
-              Ngành học quan tâm
-            </label>
-            {lockCourse ? (
-              <div className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-900 flex items-center justify-between">
-                <span className="truncate">{selectedCourseObj?.title || 'Khóa học đã chọn'}</span>
-                <span className="text-[11px] font-normal text-slate-500 bg-slate-200/80 px-2 py-0.5 rounded shrink-0 ml-2">
-                  Cố định theo khóa
-                </span>
-              </div>
-            ) : (
-              <select
-                value={courseId}
-                onChange={(e) => setCourseId(e.target.value)}
-                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-colors text-sm bg-white"
-              >
-                {courses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.title} {c.career_group ? `[${c.career_group}]` : ''}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-        </div>
-
-        {/* Khung giờ tiện liên hệ */}
+        {/* Khóa học đăng ký (Thay vì Tỉnh thành và Ngành học) */}
         <div>
           <label className="block font-semibold text-slate-800 mb-1">
-            Khung giờ tiện nghe điện thoại tư vấn
+            Khóa học đăng ký
           </label>
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              'Buổi sáng (08h - 11h30)',
-              'Buổi chiều (14h - 17h)',
-              'Buổi tối (18h - 20h)',
-            ].map((slot) => (
-              <button
-                type="button"
-                key={slot}
-                onClick={() => setPreferredContactTime(slot)}
-                className={`py-2 px-2 text-center rounded-lg border text-[11px] font-medium transition-colors ${
-                  preferredContactTime === slot
-                    ? 'border-blue-900 bg-blue-50 text-blue-900 font-semibold'
-                    : 'border-slate-200 hover:bg-slate-50 text-slate-600'
-                }`}
-              >
-                {slot}
-              </button>
-            ))}
-          </div>
+          {lockCourse ? (
+            <div className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-900 flex items-center justify-between">
+              <span className="truncate">{selectedCourseObj?.title || 'Khóa học đã chọn'}</span>
+              <span className="text-[11px] font-normal text-slate-500 bg-slate-200/80 px-2 py-0.5 rounded shrink-0 ml-2">
+                Cố định theo khóa
+              </span>
+            </div>
+          ) : (
+            <select
+              value={courseId}
+              onChange={(e) => setCourseId(e.target.value)}
+              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-colors text-sm bg-white"
+            >
+              {courses.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title} {c.career_group ? `[${c.career_group}]` : ''}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         {/* Ghi chú thêm */}
@@ -289,23 +250,19 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
           />
         </div>
 
-        {/* Checkbox Chấp thuận Nghị định 13/2023/NĐ-CP */}
-        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+        {/* Checkbox điều kiện chuẩn (Yêu cầu 5) */}
+        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
           <label className="flex items-start gap-2.5 cursor-pointer">
             <input
               type="checkbox"
               checked={consentAccepted}
               onChange={(e) => setConsentAccepted(e.target.checked)}
-              className="mt-0.5 w-4 h-4 text-blue-900 rounded border-slate-300 focus:ring-blue-900"
+              className="mt-0.5 w-4 h-4 text-blue-900 rounded border-slate-300 focus:ring-blue-900 shrink-0"
             />
-            <span className="text-[11px] text-slate-600 leading-relaxed select-none">
-              Tôi đồng ý để Trường Trung cấp Du lịch & Khách sạn Saigontourist liên hệ tư vấn tuyển sinh và xử lý thông tin theo Chính sách bảo vệ dữ liệu cá nhân của Nhà trường (Nghị định 13/2023/NĐ-CP).
+            <span className="text-[11px] text-slate-700 leading-relaxed select-none font-medium">
+              Tôi cam đoan thông tin trên là đúng. Đồng ý để Nhà trường liên hệ lại tư vấn
             </span>
           </label>
-          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 pl-6">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-            <span>Form cam kết không thu thập số CCCD của thí sinh ở giai đoạn tư vấn ban đầu.</span>
-          </div>
         </div>
 
         {/* Submit button */}

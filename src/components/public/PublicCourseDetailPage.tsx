@@ -83,11 +83,10 @@ export const PublicCourseDetailPage: React.FC<PublicCourseDetailPageProps> = ({
     };
   }, [courseSlug]);
 
-  // 2. Tra cứu thông tin người giới thiệu hợp lệ từ backend (chỉ lấy tên thật khi CTV ACTIVE)
   useEffect(() => {
     let isMounted = true;
+    setReferrerName(null); // Xóa ngay tên cũ khi ref thay đổi tránh hiển thị nhầm lẫn
     if (!refCode || !refCode.trim()) {
-      setReferrerName(null);
       return;
     }
 
@@ -322,34 +321,22 @@ export const PublicCourseDetailPage: React.FC<PublicCourseDetailPageProps> = ({
                 {/* Cột phải: Hệ đào tạo, Nhóm nghề, Mã khóa, Tên, Mô tả & Nút Đăng ký học */}
                 <div className="lg:col-span-7 flex flex-col justify-between space-y-5">
                   <div className="space-y-3">
-                    {/* Hàng nhãn phân loại: Chỉ hiển thị Hệ đào tạo và Nhóm nghề theo dữ liệu thật (Bỏ Khoa đào tạo per yêu cầu 2) */}
-                    <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
+                    {/* Hàng nhãn phân loại: Hệ đào tạo và Nhóm nghề được làm nổi bật thành 2 badge riêng biệt */}
+                    <div className="flex flex-wrap items-center gap-2">
                       {course.degree_level && (
-                        <>
-                          <span className="text-slate-800 font-semibold">
-                            Hệ đào tạo: {course.degree_level}
-                          </span>
-                          {(course.career_group || course.code) && (
-                            <span aria-hidden="true" className="text-slate-300">
-                              ·
-                            </span>
-                          )}
-                        </>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#0B1E3F] text-white text-xs font-bold rounded-lg shadow-2xs">
+                          <BookOpen className="w-3.5 h-3.5 text-blue-200" />
+                          <span>Hệ đào tạo: {course.degree_level}</span>
+                        </span>
                       )}
                       {course.career_group && (
-                        <>
-                          <span className="text-slate-800 font-semibold">
-                            Nhóm nghề: {course.career_group}
-                          </span>
-                          {course.code && (
-                            <span aria-hidden="true" className="text-slate-300">
-                              ·
-                            </span>
-                          )}
-                        </>
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-950 border border-amber-300 text-xs font-bold rounded-lg shadow-2xs">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-700" />
+                          <span>Nhóm nghề: {course.career_group}</span>
+                        </span>
                       )}
                       {course.code && (
-                        <span className="font-mono text-slate-600 bg-slate-100 px-2 py-0.5 rounded text-[11px] font-bold">
+                        <span className="inline-flex items-center px-2.5 py-1 font-mono text-slate-700 bg-slate-200/80 rounded-lg text-xs font-bold">
                           Mã: {course.code}
                         </span>
                       )}
