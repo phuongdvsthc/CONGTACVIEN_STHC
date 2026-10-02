@@ -23,6 +23,7 @@ interface PublicHomeProps {
   refCode?: string | null;
   onOpenRegisterAffiliate: () => void;
   onOpenLoginAffiliate?: () => void;
+  onViewCourseDetail?: (course: Course) => void;
 }
 
 export const PublicHome: React.FC<PublicHomeProps> = ({
@@ -30,6 +31,7 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
   refCode,
   onOpenRegisterAffiliate,
   onOpenLoginAffiliate,
+  onViewCourseDetail,
 }) => {
   const [selectedDepartment, setSelectedDepartment] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -39,24 +41,6 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
     appointment_code?: string;
     message: string;
   } | null>(null);
-
-  // Tự động mở modal chi tiết khóa học nếu truy cập qua link tiếp thị có kèm slug (?course=...)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const courseParam = params.get('course') || (typeof window !== 'undefined' ? localStorage.getItem('sthc_selected_course') : null);
-    if (courseParam && courses.length > 0 && !selectedCourseForDetail) {
-      const matched = courses.find(
-        (c) =>
-          c.slug === courseParam ||
-          c.code.toLowerCase() === courseParam.toLowerCase() ||
-          c.id === courseParam
-      );
-      if (matched) {
-        setSelectedCourseForDetail(matched);
-        setSelectedCourseForForm(matched.id);
-      }
-    }
-  }, [courses]);
 
   const departments = [
     { id: 'ALL', label: 'Tất cả các ngành' },
@@ -309,7 +293,13 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
 
                   <div className="flex items-center gap-1.5">
                     <button
-                      onClick={() => setSelectedCourseForDetail(course)}
+                      onClick={() => {
+                        if (onViewCourseDetail) {
+                          onViewCourseDetail(course);
+                        } else {
+                          setSelectedCourseForDetail(course);
+                        }
+                      }}
                       className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-blue-900 hover:bg-slate-50 rounded-lg transition-colors"
                     >
                       Chi tiết

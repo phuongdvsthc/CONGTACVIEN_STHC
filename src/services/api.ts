@@ -192,8 +192,8 @@ export const api = {
     return res.json();
   },
 
-  async getPublicCourse(slug: string): Promise<{ success: boolean; data: Course }> {
-    const res = await fetch(`/api/v1/public/courses/${slug}`);
+  async getPublicCourse(slug: string): Promise<{ success: boolean; data?: Course; error?: string }> {
+    const res = await fetch(`/api/v1/public/courses/${encodeURIComponent(slug)}`);
     return res.json();
   },
 

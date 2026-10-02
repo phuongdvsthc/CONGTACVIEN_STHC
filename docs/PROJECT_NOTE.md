@@ -560,3 +560,43 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
   - `GET /api/v1/affiliate/courses`: Trả về 8 khóa học hợp lệ với referral_url trỏ về `APP_BASE_URL`.
   - `GET /api/v1/affiliate/courses/:courseId`: Trả về chi tiết kèm referral_url định danh CTV.
   - `POST /api/v1/public/leads`: Tiếp nhận lead thành công, sinh mã hẹn `appointment_code`, lưu chính xác vào Supabase DB với `affiliate_id`, `course_id`, và bảo lưu nguồn khi phát hiện trùng số điện thoại.
+
+---
+
+## 13. Yêu cầu C1.4: Chuyển Popup Chi Tiết Khóa Học Thành Trang Công Khai Độc Lập
+
+### 1. Nguyên nhân redirect `/catalog` và popup trước đây
+- **Redirect `/catalog`:** Trong `App.tsx` trước đây, khi `urlCourse` có giá trị từ URL `/?ref=...&course=...`, hook `useEffect` đã gọi lệnh `navigate('/catalog' + search)` chuyển hướng trình duyệt sang `/catalog`.
+- **Tự động mở modal popup:** Trong `PublicHome.tsx`, hook `useEffect` tự động tìm kiếm `courseParam` và gọi `setSelectedCourseForDetail(matched)`, mở component `CourseDetailModal` với lớp phủ tối (`bg-slate-950/70`) và khung cuộn nội bộ nhỏ.
+
+### 2. Thiết kế trang công khai chuẩn theo layout TTL.png
+- **Component độc lập:** `PublicCourseDetailPage.tsx` được xây dựng hoàn chỉnh, cuộn tự nhiên trên toàn trang (`window` scroll), chiều rộng chuẩn 1100–1200px (`max-w-6xl`).
+- **Header gọn chuẩn STHC:** Logo và tên trường bên trái, Hotline tư vấn thật bên phải: **1800 5588 27** (gắn link `tel:1800558827`). Hoàn toàn không hiển thị sidebar hoặc header quản trị của cổng CTV.
+- **Phần đầu hai cột:**
+  - Cột trái: Ảnh đại diện khóa học thật từ CSDL Supabase Storage, có fallback chuẩn nhận diện STHC khi không có ảnh.
+  - Cột phải: Hệ đào tạo, Nhóm nghề, Mã khóa, Tên khóa học và Mô tả ngắn. Hộp 4 thông số: Thời gian đào tạo, Học phí dự kiến định dạng tiền tệ VNĐ, Văn bằng chứng chỉ, Hình thức xét tuyển học bạ.
+  - Nút Call To Action "ĐĂNG KÝ TƯ VẤN NGAY", cuộn mượt mà xuống form đăng ký.
+- **Nội dung chi tiết & Lịch khai giảng:** Hiển thị nội dung `description_html` đã được sanitize an toàn, bố cục các đợt khai giảng, ca học và đối tượng tuyển sinh.
+- **Đặc quyền học viên:** Hiển thị cam kết chất lượng của STHC (giảm 5% học phí khi đăng ký sớm, thực tập hưởng lương, 100% việc làm).
+- **Responsive:** Tự động xếp 1 cột trên điện thoại di động, hình ảnh và nội dung không tràn ngang.
+
+### 3. Đăng ký ngay trên trang & Cố định khóa học
+- Form tư vấn `LeadConsultationForm` được nhúng trực tiếp tại khối `#dang-ky-tu-van` trên trang.
+- Bổ sung prop `lockCourse={true}`: Cố định khóa đang xem, người học không thể chuyển nhầm sang khóa khác.
+- Giữ nguyên `refCode` và `courseId` gửi lên backend API `POST /api/v1/public/leads`.
+- Chặn spam gửi liên tiếp bằng trạng thái `loading`, vô hiệu hóa nút submit.
+- Hiển thị màn hình xác nhận `ThankYouScreen` ngay tại vị trí form sau khi backend lưu thành công.
+
+### 4. Quy tắc điều hướng trang chủ (`/`)
+- Có `course` hợp lệ: Hiển thị trực tiếp `PublicCourseDetailPage`, giữ nguyên pathname `/` và các tham số `?ref=...&course=...`.
+- Không có `course`: Giữ nguyên trang chủ tiếp thị CTV (`AffiliateLandingPage`).
+- Có `ref` nhưng không có `course`: Lưu nguồn giới thiệu 30 ngày (Last-Click Attribution), hiển thị trang chủ tiếp thị.
+- `course` không tồn tại hoặc chưa công khai: Hiển thị thông báo lỗi phù hợp ("Khóa học không tồn tại hoặc đã ngừng công khai"), không mở khóa khác hay dùng dữ liệu giả.
+- Link cũ `/catalog?ref=...&course=...`: Tự động chuyển hướng chuẩn về `/?ref=...&course=...`, giữ nguyên tham số.
+
+### 5. Kết quả kiểm thử thực tế C1.4
+- `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+- `compile_applet`: **Build succeeded 100%**.
+- Kiểm tra truy cập `/?ref=STHCCTV1088&course=ba-13e2`: Nạp trực tiếp trang Bánh Âu từ Supabase DB, giữ nguyên URL, không có popup, không bắt đăng nhập.
+- Kiểm tra gửi lead: Bản ghi CSDL ghi nhận chính xác `affiliate_id` thật của CTV, `course_id`, `affiliate_code_captured`, và bảo toàn nguồn tuyển sinh 90 ngày khi phát hiện trùng số điện thoại.
+

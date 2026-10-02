@@ -7,6 +7,7 @@ import { AffiliateLandingPage } from './components/landing/AffiliateLandingPage'
 import { LoginPage } from './components/auth/LoginPage';
 import { defaultLandingConfig } from './config/defaultLandingConfig';
 import { PublicHome } from './components/public/PublicHome';
+import { PublicCourseDetailPage } from './components/public/PublicCourseDetailPage';
 import { AffiliatePolicy } from './components/public/AffiliatePolicy';
 import { LeadConsultationForm } from './components/public/LeadConsultationForm';
 import { ThankYouScreen } from './components/public/ThankYouScreen';
@@ -52,6 +53,12 @@ export default function App() {
 
   const [courses, setCourses] = useState<Course[]>([]);
   const [refCode, setRefCode] = useState<string | null>(null);
+
+  // Slug khóa học từ query (?course=...) khi ở trang chủ hoặc link tiếp thị công khai
+  const [courseSlugParam, setCourseSlugParam] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('course') ? params.get('course')!.trim() : null;
+  });
 
   // Login page notice & prefilled email
   const [loginInitialEmail, setLoginInitialEmail] = useState<string>('');
@@ -136,19 +143,24 @@ export default function App() {
    */
   const navigate = useCallback((toPath: string, replace = false, customAuth?: AuthSessionData) => {
     const cleanPath = toPath.split('?')[0].split('#')[0];
+    const searchPart = toPath.includes('?') ? '?' + toPath.split('?')[1].split('#')[0] : '';
 
     // Cập nhật URL trình duyệt
     if (replace) {
       window.history.replaceState({}, '', toPath);
-    } else if (window.location.pathname !== cleanPath) {
-      window.history.pushState({}, '', toPath);
+    } else {
+      const currentFull = window.location.pathname + window.location.search;
+      if (currentFull !== toPath) {
+        window.history.pushState({}, '', toPath);
+      }
     }
 
     setCurrentPath(cleanPath);
 
-    // Cập nhật tham số redirect_to nếu có
-    const urlObj = new URL(window.location.href);
-    setRequestedRedirectParam(urlObj.searchParams.get('redirect_to'));
+    // Cập nhật tham số từ search (redirect_to và course)
+    const urlParams = new URLSearchParams(searchPart || window.location.search);
+    setRequestedRedirectParam(urlParams.get('redirect_to'));
+    setCourseSlugParam(urlParams.get('course') ? urlParams.get('course')!.trim() : null);
 
     // Chạy kiểm tra phân quyền với auth được cung cấp hoặc auth ref mới nhất
     const authToUse = customAuth || authSessionRef.current;
@@ -179,6 +191,7 @@ export default function App() {
 
         const params = new URLSearchParams(window.location.search);
         setRequestedRedirectParam(params.get('redirect_to'));
+        setCourseSlugParam(params.get('course') ? params.get('course')!.trim() : null);
 
         evaluateGuard(initialPath, sessionData);
       } else {
@@ -242,11 +255,14 @@ export default function App() {
     // Tải phiên ban đầu
     loadSession();
 
-    if (urlCourse) {
-      localStorage.setItem('sthc_selected_course', urlCourse.trim());
-      // Giữ nguyên query params (?ref=...&course=...) khi chuyển hướng sang /catalog
+    // SỬA C1.4 - ĐIỀU HƯỚNG CHUẨN CỦA LINK TIẾP THỊ & QUY TẮC TRANG CHỦ:
+    // Link cũ /catalog?ref=...&course=... nếu có thì chuyển về /?ref=...&course=..., giữ đầy đủ tham số
+    if (window.location.pathname === '/catalog' && urlCourse) {
       const search = window.location.search;
-      navigate(`/catalog${search}`);
+      navigate(`/${search}`, true);
+    } else if (urlCourse) {
+      setCourseSlugParam(urlCourse.trim());
+      localStorage.setItem('sthc_selected_course', urlCourse.trim());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -259,6 +275,7 @@ export default function App() {
 
       const params = new URLSearchParams(window.location.search);
       setRequestedRedirectParam(params.get('redirect_to'));
+      setCourseSlugParam(params.get('course') ? params.get('course')!.trim() : null);
 
       // Chạy route guard ngay lập tức khi back/forward
       evaluateGuard(path, authSessionRef.current);
@@ -567,12 +584,28 @@ export default function App() {
               />
             )}
 
-            {/* ROUTE /: TRANG ĐẦU TIÊN GIỚI THIỆU VÀ ĐĂNG KÝ CTV */}
+            {/* ROUTE /: TRANG ĐẦU TIÊN GIỚI THIỆU VÀ ĐĂNG KÝ CTV HOẶC CHI TIẾT KHÓA HỌC CÔNG KHAI */}
             {currentPath === '/' && (
-              <AffiliateLandingPage
-                config={defaultLandingConfig}
-                onOpenLogin={handleOpenLogin}
-              />
+              courseSlugParam ? (
+                <PublicCourseDetailPage
+                  courseSlug={courseSlugParam}
+                  refCode={refCode}
+                  onNavigateHome={() => {
+                    setCourseSlugParam(null);
+                    const search = refCode ? `?ref=${encodeURIComponent(refCode)}` : '';
+                    navigate(`/${search}`);
+                  }}
+                  onBrowseCatalog={() => {
+                    const search = refCode ? `?ref=${encodeURIComponent(refCode)}` : '';
+                    navigate(`/catalog${search}`);
+                  }}
+                />
+              ) : (
+                <AffiliateLandingPage
+                  config={defaultLandingConfig}
+                  onOpenLogin={handleOpenLogin}
+                />
+              )
             )}
 
             {/* ROUTE /catalog: DANH MỤC KHÓA HỌC CÔNG KHAI */}
@@ -583,6 +616,13 @@ export default function App() {
                   refCode={refCode}
                   onOpenRegisterAffiliate={handleNavigateToRegister}
                   onOpenLoginAffiliate={() => handleOpenLogin()}
+                  onViewCourseDetail={(course) => {
+                    const slugToUse = course.slug || course.code || course.id;
+                    const searchParams = new URLSearchParams();
+                    if (refCode) searchParams.set('ref', refCode);
+                    searchParams.set('course', slugToUse);
+                    navigate(`/?${searchParams.toString()}`);
+                  }}
                 />
               </div>
             )}
@@ -627,8 +667,8 @@ export default function App() {
             )}
           </main>
 
-          {/* Footer chỉ hiển thị ở các trang public */}
-          {currentPath !== '/pending' && <Footer />}
+          {/* Footer chỉ hiển thị ở các trang public (trang chi tiết khóa học đã có footer chuẩn STHC độc lập) */}
+          {currentPath !== '/pending' && !(currentPath === '/' && courseSlugParam) && <Footer />}
         </div>
       )}
 

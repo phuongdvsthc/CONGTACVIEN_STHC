@@ -1254,13 +1254,20 @@ async function startServer() {
   app.get('/api/v1/public/courses/:slug', async (req: Request, res: Response) => {
     const { slug } = req.params;
     try {
-      const { data: course, error } = await supabase
-        .from('courses')
-        .select('*')
-        .eq('slug', slug)
-        .maybeSingle();
+      let query = supabase.from('courses').select('*');
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug);
+      if (isUUID) {
+        query = query.or(`slug.eq.${slug},id.eq.${slug},code.ilike.${slug}`);
+      } else {
+        query = query.or(`slug.eq.${slug},code.ilike.${slug}`);
+      }
+      const { data: course, error } = await query.maybeSingle();
 
-      const target = course || INITIAL_COURSES.find(c => c.slug === slug);
+      const target = course || INITIAL_COURSES.find(c => 
+        c.slug === slug || 
+        c.code.toLowerCase() === slug.toLowerCase() || 
+        (c as any).id === slug
+      );
       if (!target) {
         return res.status(404).json({ success: false, error: 'Không tìm thấy khóa học' });
       }
@@ -1278,7 +1285,12 @@ async function startServer() {
       // Khóa học công khai (kể cả đang ngừng giới thiệu) vẫn mở được nội dung qua link cũ
       res.json({ success: true, data: fullCourse });
     } catch (err: any) {
-      const target = INITIAL_COURSES.find(c => c.slug === slug);
+      console.error('[GET PUBLIC COURSE ERROR]', err);
+      const target = INITIAL_COURSES.find(c => 
+        c.slug === slug || 
+        c.code.toLowerCase() === slug.toLowerCase() || 
+        (c as any).id === slug
+      );
       if (!target) {
         return res.status(404).json({ success: false, error: 'Không tìm thấy khóa học' });
       }

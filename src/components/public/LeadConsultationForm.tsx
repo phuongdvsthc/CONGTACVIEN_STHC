@@ -7,6 +7,7 @@ interface LeadConsultationFormProps {
   courses: Course[];
   selectedCourseId?: string;
   refCode?: string | null;
+  lockCourse?: boolean;
   onSuccess: (result: { appointment_code?: string; message: string }) => void;
   onCancel?: () => void;
 }
@@ -15,6 +16,7 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
   courses,
   selectedCourseId,
   refCode,
+  lockCourse = false,
   onSuccess,
   onCancel,
 }) => {
@@ -36,6 +38,10 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
       setCourseId(courses[0].id);
     }
   }, [selectedCourseId, courses]);
+
+  const selectedCourseObj = courses.find(
+    (c) => c.id === courseId || c.slug === courseId || c.code === courseId
+  ) || courses.find((c) => c.id === selectedCourseId) || courses[0];
 
   const effectiveRefCode = refCode || (typeof window !== 'undefined' ? localStorage.getItem('sthc_affiliate_ref') : null);
 
@@ -203,17 +209,26 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
             <label className="block font-semibold text-slate-800 mb-1">
               Ngành học quan tâm
             </label>
-            <select
-              value={courseId}
-              onChange={(e) => setCourseId(e.target.value)}
-              className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-colors text-sm bg-white"
-            >
-              {courses.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.title} {c.career_group ? `[${c.career_group}]` : ''}
-                </option>
-              ))}
-            </select>
+            {lockCourse ? (
+              <div className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-900 flex items-center justify-between">
+                <span className="truncate">{selectedCourseObj?.title || 'Khóa học đã chọn'}</span>
+                <span className="text-[11px] font-normal text-slate-500 bg-slate-200/80 px-2 py-0.5 rounded shrink-0 ml-2">
+                  Cố định theo khóa
+                </span>
+              </div>
+            ) : (
+              <select
+                value={courseId}
+                onChange={(e) => setCourseId(e.target.value)}
+                className="w-full px-3.5 py-2.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition-colors text-sm bg-white"
+              >
+                {courses.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title} {c.career_group ? `[${c.career_group}]` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 
