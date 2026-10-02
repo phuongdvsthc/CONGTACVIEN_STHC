@@ -201,7 +201,7 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
             >
               {courses.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.title}
+                  {c.title} {c.career_group ? `[${c.career_group}]` : ''}
                 </option>
               ))}
             </select>

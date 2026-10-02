@@ -13,6 +13,7 @@ import {
   SearchX,
   ExternalLink,
   ShieldAlert,
+  Briefcase,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { Course } from '../../types';
@@ -55,7 +56,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
     setSuspendedError(null);
 
     try {
-      const res = await api.getAffiliateCourses();
+      const res: any = await api.getAffiliateCourses();
       if (res.success && Array.isArray(res.data)) {
         setCourses(res.data);
       } else {
@@ -374,7 +375,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
                     <div className="relative h-44 w-full bg-slate-100 overflow-hidden">
                       {hasThumbnail ? (
                         <img
-                          src={course.thumbnail_url}
+                          src={course.thumbnail_url || undefined}
                           alt={course.title}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           onError={(e) => {
@@ -424,15 +425,27 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
                         {course.summary || 'Chương trình đào tạo chuẩn quốc tế, thực hành chuyên sâu tại hệ thống khách sạn và khu nghỉ dưỡng hàng đầu.'}
                       </p>
 
-                      {/* Key details: Duration & Tuition */}
-                      <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
-                        <div className="flex items-center gap-1.5 text-slate-700">
-                          <Clock className="w-3.5 h-3.5 text-blue-900 shrink-0" />
-                          <span className="truncate">{course.duration_text || 'Theo lộ trình'}</span>
+                      {/* Key details: Nhóm nghề, Duration & Tuition */}
+                      <div className="pt-2 border-t border-slate-100 space-y-1.5 text-xs">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5 text-slate-700">
+                            <Briefcase className="w-3.5 h-3.5 text-blue-900 shrink-0" />
+                            <span className="text-slate-500 font-medium">Nhóm nghề:</span>
+                            <span className={course.career_group ? 'font-semibold text-slate-900' : 'text-slate-400 italic'}>
+                              {course.career_group || 'Chưa cập nhật'}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-slate-700">
+                            <Clock className="w-3.5 h-3.5 text-blue-900 shrink-0" />
+                            <span className="truncate">{course.duration_text || 'Theo lộ trình'}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1.5 text-slate-700 justify-end font-semibold">
-                          <span className="text-slate-400 font-normal">Học phí:</span>
-                          <span className="text-blue-900">{formatTuition(course.tuition_fee_estimate)}</span>
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-50">
+                          <span className="text-slate-500 text-[11px]">Hệ đào tạo: <strong className="text-slate-800 font-semibold">{course.degree_level || 'Chưa cập nhật'}</strong></span>
+                          <div className="flex items-center gap-1 text-slate-700 font-semibold">
+                            <span className="text-slate-400 font-normal">Học phí:</span>
+                            <span className="text-blue-900">{formatTuition(course.tuition_fee_estimate)}</span>
+                          </div>
                         </div>
                       </div>
 

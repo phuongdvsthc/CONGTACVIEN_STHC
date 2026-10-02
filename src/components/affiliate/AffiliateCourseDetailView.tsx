@@ -13,6 +13,7 @@ import {
   Calendar,
   Building,
   CheckCircle,
+  Briefcase,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { Course } from '../../types';
@@ -189,7 +190,7 @@ export const AffiliateCourseDetailView: React.FC<AffiliateCourseDetailViewProps>
           <div className="md:col-span-5 bg-slate-100 relative min-h-[260px] md:min-h-full">
             {hasThumbnail ? (
               <img
-                src={course.thumbnail_url}
+                src={course.thumbnail_url || undefined}
                 alt={course.title}
                 className="w-full h-full object-cover"
                 onError={(e) => {
@@ -228,7 +229,23 @@ export const AffiliateCourseDetailView: React.FC<AffiliateCourseDetailViewProps>
             </div>
 
             {/* Key specifications grid */}
-            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100 text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-slate-100 text-xs">
+              <div className="space-y-1">
+                <span className="text-slate-400 font-normal">Hệ đào tạo</span>
+                <div className="flex items-center gap-1.5 font-semibold text-slate-900">
+                  <GraduationCap className="w-4 h-4 text-blue-900 shrink-0" />
+                  <span>{course.degree_level || 'Chưa cập nhật'}</span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-slate-400 font-normal">Nhóm nghề</span>
+                <div className="flex items-center gap-1.5 font-semibold text-slate-900">
+                  <Briefcase className="w-4 h-4 text-blue-900 shrink-0" />
+                  <span>{course.career_group || 'Chưa cập nhật'}</span>
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <span className="text-slate-400 font-normal">Thời gian đào tạo</span>
                 <div className="flex items-center gap-1.5 font-semibold text-slate-900">

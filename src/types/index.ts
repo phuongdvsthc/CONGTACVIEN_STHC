@@ -26,6 +26,7 @@ export interface Course {
   slug: string;
   department: string;
   degree_level: string;
+  career_group?: string | null;
   duration_text: string;
   tuition_fee_estimate: number | null;
   summary?: string | null;

@@ -369,6 +369,7 @@ export const api = {
     title: string;
     degree_level: string;
     duration_text: string;
+    career_group?: string | null;
     tuition_fee_estimate?: number | null;
     summary?: string | null;
     description_html?: string | null;
@@ -389,6 +390,7 @@ export const api = {
     title?: string;
     degree_level?: string;
     duration_text?: string;
+    career_group?: string | null;
     tuition_fee_estimate?: number | null;
     summary?: string | null;
     description_html?: string | null;

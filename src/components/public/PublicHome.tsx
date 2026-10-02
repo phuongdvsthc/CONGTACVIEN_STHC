@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Course } from '../../types';
 import { LeadConsultationForm } from './LeadConsultationForm';
 import { ThankYouScreen } from './ThankYouScreen';
@@ -15,6 +15,7 @@ import {
   DollarSign,
   ChevronRight,
   Search,
+  Briefcase,
 } from 'lucide-react';
 
 interface PublicHomeProps {
@@ -38,6 +39,23 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
     appointment_code?: string;
     message: string;
   } | null>(null);
+
+  // Tự động mở modal chi tiết khóa học nếu truy cập qua link tiếp thị có kèm slug (?course=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const courseParam = params.get('course');
+    if (courseParam && courses.length > 0 && !selectedCourseForDetail) {
+      const matched = courses.find(
+        (c) =>
+          c.slug === courseParam ||
+          c.code.toLowerCase() === courseParam.toLowerCase() ||
+          c.id === courseParam
+      );
+      if (matched) {
+        setSelectedCourseForDetail(matched);
+      }
+    }
+  }, [courses]);
 
   const departments = [
     { id: 'ALL', label: 'Tất cả các ngành' },
@@ -256,14 +274,23 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
                   </p>
 
                   {/* Metadata spec row */}
-                  <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs text-slate-600">
-                    <div className="flex items-center gap-1.5">
-                      <Award className="w-3.5 h-3.5 text-blue-900 shrink-0" />
-                      <span>{course.degree_level}</span>
+                  <div className="pt-2 border-t border-slate-100 space-y-1.5 text-xs text-slate-600">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <Award className="w-3.5 h-3.5 text-blue-900 shrink-0" />
+                        <span>{course.degree_level || 'Chưa cập nhật'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-blue-900 shrink-0" />
+                        <span>{course.duration_text || 'Chưa cập nhật'}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-blue-900 shrink-0" />
-                      <span>{course.duration_text}</span>
+                    <div className="flex items-center gap-1.5 pt-1 border-t border-slate-50">
+                      <Briefcase className="w-3.5 h-3.5 text-blue-900 shrink-0" />
+                      <span className="text-slate-500 font-medium">Nhóm nghề:</span>
+                      <span className={course.career_group ? 'font-semibold text-slate-800' : 'text-slate-400 italic'}>
+                        {course.career_group || 'Chưa cập nhật'}
+                      </span>
                     </div>
                   </div>
                 </div>

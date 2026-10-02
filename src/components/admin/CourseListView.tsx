@@ -44,6 +44,14 @@ const DEGREE_LEVEL_OPTIONS = [
   'Chuyên đề',
 ];
 
+export const CAREER_GROUP_OPTIONS = [
+  'Làm bánh',
+  'Nấu ăn',
+  'Nhà hàng',
+  'Khách sạn',
+  'Pha chế',
+];
+
 export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -74,6 +82,7 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
   const [formCode, setFormCode] = useState<string>('');
   const [formTitle, setFormTitle] = useState<string>('');
   const [formDegreeLevel, setFormDegreeLevel] = useState<string>('Trung cấp');
+  const [formCareerGroup, setFormCareerGroup] = useState<string>('');
   const [formDuration, setFormDuration] = useState<string>('');
   const [formTuition, setFormTuition] = useState<string>('');
   const [formSummary, setFormSummary] = useState<string>('');
@@ -225,6 +234,7 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
     setFormCode('');
     setFormTitle('');
     setFormDegreeLevel('Trung cấp');
+    setFormCareerGroup('');
     setFormDuration('2 năm');
     setFormTuition('');
     setFormSummary('');
@@ -251,6 +261,7 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
         setEditingCourse(fullCourse);
         setFormCode(fullCourse.code || '');
         setFormTitle(fullCourse.title || '');
+        setFormCareerGroup(fullCourse.career_group || '');
         let deg = fullCourse.degree_level || 'Trung cấp';
         if (!['Trung cấp', 'Ngắn hạn', 'Chuyên đề'].includes(deg)) {
           if (deg.includes('Trung cấp') || deg.includes('TC')) deg = 'Trung cấp';
@@ -359,6 +370,7 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
         code: formCode.trim().toUpperCase(),
         title: formTitle.trim(),
         degree_level: formDegreeLevel.trim(),
+        career_group: formCareerGroup.trim() ? formCareerGroup.trim() : null,
         duration_text: formDuration.trim(),
         tuition_fee_estimate: parsedTuition,
         summary: formSummary.trim() || null,
@@ -707,6 +719,7 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
                   <th scope="col" className="py-3.5 px-4 whitespace-nowrap">Mã khóa học</th>
                   <th scope="col" className="py-3.5 px-4 min-w-[220px]">Tên khóa học</th>
                   <th scope="col" className="py-3.5 px-4 whitespace-nowrap">Hệ đào tạo</th>
+                  <th scope="col" className="py-3.5 px-4 whitespace-nowrap">Nhóm nghề</th>
                   <th scope="col" className="py-3.5 px-4 whitespace-nowrap">Thời lượng</th>
                   <th scope="col" className="py-3.5 px-4 text-right whitespace-nowrap">Học phí</th>
                   <th scope="col" className="py-3.5 px-4 text-center whitespace-nowrap">Trạng thái</th>
@@ -740,6 +753,17 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
                       {/* 4. Hệ đào tạo */}
                       <td className="py-3.5 px-4 text-slate-700 whitespace-nowrap">
                         {course.degree_level || 'Chưa cập nhật'}
+                      </td>
+
+                      {/* 4b. Nhóm nghề */}
+                      <td className="py-3.5 px-4 text-slate-700 whitespace-nowrap">
+                        {course.career_group ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-50 text-blue-900 border border-blue-200">
+                            {course.career_group}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic text-xs">Chưa cập nhật</span>
+                        )}
                       </td>
 
                       {/* 5. Thời lượng */}
@@ -1005,7 +1029,7 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
               {/* TAB 1: THÔNG TIN CƠ BẢN */}
               {activeTab === 'basic' && (
                 <div className="space-y-4 animate-fade-in">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     {/* Mã khóa học */}
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -1038,6 +1062,27 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
                           </option>
                         ))}
                       </select>
+                      <p className="text-[11px] text-slate-400 mt-1">Chương trình đào tạo STHC.</p>
+                    </div>
+
+                    {/* Nhóm nghề */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Nhóm nghề <span className="text-slate-400 font-normal">(Tùy chọn)</span>
+                      </label>
+                      <select
+                        value={formCareerGroup}
+                        onChange={(e) => handleFormChange(setFormCareerGroup, e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
+                      >
+                        <option value="">Chọn nhóm nghề</option>
+                        {CAREER_GROUP_OPTIONS.map((cg) => (
+                          <option key={cg} value={cg}>
+                            {cg}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] text-slate-400 mt-1">Phân loại theo 5 nhóm nghề chuẩn STHC.</p>
                     </div>
                   </div>
 
@@ -1294,6 +1339,7 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
             slug: editingCourse?.slug || 'preview-slug',
             department: 'Khoa Du lịch - Khách sạn',
             degree_level: formDegreeLevel,
+            career_group: formCareerGroup.trim() ? formCareerGroup.trim() : null,
             duration_text: formDuration.trim() || 'Chưa cập nhật',
             tuition_fee_estimate: formTuition.trim() !== '' ? Number(formTuition) : null,
             summary: formSummary.trim() || null,

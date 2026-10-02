@@ -470,7 +470,7 @@ function attachCourseLifecycle(course: any) {
     status = 'ACTIVE';
   }
 
-  const accepts_referrals = course.accepts_referrals !== undefined 
+  const accepts_referrals = (course.accepts_referrals !== undefined && course.accepts_referrals !== null)
     ? Boolean(course.accepts_referrals) 
     : (stored?.accepts_referrals !== undefined ? stored.accepts_referrals : (status === 'ACTIVE'));
 
@@ -1682,16 +1682,19 @@ async function startServer() {
     try {
       let course: any = null;
       
-      const { data: dbCourse } = await supabase
-        .from('courses')
-        .select('*')
-        .or(`id.eq.${cleanId},slug.eq.${cleanId},code.eq.${cleanId}`)
-        .maybeSingle();
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId);
+      let query = supabase.from('courses').select('*');
+      if (isUUID) {
+        query = query.or(`id.eq.${cleanId},slug.eq.${cleanId},code.eq.${cleanId}`);
+      } else {
+        query = query.or(`slug.eq.${cleanId},code.eq.${cleanId}`);
+      }
+      const { data: dbCourse } = await query.maybeSingle();
 
       if (dbCourse) {
         course = dbCourse;
       } else {
-        course = INITIAL_COURSES.find(c => c.id === cleanId || c.slug === cleanId || c.code === cleanId);
+        course = INITIAL_COURSES.find(c => (c as any).id === cleanId || c.slug === cleanId || c.code === cleanId);
       }
 
       if (!course) {
@@ -3699,7 +3702,7 @@ async function startServer() {
       try {
         let query = supabase
           .from('courses')
-          .select('id, code, title, slug, degree_level, duration_text, tuition_fee_estimate, is_active, updated_at, created_at', { count: 'exact' });
+          .select('id, code, title, slug, degree_level, career_group, duration_text, tuition_fee_estimate, is_active, updated_at, created_at', { count: 'exact' });
 
         if (cleanSearch) {
           // Xử lý an toàn ký tự đặc biệt, tránh phá vỡ cú pháp PostgREST .or()
@@ -3767,6 +3770,7 @@ async function startServer() {
         code: c.code,
         title: c.title,
         degree_level: c.degree_level,
+        career_group: (c as any).career_group || null,
         duration_text: c.duration_text,
         tuition_fee_estimate: c.tuition_fee_estimate,
         is_active: c.is_active,
@@ -3883,7 +3887,7 @@ async function startServer() {
 
   app.post('/api/v1/admin/courses', requireStaffOrAdmin, async (req: Request, res: Response) => {
     try {
-      const { code, title, degree_level, duration_text, tuition_fee_estimate, summary, description_html, benefits_title, benefits_content, thumbnail_url } = req.body;
+      const { code, title, degree_level, duration_text, tuition_fee_estimate, summary, description_html, benefits_title, benefits_content, thumbnail_url, career_group } = req.body;
 
       if (!code || !title || !degree_level || !duration_text) {
         return res.status(400).json({
@@ -3901,6 +3905,19 @@ async function startServer() {
           success: false,
           error: 'Hệ đào tạo không hợp lệ. Vui lòng chọn một trong các hệ: Trung cấp, Ngắn hạn, Chuyên đề.',
         });
+      }
+
+      const VALID_CAREER_GROUPS = ['Làm bánh', 'Nấu ăn', 'Nhà hàng', 'Khách sạn', 'Pha chế'];
+      let cleanCareerGroup: string | null = null;
+      if (career_group !== undefined && career_group !== null && String(career_group).trim() !== '') {
+        const cg = String(career_group).trim();
+        if (!VALID_CAREER_GROUPS.includes(cg)) {
+          return res.status(400).json({
+            success: false,
+            error: 'Nhóm nghề không hợp lệ. Vui lòng chọn một trong các nhóm: Làm bánh, Nấu ăn, Nhà hàng, Khách sạn, Pha chế hoặc để trống.',
+          });
+        }
+        cleanCareerGroup = cg;
       }
 
       const cleanDuration = String(duration_text).trim();
@@ -3923,6 +3940,7 @@ async function startServer() {
         slug,
         department: 'Khoa Du lịch - Khách sạn',
         degree_level: cleanDegree,
+        career_group: cleanCareerGroup,
         duration_text: cleanDuration,
         tuition_fee_estimate: tuitionFee,
         summary: summary !== undefined ? (summary ? String(summary).trim() : null) : null,
@@ -3985,7 +4003,7 @@ async function startServer() {
   app.patch('/api/v1/admin/courses/:id', requireStaffOrAdmin, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { code, title, degree_level, duration_text, tuition_fee_estimate, summary, description_html, benefits_title, benefits_content, thumbnail_url, is_active, client_updated_at } = req.body;
+      const { code, title, degree_level, duration_text, tuition_fee_estimate, summary, description_html, benefits_title, benefits_content, thumbnail_url, career_group, is_active, client_updated_at } = req.body;
 
       const { data: existing, error: fetchErr } = await supabase
         .from('courses')
@@ -4066,6 +4084,21 @@ async function startServer() {
       }
       if (thumbnail_url !== undefined) {
         updatePayload.thumbnail_url = thumbnail_url ? String(thumbnail_url).trim() : null;
+      }
+      if (career_group !== undefined) {
+        if (career_group === null || String(career_group).trim() === '') {
+          updatePayload.career_group = null;
+        } else {
+          const cg = String(career_group).trim();
+          const VALID_CAREER_GROUPS = ['Làm bánh', 'Nấu ăn', 'Nhà hàng', 'Khách sạn', 'Pha chế'];
+          if (!VALID_CAREER_GROUPS.includes(cg)) {
+            return res.status(400).json({
+              success: false,
+              error: 'Nhóm nghề không hợp lệ. Vui lòng chọn một trong các nhóm: Làm bánh, Nấu ăn, Nhà hàng, Khách sạn, Pha chế hoặc để trống.',
+            });
+          }
+          updatePayload.career_group = cg;
+        }
       }
       // Lưu ý: Form sửa A2.2 không được thay đổi trạng thái is_active/status ngoài các thao tác chuyên biệt A2.4
 

@@ -394,4 +394,30 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
 3. **Trạng thái module**:
    - Hoàn thành C1.3. Dừng sau C1.3.
 
+---
+
+## 15. Triển Khai & Nghiệm Thu Bổ Sung "Nhóm Nghề" (Career Group)
+
+1. **CSDL & Migration**:
+   - Bảng `public.courses` đã bổ sung cột `career_group VARCHAR(100) DEFAULT NULL` thông qua migration `/supabase/migrations/20261002000001_add_career_group_to_courses.sql`.
+   - Ràng buộc CSDL `chk_career_group_valid` kiểm soát nghiêm ngặt đúng 5 giá trị chuẩn: `'Làm bánh'`, `'Nấu ăn'`, `'Nhà hàng'`, `'Khách sạn'`, `'Pha chế'` hoặc `NULL`.
+   - Các khóa học cũ giữ nguyên giá trị `NULL`, không tự ý suy diễn dữ liệu.
+
+2. **Backend & API**:
+   - `POST /api/v1/admin/courses`: Nhận và kiểm tra hợp lệ `career_group` trong payload tạo mới, lưu thật vào Supabase.
+   - `PATCH /api/v1/admin/courses/:id`: Cho phép cập nhật `career_group` (chọn nhóm mới hoặc xóa về NULL). Nếu không truyền trường này trong payload cập nhật khác (như sửa tiêu đề, học phí), giá trị `career_group` hiện có được bảo toàn tuyệt đối.
+   - `GET /api/v1/admin/courses`: Đã bổ sung `career_group` vào danh sách cột truy vấn `select(...)` và fallback dữ liệu.
+   - `GET /api/v1/admin/courses/:id`, `GET /api/v1/affiliate/courses`, `GET /api/v1/affiliate/courses/:courseId`, `GET /api/v1/public/courses`, `GET /api/v1/public/courses/:slug`: Đã đồng bộ trả về trường `career_group`.
+   - Khắc phục lỗi ép kiểu PostgREST UUID 22P02 khi truy vấn chi tiết theo slug URL.
+
+3. **Giao diện & Hiển thị**:
+   - **Danh sách Admin (`CourseListView.tsx`)**: Bổ sung cột "Nhóm nghề" nằm ngay sau cột "Hệ đào tạo". Khóa học chưa có nhóm nghề hiển thị nhãn "Chưa cập nhật".
+   - **Form Tạo/Sửa Admin (`CourseListView.tsx`)**: Bổ sung combo box "Nhóm nghề" đặt cạnh "Hệ đào tạo" với 5 lựa chọn chuẩn và mục mặc định "Chọn nhóm nghề". Tải và hiển thị đúng nhóm nghề đã lưu khi mở form sửa.
+   - **Xem trước khóa học (`CourseDetailModal.tsx`)**: Modal xem trước hiển thị box thông tin "Nhóm nghề" dựa trên giá trị đang chọn trong form.
+   - **Xem khóa học Admin (`CourseDetailModal.tsx`)**: Hiển thị box thông tin "Nhóm nghề" theo dữ liệu thực lưu trong CSDL.
+   - **Danh sách khóa học Cổng CTV (`/portal/courses` - `AffiliateCourseListView.tsx`)**: Hiển thị rõ dòng "Nhóm nghề: [Tên]" hoặc "Nhóm nghề: Chưa cập nhật" trên từng card khóa học.
+   - **Chi tiết khóa học Cổng CTV (`/portal/courses/:courseId` - `AffiliateCourseDetailView.tsx`)**: Bổ sung card thông số "Nhóm nghề" trong khối thông tin nổi bật.
+   - **Trang khóa học công khai (`PublicHome.tsx`)**: Bổ sung thông tin "Nhóm nghề" trên từng card khóa học và tự động kích hoạt chi tiết khi truy cập qua link tiếp thị có `course=slug`.
+   - **Form đăng ký tư vấn (`LeadConsultationForm.tsx`)**: Bổ sung hiển thị `[Nhóm nghề]` cạnh tiêu đề khóa học trong danh sách chọn.
+
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Course } from '../../types';
-import { X, Clock, Award, DollarSign, Building, Check, ArrowRight, Monitor, Smartphone, Image, AlertCircle } from 'lucide-react';
+import { X, Clock, Award, DollarSign, Building, Check, ArrowRight, Monitor, Smartphone, Image, AlertCircle, Briefcase } from 'lucide-react';
 import { sanitizeHtml } from '../../utils/sanitizeHtml';
 
 export interface CourseDetailModalProps {
@@ -149,11 +149,11 @@ export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({
           <div className="p-5 sm:p-6 relative">
             <div className="flex flex-wrap items-center gap-2 mb-2">
               <span className="text-[11px] font-mono font-bold text-blue-200 bg-blue-900/50 border border-blue-700/50 px-2.5 py-0.5 rounded">
-                Mã khoá học: {course.code || 'Chưa cập nhật'}
+                {course.code || 'Chưa cập nhật'}
               </span>
             </div>
             <h3 className="text-base sm:text-xl font-black text-white tracking-tight leading-snug break-words">
-              Tên khoá học: {course.title || 'Chưa cập nhật'}
+              {course.title || 'Chưa cập nhật'}
             </h3>
           </div>
         </div>
@@ -176,13 +176,23 @@ export const CourseDetailModal: React.FC<CourseDetailModalProps> = ({
           )}
 
           {/* Quick info boxes */}
-          <div className={`grid gap-3 ${deviceMode === 'mobile' ? 'grid-cols-1' : 'grid-cols-3'}`}>
+          <div className={`grid gap-3 ${deviceMode === 'mobile' ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-4'}`}>
             <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
               <div className="flex items-center gap-1.5 text-slate-500 mb-1">
                 <Award className="w-3.5 h-3.5 text-blue-900" />
                 <span className="font-medium text-[11px]">Hệ đào tạo</span>
               </div>
               <p className="font-bold text-slate-900 text-xs">{course.degree_level || 'Chưa cập nhật'}</p>
+            </div>
+
+            <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
+              <div className="flex items-center gap-1.5 text-slate-500 mb-1">
+                <Briefcase className="w-3.5 h-3.5 text-blue-900" />
+                <span className="font-medium text-[11px]">Nhóm nghề</span>
+              </div>
+              <p className="font-bold text-slate-900 text-xs">
+                {course.career_group || 'Chưa cập nhật'}
+              </p>
             </div>
 
             <div className="p-3 bg-slate-50 border border-slate-100 rounded-xl">
