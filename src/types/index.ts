@@ -43,6 +43,7 @@ export interface Course {
   status_updated_at?: string | null;
   status_updated_by?: string | null;
   sort_order: number;
+  registered_count?: number | null;
   created_at?: string;
   updated_at?: string;
 }

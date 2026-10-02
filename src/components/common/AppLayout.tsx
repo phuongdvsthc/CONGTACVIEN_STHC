@@ -334,7 +334,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         </header>
 
         {/* WORKSPACE CONTENT AREA */}
-        <main className="flex-1 p-4 sm:p-8 overflow-x-hidden">
+        <main className="flex-1 px-4 py-4 sm:px-8 sm:py-6 overflow-x-hidden">
           {children}
         </main>
       </div>

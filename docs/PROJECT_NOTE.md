@@ -421,3 +421,69 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
    - **Form đăng ký tư vấn (`LeadConsultationForm.tsx`)**: Bổ sung hiển thị `[Nhóm nghề]` cạnh tiêu đề khóa học trong danh sách chọn.
 
 
+
+
+---
+
+## 16. Hoàn Thiện & Nghiệm Thu C1.2 — Giao Diện Danh Sách Khóa Học Cổng CTV
+
+1. **Thay thế "Khoa đào tạo" bằng "Nhóm nghề"**:
+   - Loại bỏ hoàn toàn trường và nhãn `department` khỏi bộ lọc và thẻ khóa học tại `/portal/courses`.
+   - Bộ lọc đổi thành **"Tất cả nhóm nghề"**, danh sách lấy từ 5 nhóm nghề chuẩn A2 (`CAREER_GROUP_OPTIONS`) kết hợp cùng các nhóm nghề thực tế trả về từ CSDL. Bổ sung mục **"Chưa phân nhóm"** để lọc các khóa chưa gán nhóm.
+   - Thẻ khóa học hiển thị badge Nhóm nghề nổi bật (`bg-blue-50 text-blue-900 border-blue-200/80`), hỗ trợ tên dài xuống dòng tối đa 2 dòng không bị cắt chữ. Khóa chưa gán nhóm hiển thị badge `"Chưa phân nhóm"`. Mã khóa học được tách riêng biệt với chữ nhỏ màu xám.
+   - Thay đổi bất kỳ bộ lọc nào đều tự động đưa phân trang về trang đầu tiên.
+
+2. **Nâng cấp thẻ khóa học chuẩn nhận diện thương hiệu STHC**:
+   - Thẻ nền trắng, viền rõ `border-slate-200/90`, bo góc 16px (`rounded-2xl`), hiệu ứng hover tăng bóng `hover:shadow-md` và chuyển viền xanh nhẹ `hover:border-blue-900/50` không xô lệch bố cục.
+   - Ảnh đại diện đồng nhất tỷ lệ và chiều cao (`h-48`). Khóa chưa có ảnh hiển thị nền xanh navy `#0B1E3F` với biểu tượng vàng `BookOpen` và mã khóa vàng.
+   - Badge Hệ đào tạo trên ảnh có nền tối tương phản cao (`bg-slate-950/85 backdrop-blur-md text-white`).
+   - Thời gian và học phí trình bày mạch lạc; học phí dùng `whitespace-nowrap` kèm `\u00A0đ` chống gãy số tiền sang hai dòng.
+   - Khối chính sách thưởng nền vàng nhạt `bg-amber-50/80`, viền vàng `border-amber-300/80`, giữ nguyên vẹn nội dung thù lao 500k và điều kiện đối soát/phê duyệt.
+   - Nút **"Chi tiết"** chuyển sang nền xanh navy (`bg-blue-900`), chữ trắng (`text-white`).
+   - Tích hợp modal mã QR tuyển sinh (`QRModal`), duy trì nút sao chép link và liên kết mở thử.
+   - Các khối thông tin và nút thao tác được căn thẳng hàng đồng bộ giữa các thẻ cùng hàng.
+
+3. **Thu gọn khoảng trống đầu trang**:
+   - Tối ưu hóa padding của vùng chứa `<main>` trong `AppLayout.tsx` thành `px-4 py-4 sm:px-8 sm:py-6`, đảm bảo khoảng cách từ đáy header đến tiêu đề nội dung đạt chuẩn: 24px trên máy tính và 16px trên điện thoại.
+   - Xóa bỏ `py-8` dư thừa trong component con, điều chỉnh khoảng cách giữa tiêu đề, bộ lọc và danh sách xuống 20–24px (`space-y-5 sm:space-y-6`).
+   - Không sử dụng margin âm, các màn hình khác trong `AppLayout` được hưởng lợi giao diện gọn gàng và không bị ảnh hưởng tiêu cực.
+
+4. **Trạng thái & Kiểm tra**:
+   - `npm run lint` và `compile_applet` PASS 100%.
+   - Không chạy seed hay sửa dữ liệu nghiệp vụ. Hoàn tất đúng phạm vi C1.2.
+
+---
+
+## 17. Hoàn Thiện & Nghiệm Thu C1.3 — Màn Hình Chi Tiết Khóa Học Cổng CTV
+
+1. **Sắp xếp lại cấu trúc thông tin đầu trang**:
+   - Xóa bỏ hoàn toàn nhãn và thông tin "Khoa đào tạo".
+   - Đưa 2 card/badge "Hệ đào tạo" và "Nhóm nghề" lên hàng đầu tiên của khối thông tin, đặt ngay phía trên tên khóa học. Nhóm nghề lấy từ CSDL chuẩn Admin A2 (`career_group`), khóa chưa gán nhóm hiển thị badge `"Chưa phân nhóm"`.
+   - Giữ mã khóa học hiển thị rõ ràng, tách bạch ở góc phải hàng đầu.
+   - Bố trí 3 card thông số phía dưới: Thời gian đào tạo, Học phí (chống ngắt dòng tiền), Đã đăng ký.
+   - Giữ nguyên ảnh đại diện chuẩn tỷ lệ, mô tả tóm tắt và khối chính sách thưởng 500k STHC.
+
+2. **Thêm card "Đã đăng ký" & Data Contract**:
+   - Hiển thị tổng số lượng người học đăng ký khóa học trên toàn hệ thống trường STHC.
+   - Trạng thái hiện tại: Chưa có module thống kê độc lập -> Hiển thị **`—`** và chú thích **`Chưa cập nhật`** (chỉ hiển thị 0 khi API thực sự trả về số 0).
+   - Hợp đồng dữ liệu cho module thống kê: trường `registered_count: number | null`, quy tắc đếm độc nhất theo CCCD/SĐT người học đã đối soát hợp lệ (`reconciliation_status = 'MATCHED_VALID'`) theo `course_id`.
+
+3. **Mã QR trực tiếp & Bộ nút chia sẻ (Zalo, Facebook, Mail)**:
+   - Mã QR được tạo trực tiếp ngay trong section "Link giới thiệu khóa học của bạn", hiển thị sắc nét bên cạnh khối liên kết và nút sao chép. Bổ sung nút **"Tải ảnh QR (PNG)"**.
+   - Bố cục responsive: Desktop chia 2 cột (trái: link + chia sẻ, phải: QR code); Mobile xếp 1 cột dọc tối ưu ngón tay.
+   - Thêm dòng "Chia sẻ qua:" với 3 nút chỉ hiển thị icon: Zalo, Facebook, Mail. Có tooltip và aria-label.
+   - Facebook mở dialog sharer chính thức; Mail mở mailto soạn thảo sẵn tiêu đề và nội dung; Zalo sử dụng URL Web Share Plugin (`https://sp.zalo.me/plugins/share`).
+   - Ghi chú kỹ thuật Zalo: Cần hoàn tất cấu hình Zalo OA ID (`data-oaid`) hoặc Zalo App ID trên portal `developers.zalo.me` để hiển thị đầy đủ preview OpenGraph trên Zalo Feed/Chat.
+
+4. **Hiển thị đúng định dạng nội dung đã soạn (HTML & Markdown)**:
+   - Kết hợp thư viện `marked` (`gfm: true`, `breaks: true`) và `sanitizeHtml` để làm sạch an toàn.
+   - Hỗ trợ hoàn hảo cả nội dung HTML truyền thống và nội dung Markdown/plain text xuống dòng (như khóa Bánh Âu `BA`). Giữ đúng tiêu đề, đoạn văn, danh sách có số thứ tự, bảng biểu có vùng cuộn ngang, ảnh không tràn màn hình.
+   - Tiêu đề khối "Đặc quyền…" tự động lấy tên khóa học đang xem, khắc phục triệt để lỗi gán cứng tên "Bánh Âu" cho các khóa học khác.
+
+5. **Xóa bỏ hoàn toàn section "Thông tin tuyển sinh"**:
+   - Loại bỏ section và dọn dẹp import thừa (`Building`, `Calendar`). Phần nội dung chi tiết mở rộng toàn bộ độ rộng trang.
+
+6. **Trạng thái & Kiểm tra**:
+   - `compile_applet`: Build succeeded 100%.
+   - `npm run lint`: PASS 100% (0 lỗi, 0 cảnh báo).
+   - Không chạy seed hay thay đổi dữ liệu nghiệp vụ CSDL.

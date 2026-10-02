@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import { X, Download, Copy, Check, QrCode } from 'lucide-react';
+import { X, Download, Copy, Check } from 'lucide-react';
 
 interface QRModalProps {
   isOpen: boolean;
@@ -29,7 +29,7 @@ export const QRModal: React.FC<QRModalProps> = ({
           width: 260,
           margin: 2,
           color: {
-            dark: '#0F2C59', // Saigontourist Navy
+            dark: '#0F2C59', // Brand Navy
             light: '#FFFFFF',
           },
         },
@@ -52,7 +52,7 @@ export const QRModal: React.FC<QRModalProps> = ({
     if (!canvasRef.current) return;
     const url = canvasRef.current.toDataURL('image/png');
     const link = document.createElement('a');
-    link.download = `STHC-QR-${affiliateCode}.png`;
+    link.download = `QR-${affiliateCode}.png`;
     link.href = url;
     link.click();
   };
@@ -61,19 +61,14 @@ export const QRModal: React.FC<QRModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
       <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white p-5 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-amber-500/20 rounded-lg border border-amber-400/30">
-              <QrCode className="w-5 h-5 text-amber-400" />
-            </div>
-            <div>
-              <h3 className="font-bold text-sm tracking-wide">MÃ QR TIẾP THỊ ĐỊNH DANH</h3>
-              <p className="text-xs text-blue-200">Trường Du Lịch Saigontourist (STHC)</p>
-            </div>
-          </div>
+        <div className="relative bg-gradient-to-r from-blue-900 to-indigo-950 text-white p-4.5 sm:p-5 flex items-center justify-center">
+          <h3 className="font-bold text-sm tracking-wide text-center uppercase">
+            MÃ QR TIẾP THỊ ĐỊNH DANH
+          </h3>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
+            aria-label="Đóng cửa sổ"
+            className="absolute right-4 p-1.5 rounded-lg text-blue-200 hover:text-white hover:bg-white/10 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -94,7 +89,7 @@ export const QRModal: React.FC<QRModalProps> = ({
           <div className="inline-block p-4 bg-white border-2 border-slate-100 rounded-xl shadow-inner">
             <canvas ref={canvasRef} className="mx-auto" />
             <p className="mt-2 text-[11px] text-slate-500 font-medium">
-              Quét camera để truy cập form tuyển sinh STHC
+              Quét camera để truy cập form tuyển sinh
             </p>
           </div>
 

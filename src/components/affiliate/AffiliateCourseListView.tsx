@@ -7,16 +7,24 @@ import {
   Check,
   AlertCircle,
   Clock,
-  GraduationCap,
-  Award,
   DollarSign,
   SearchX,
   ExternalLink,
   ShieldAlert,
   Briefcase,
+  QrCode,
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { Course } from '../../types';
+import { QRModal } from '../common/QRModal';
+
+export const CAREER_GROUP_OPTIONS = [
+  'Làm bánh',
+  'Nấu ăn',
+  'Nhà hàng',
+  'Khách sạn',
+  'Pha chế',
+];
 
 interface AffiliateCourseItem extends Course {
   referral_url: string;
@@ -40,7 +48,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
   // Search & Filter & Sort state
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedDegree, setSelectedDegree] = useState<string>('ALL');
-  const [selectedDepartment, setSelectedDepartment] = useState<string>('ALL');
+  const [selectedCareerGroup, setSelectedCareerGroup] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<'default' | 'az' | 'za'>('default');
 
   // Pagination state
@@ -49,6 +57,13 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
 
   // Copy feedback state (mapping course id or slug to copied status)
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // QR Modal state
+  const [qrCourse, setQrCourse] = useState<{
+    title: string;
+    referralUrl: string;
+    affiliateCode: string;
+  } | null>(null);
 
   const fetchCourses = useCallback(async () => {
     setLoading(true);
@@ -77,13 +92,16 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
     fetchCourses();
   }, [fetchCourses]);
 
-  // Extract unique departments and degree levels for filters
-  const departmentOptions = useMemo(() => {
-    const deps = new Set<string>();
+  // Extract unique career groups and degree levels for filters
+  const careerGroupOptions = useMemo(() => {
+    const groups = new Set<string>();
+    // Nhóm nghề chuẩn A2
+    CAREER_GROUP_OPTIONS.forEach(g => groups.add(g));
+    // Bổ sung nhóm nghề thực tế trả về từ CSDL (nếu có thêm)
     courses.forEach(c => {
-      if (c.department) deps.add(c.department);
+      if (c.career_group) groups.add(c.career_group);
     });
-    return Array.from(deps);
+    return Array.from(groups);
   }, [courses]);
 
   const degreeLevelOptions = useMemo(() => {
@@ -105,7 +123,8 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
         const titleNorm = (c.title || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         const codeNorm = (c.code || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         const summaryNorm = (c.summary || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        return titleNorm.includes(q) || codeNorm.includes(q) || summaryNorm.includes(q);
+        const careerNorm = (c.career_group || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return titleNorm.includes(q) || codeNorm.includes(q) || summaryNorm.includes(q) || careerNorm.includes(q);
       });
     }
 
@@ -114,9 +133,13 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
       result = result.filter(c => c.degree_level === selectedDegree);
     }
 
-    // Department filter
-    if (selectedDepartment !== 'ALL') {
-      result = result.filter(c => c.department === selectedDepartment);
+    // Career Group filter
+    if (selectedCareerGroup !== 'ALL') {
+      if (selectedCareerGroup === 'UNASSIGNED') {
+        result = result.filter(c => !c.career_group);
+      } else {
+        result = result.filter(c => c.career_group === selectedCareerGroup);
+      }
     }
 
     // Sorting
@@ -130,12 +153,12 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
     }
 
     return result;
-  }, [courses, searchQuery, selectedDegree, selectedDepartment, sortBy]);
+  }, [courses, searchQuery, selectedDegree, selectedCareerGroup, sortBy]);
 
   // Reset to page 1 on filter/search change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedDegree, selectedDepartment, sortBy]);
+  }, [searchQuery, selectedDegree, selectedCareerGroup, sortBy]);
 
   // Paginated courses (12 per page)
   const totalPages = Math.ceil(filteredCourses.length / pageSize) || 1;
@@ -152,7 +175,6 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
         setCopiedId(null);
       }, 2500);
     }).catch(() => {
-      // Fallback
       alert('Không thể sao chép tự động. Vui lòng sao chép thủ công: ' + url);
     });
   };
@@ -160,21 +182,21 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
   const handleResetFilters = () => {
     setSearchQuery('');
     setSelectedDegree('ALL');
-    setSelectedDepartment('ALL');
+    setSelectedCareerGroup('ALL');
     setSortBy('default');
   };
 
-  // Format currency
+  // Format currency: ensures number and "đ" are non-breaking
   const formatTuition = (val: number | null | undefined) => {
     if (val === null || val === undefined) return 'Chưa cập nhật';
     if (val === 0) return 'Miễn phí';
-    return Number(val).toLocaleString('vi-VN') + ' đ';
+    return Number(val).toLocaleString('vi-VN') + '\u00A0đ';
   };
 
   if (suspendedError) {
     return (
-      <div className="max-w-6xl mx-auto px-4 py-12">
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-8 text-center space-y-4">
+      <div className="max-w-4xl mx-auto py-8">
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-8 text-center space-y-4 shadow-sm">
           <div className="w-16 h-16 mx-auto bg-amber-100 rounded-full flex items-center justify-center text-amber-800">
             <ShieldAlert className="w-8 h-8" />
           </div>
@@ -182,7 +204,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
           <p className="text-sm text-amber-800 max-w-lg mx-auto leading-relaxed">{suspendedError}</p>
           <button
             onClick={onNavigateToOverview}
-            className="px-5 py-2.5 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-semibold shadow transition-colors"
+            className="px-5 py-2.5 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
           >
             Quay về Tổng quan
           </button>
@@ -192,18 +214,18 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-fade-in">
+    <div className="max-w-7xl mx-auto space-y-5 sm:space-y-6 animate-fade-in">
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-6 border-b border-slate-200">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-4 sm:pb-5 border-b border-slate-200">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Khóa học</h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-900 border border-blue-100">
               {filteredCourses.length} khóa học
             </span>
           </div>
           <p className="text-sm text-slate-600 mt-1">
-            Xem thông tin khóa học và lấy link giới thiệu của bạn.
+            Xem thông tin khóa học, lấy link giới thiệu và mã QR tiếp thị tuyển sinh của bạn.
           </p>
         </div>
 
@@ -211,7 +233,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
           <button
             onClick={fetchCourses}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold shadow-sm transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold shadow-xs transition-colors disabled:opacity-50"
             title="Tải lại danh sách khóa học"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
@@ -221,8 +243,8 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
       </div>
 
       {/* Filters & Search Toolbar */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+      <div className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5">
           {/* Search input */}
           <div className="md:col-span-5 relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -230,8 +252,8 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Tìm kiếm theo tên khóa học, mã hoặc nội dung..."
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-900 focus:bg-white transition-all"
+              placeholder="Tìm kiếm theo tên khóa học, mã hoặc nhóm nghề..."
+              className="w-full pl-10 pr-12 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-900 focus:bg-white transition-all"
             />
             {searchQuery && (
               <button
@@ -243,17 +265,21 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
             )}
           </div>
 
-          {/* Department Filter */}
+          {/* Career Group Filter (Thay thế Khoa đào tạo) */}
           <div className="md:col-span-3">
             <select
-              value={selectedDepartment}
-              onChange={(e) => setSelectedDepartment(e.target.value)}
+              value={selectedCareerGroup}
+              onChange={(e) => {
+                setSelectedCareerGroup(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-900 focus:bg-white transition-all cursor-pointer"
             >
-              <option value="ALL">Tất cả Khoa đào tạo</option>
-              {departmentOptions.map(dep => (
-                <option key={dep} value={dep}>{dep}</option>
+              <option value="ALL">Tất cả nhóm nghề</option>
+              {careerGroupOptions.map(grp => (
+                <option key={grp} value={grp}>{grp}</option>
               ))}
+              <option value="UNASSIGNED">Chưa phân nhóm</option>
             </select>
           </div>
 
@@ -261,7 +287,10 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
           <div className="md:col-span-2">
             <select
               value={selectedDegree}
-              onChange={(e) => setSelectedDegree(e.target.value)}
+              onChange={(e) => {
+                setSelectedDegree(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-900 focus:bg-white transition-all cursor-pointer"
             >
               <option value="ALL">Tất cả hệ đào tạo</option>
@@ -275,7 +304,10 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
           <div className="md:col-span-2">
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
+              onChange={(e) => {
+                setSortBy(e.target.value as any);
+                setCurrentPage(1);
+              }}
               className="w-full px-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-900 focus:bg-white transition-all cursor-pointer"
             >
               <option value="default">Sắp xếp: Mặc định</option>
@@ -286,12 +318,16 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
         </div>
 
         {/* Active Filters Summary */}
-        {(searchQuery || selectedDegree !== 'ALL' || selectedDepartment !== 'ALL') && (
+        {(searchQuery || selectedDegree !== 'ALL' || selectedCareerGroup !== 'ALL') && (
           <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs text-slate-600">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium text-slate-700">Bộ lọc đang áp dụng:</span>
               {searchQuery && <span className="bg-blue-50 text-blue-900 px-2.5 py-1 rounded-lg">Từ khóa: "{searchQuery}"</span>}
-              {selectedDepartment !== 'ALL' && <span className="bg-blue-50 text-blue-900 px-2.5 py-1 rounded-lg">Khoa: {selectedDepartment}</span>}
+              {selectedCareerGroup !== 'ALL' && (
+                <span className="bg-blue-50 text-blue-900 px-2.5 py-1 rounded-lg">
+                  Nhóm nghề: {selectedCareerGroup === 'UNASSIGNED' ? 'Chưa phân nhóm' : selectedCareerGroup}
+                </span>
+              )}
               {selectedDegree !== 'ALL' && <span className="bg-blue-50 text-blue-900 px-2.5 py-1 rounded-lg">Hệ: {selectedDegree}</span>}
             </div>
             <button
@@ -309,8 +345,8 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
         // Loading Skeleton Grid
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3, 4, 5, 6].map(n => (
-            <div key={n} className="bg-white rounded-2xl border border-slate-200 overflow-hidden p-5 shadow-sm space-y-4 animate-pulse">
-              <div className="w-full h-44 bg-slate-200 rounded-xl"></div>
+            <div key={n} className="bg-white rounded-2xl border border-slate-200 overflow-hidden p-5 shadow-xs space-y-4 animate-pulse">
+              <div className="w-full h-48 bg-slate-200 rounded-xl"></div>
               <div className="space-y-2">
                 <div className="h-4 bg-slate-200 rounded w-1/3"></div>
                 <div className="h-6 bg-slate-200 rounded w-full"></div>
@@ -325,7 +361,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
         </div>
       ) : error ? (
         // Error State
-        <div className="bg-white rounded-2xl border border-red-200 p-12 text-center shadow-sm space-y-4">
+        <div className="bg-white rounded-2xl border border-red-200 p-12 text-center shadow-xs space-y-4">
           <div className="w-16 h-16 mx-auto bg-red-50 text-red-600 rounded-full flex items-center justify-center">
             <AlertCircle className="w-8 h-8" />
           </div>
@@ -333,14 +369,14 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
           <p className="text-xs text-slate-600 max-w-md mx-auto">{error}</p>
           <button
             onClick={fetchCourses}
-            className="px-5 py-2.5 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-semibold shadow transition-colors"
+            className="px-5 py-2.5 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
           >
             Thử lại
           </button>
         </div>
       ) : filteredCourses.length === 0 ? (
         // Empty State
-        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-sm space-y-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-xs space-y-4">
           <div className="w-16 h-16 mx-auto bg-blue-50 text-blue-900 rounded-full flex items-center justify-center">
             <SearchX className="w-8 h-8" />
           </div>
@@ -348,17 +384,17 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
           <p className="text-xs text-slate-600 max-w-md mx-auto">
             Không có khóa học nào khớp với từ khóa hoặc bộ lọc bạn đang chọn. Vui lòng thử lại với từ khóa khác.
           </p>
-          {(searchQuery || selectedDegree !== 'ALL' || selectedDepartment !== 'ALL') && (
+          {(searchQuery || selectedDegree !== 'ALL' || selectedCareerGroup !== 'ALL') && (
             <button
               onClick={handleResetFilters}
-              className="px-5 py-2.5 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-semibold shadow transition-colors"
+              className="px-5 py-2.5 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-semibold shadow-xs transition-colors"
             >
               Xóa bộ lọc
             </button>
           )}
         </div>
       ) : (
-        // Course Card Grid (3 columns on desktop, 2 on tablet, 1 on mobile)
+        // Course Card Grid
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {paginatedCourses.map(course => {
@@ -368,109 +404,124 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
               return (
                 <div
                   key={course.id}
-                  className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-all duration-200 flex flex-col justify-between group"
+                  className="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-xs hover:shadow-md hover:border-blue-900/50 transition-all duration-200 flex flex-col justify-between group"
                 >
                   {/* Card Top: Thumbnail & Metadata */}
-                  <div>
-                    <div className="relative h-44 w-full bg-slate-100 overflow-hidden">
+                  <div className="flex flex-col flex-1">
+                    <div className="relative h-48 w-full bg-slate-100 overflow-hidden shrink-0">
                       {hasThumbnail ? (
                         <img
                           src={course.thumbnail_url || undefined}
                           alt={course.title}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           onError={(e) => {
-                            // Fallback if image fails to load
                             (e.target as HTMLElement).style.display = 'none';
                           }}
                         />
                       ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-blue-900 to-slate-900 flex flex-col items-center justify-center text-white p-4">
-                          <BookOpen className="w-10 h-10 text-amber-400 mb-2 opacity-90" />
-                          <span className="text-xs font-bold tracking-wider uppercase text-amber-300">
+                        <div className="w-full h-full bg-[#0B1E3F] flex flex-col items-center justify-center text-white p-4">
+                          <BookOpen className="w-10 h-10 text-amber-400 mb-2 opacity-95" />
+                          <span className="text-xs font-mono font-bold tracking-wider uppercase text-amber-300">
                             {course.code || 'STHC'}
                           </span>
                         </div>
                       )}
 
-                      {/* Floating Badge: Degree Level / Department */}
-                      <div className="absolute top-3 left-3 bg-slate-950/70 backdrop-blur-md text-white text-[11px] font-medium px-2.5 py-1 rounded-lg">
-                        {course.degree_level || course.department || 'Đào tạo chuyên nghiệp'}
+                      {/* Floating Badge: Hệ đào tạo có độ tương phản rõ trên ảnh */}
+                      <div className="absolute top-3 left-3 bg-slate-950/85 backdrop-blur-md text-white text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-white/20 shadow-sm">
+                        {course.degree_level || 'Chưa cập nhật'}
                       </div>
                     </div>
 
-                    <div className="p-5 space-y-3">
-                      {/* Department / Metadata text & Detail button */}
+                    <div className="p-5 flex flex-col flex-1 justify-between space-y-3.5">
+                      {/* Badge Nhóm nghề, Mã khóa học & Nút Chi tiết */}
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 text-xs text-slate-500 font-medium truncate">
-                          <span className="truncate">{course.department || 'Đào tạo Saigontourist'}</span>
-                          <span aria-hidden="true">·</span>
-                          <span className="shrink-0">Mã: {course.code}</span>
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                          {course.career_group ? (
+                            <span
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 text-blue-900 border border-blue-200/80 max-w-[210px] leading-snug line-clamp-2 break-words"
+                              title={`Nhóm nghề: ${course.career_group}`}
+                            >
+                              <Briefcase className="w-3.5 h-3.5 text-blue-900 shrink-0" />
+                              <span className="line-clamp-2">{course.career_group}</span>
+                            </span>
+                          ) : (
+                            <span
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200 max-w-[210px] leading-snug line-clamp-2 break-words"
+                              title="Chưa phân nhóm nghề"
+                            >
+                              <span>Chưa phân nhóm</span>
+                            </span>
+                          )}
+
+                          <span className="text-xs font-mono text-slate-400 font-medium shrink-0">
+                            #{course.code}
+                          </span>
                         </div>
+
+                        {/* Nút Chi tiết nền xanh navy, chữ trắng */}
                         <button
                           onClick={() => onSelectCourse(course.slug)}
-                          className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-100 transition-colors shrink-0"
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 shadow-xs transition-colors shrink-0 ml-auto"
                           title="Xem chi tiết khóa học"
                         >
                           Chi tiết
                         </button>
                       </div>
 
-                      {/* Course Title */}
-                      <h3 className="text-base font-bold text-slate-900 group-hover:text-blue-900 transition-colors line-clamp-2 leading-snug">
-                        {course.title}
-                      </h3>
+                      {/* Course Title (đậm, dễ đọc) & Summary (tối đa 2 dòng) */}
+                      <div className="space-y-1.5">
+                        <h3
+                          onClick={() => onSelectCourse(course.slug)}
+                          className="text-base font-bold text-slate-900 group-hover:text-blue-900 transition-colors line-clamp-2 leading-snug cursor-pointer min-h-[2.75rem]"
+                          title={course.title}
+                        >
+                          {course.title}
+                        </h3>
+                        <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed min-h-[2.5rem]">
+                          {course.summary || 'Chương trình đào tạo chuẩn quốc tế, thực hành chuyên sâu tại hệ thống khách sạn và khu nghỉ dưỡng hàng đầu.'}
+                        </p>
+                      </div>
 
-                      {/* Summary */}
-                      <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
-                        {course.summary || 'Chương trình đào tạo chuẩn quốc tế, thực hành chuyên sâu tại hệ thống khách sạn và khu nghỉ dưỡng hàng đầu.'}
-                      </p>
-
-                      {/* Key details: Nhóm nghề, Duration & Tuition */}
-                      <div className="pt-2 border-t border-slate-100 space-y-1.5 text-xs">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 text-slate-700">
-                            <Briefcase className="w-3.5 h-3.5 text-blue-900 shrink-0" />
-                            <span className="text-slate-500 font-medium">Nhóm nghề:</span>
-                            <span className={course.career_group ? 'font-semibold text-slate-900' : 'text-slate-400 italic'}>
-                              {course.career_group || 'Chưa cập nhật'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5 text-slate-700">
-                            <Clock className="w-3.5 h-3.5 text-blue-900 shrink-0" />
-                            <span className="truncate">{course.duration_text || 'Theo lộ trình'}</span>
-                          </div>
+                      {/* Key details: Thời gian và học phí không bị ngắt số tiền và "đ" */}
+                      <div className="pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
+                        <div className="flex items-center gap-1.5 text-slate-700 min-w-0">
+                          <Clock className="w-3.5 h-3.5 text-blue-900 shrink-0" />
+                          <span className="text-slate-500 text-[11px] shrink-0">Thời lượng:</span>
+                          <span className="font-semibold text-slate-800 truncate" title={course.duration_text || 'Theo lộ trình'}>
+                            {course.duration_text || 'Theo lộ trình'}
+                          </span>
                         </div>
-                        <div className="flex items-center justify-between pt-1 border-t border-slate-50">
-                          <span className="text-slate-500 text-[11px]">Hệ đào tạo: <strong className="text-slate-800 font-semibold">{course.degree_level || 'Chưa cập nhật'}</strong></span>
-                          <div className="flex items-center gap-1 text-slate-700 font-semibold">
-                            <span className="text-slate-400 font-normal">Học phí:</span>
-                            <span className="text-blue-900">{formatTuition(course.tuition_fee_estimate)}</span>
-                          </div>
+                        <div className="flex items-center justify-end gap-1.5 text-slate-700 min-w-0">
+                          <span className="text-slate-500 text-[11px] shrink-0">Học phí:</span>
+                          <span className="font-bold text-blue-900 whitespace-nowrap">
+                            {formatTuition(course.tuition_fee_estimate)}
+                          </span>
                         </div>
                       </div>
 
-                      {/* Commission Policy Banner */}
-                      <div className="bg-amber-50/70 border border-amber-200/80 rounded-xl p-3 space-y-1">
+                      {/* Khối thưởng nền vàng nhạt, viền vàng, giữ điều kiện đối soát */}
+                      <div className="bg-amber-50/80 border border-amber-300/80 rounded-xl p-3 space-y-1">
                         <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
                           <DollarSign className="w-3.5 h-3.5 text-amber-700 shrink-0" />
                           <span>Thưởng 500.000 đ/hồ sơ nhập học hợp lệ</span>
                         </div>
-                        <p className="text-[11px] text-amber-800/80 leading-tight">
+                        <p className="text-[11px] text-amber-800/90 leading-tight">
                           Sau khi nhà trường đối soát và phê duyệt.
                         </p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Card Footer: Referral Link & Copy Action */}
-                  <div className="p-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl space-y-2">
+                  {/* Card Footer: Referral Link, Copy Action & QR Code */}
+                  <div className="p-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl space-y-2 mt-auto">
                     <div className="text-[11px] font-semibold text-slate-700 flex items-center justify-between">
                       <span>Link giới thiệu của bạn:</span>
                       <a
                         href={course.referral_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-900 hover:underline flex items-center gap-1 font-normal"
+                        className="text-blue-900 hover:underline flex items-center gap-1 font-normal text-xs"
                         title="Mở thử link công khai"
                       >
                         <span>Mở xem</span>
@@ -485,9 +536,10 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
                       >
                         {course.referral_url}
                       </div>
+
                       <button
                         onClick={() => handleCopyLink(course.id, course.referral_url)}
-                        className={`inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold shadow-sm transition-all shrink-0 ${
+                        className={`inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold shadow-xs transition-all shrink-0 ${
                           isCopied
                             ? 'bg-emerald-600 text-white'
                             : 'bg-blue-900 hover:bg-blue-950 text-white'
@@ -497,14 +549,27 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
                         {isCopied ? (
                           <>
                             <Check className="w-3.5 h-3.5" />
-                            <span>Đã sao chép</span>
+                            <span>Đã chép</span>
                           </>
                         ) : (
                           <>
                             <Copy className="w-3.5 h-3.5" />
-                            <span>Sao chép link</span>
+                            <span>Chép link</span>
                           </>
                         )}
+                      </button>
+
+                      <button
+                        onClick={() => setQrCourse({
+                          title: course.title,
+                          referralUrl: course.referral_url,
+                          affiliateCode: course.affiliate_code,
+                        })}
+                        className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 hover:text-blue-900 shadow-xs transition-all shrink-0"
+                        title="Xem mã QR tuyển sinh"
+                      >
+                        <QrCode className="w-3.5 h-3.5 text-blue-900" />
+                        <span className="hidden sm:inline">QR</span>
                       </button>
                     </div>
                   </div>
@@ -515,7 +580,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
 
           {/* Pagination Footer */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between pt-6 border-t border-slate-200">
+            <div className="flex items-center justify-between pt-5 border-t border-slate-200">
               <div className="text-xs text-slate-600">
                 Hiển thị từ <span className="font-semibold text-slate-900">{(currentPage - 1) * pageSize + 1}</span> đến{' '}
                 <span className="font-semibold text-slate-900">
@@ -528,7 +593,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
                 <button
                   onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
                   disabled={currentPage === 1}
-                  className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                  className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
                 >
                   Trang trước
                 </button>
@@ -540,7 +605,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
                 <button
                   onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
                   disabled={currentPage === totalPages}
-                  className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                  className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs"
                 >
                   Trang sau
                 </button>
@@ -548,6 +613,17 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
             </div>
           )}
         </div>
+      )}
+
+      {/* QR Code Modal */}
+      {qrCourse && (
+        <QRModal
+          isOpen={Boolean(qrCourse)}
+          onClose={() => setQrCourse(null)}
+          title={qrCourse.title}
+          referralUrl={qrCourse.referralUrl}
+          affiliateCode={qrCourse.affiliateCode}
+        />
       )}
     </div>
   );
