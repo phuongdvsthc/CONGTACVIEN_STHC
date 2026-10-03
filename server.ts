@@ -3226,6 +3226,12 @@ async function startServer() {
 
       if (error) {
         console.error('[SAVE HOMEPAGE DRAFT ERROR]', error);
+        if (error.code === 'PGRST204' || error.code === 'PGRST205' || error.message?.includes('schema cache')) {
+          return res.status(500).json({
+            success: false,
+            error: `CSDL Supabase chưa áp dụng migration A6.4: ${error.message}. Vui lòng chạy file migration /supabase/migrations/20261003000001_add_homepage_config_draft_publish_and_history.sql trong Supabase SQL Editor.`,
+          });
+        }
         return res.status(400).json({ success: false, error: `Không thể lưu bản nháp: ${error.message}` });
       }
 
@@ -3287,26 +3293,42 @@ async function startServer() {
         .upsert(publishPayload, { onConflict: 'id' });
 
       if (pubErr) {
+        if (pubErr.code === 'PGRST204' || pubErr.code === 'PGRST205' || pubErr.message?.includes('schema cache')) {
+          return res.status(500).json({
+            success: false,
+            error: `CSDL Supabase chưa áp dụng migration A6.4 (thiếu cột hoặc bảng trong schema cache: ${pubErr.message}). Vui lòng chạy file migration /supabase/migrations/20261003000001_add_homepage_config_draft_publish_and_history.sql trong Supabase SQL Editor.`,
+          });
+        }
         return res.status(400).json({ success: false, error: `Không thể xuất bản cấu hình: ${pubErr.message}` });
       }
 
-      try {
-        await supabase.from('homepage_config_history').insert({
-          version_number: nextVersion,
-          logo_url: newLogoUrl,
-          logo_alt: newLogoAlt,
-          hero_background_url: newBgUrl,
-          hero_background_alt: newBgAlt,
-          hero_illustration_url: newIllUrl,
-          hero_illustration_alt: newIllAlt,
-          hotline: newHotline,
-          footer_text: newFooter,
-          layout_blocks: newBlocks,
-          action_type: 'PUBLISH',
-          created_by: userName,
-          created_at: nowIso,
+      // Lưu snapshot vào bảng lịch sử xuất bản
+      const { error: histErr } = await supabase.from('homepage_config_history').insert({
+        version_number: nextVersion,
+        logo_url: newLogoUrl,
+        logo_alt: newLogoAlt,
+        hero_background_url: newBgUrl,
+        hero_background_alt: newBgAlt,
+        hero_illustration_url: newIllUrl,
+        hero_illustration_alt: newIllAlt,
+        hotline: newHotline,
+        footer_text: newFooter,
+        layout_blocks: newBlocks,
+        action_type: 'PUBLISH',
+        created_by: userName,
+        created_at: nowIso,
+      });
+
+      if (histErr) {
+        console.error('[PUBLISH HISTORY INSERT ERROR]', histErr);
+        // Rollback homepage_config để bảo toàn giao dịch nguyên tử, không để lưu một phần
+        await supabase.from('homepage_config').upsert(currentCfg, { onConflict: 'id' });
+
+        return res.status(500).json({
+          success: false,
+          error: `Lỗi khi lưu lịch sử phiên bản vào CSDL: ${histErr.message}. Thao tác xuất bản đã được hoàn tác.`,
         });
-      } catch (e) {}
+      }
 
       return res.json({ success: true, message: `Đã xuất bản phiên bản v${nextVersion} thành công!` });
     } catch (err: any) {
@@ -3338,7 +3360,7 @@ async function startServer() {
 
       const { data: currentCfg } = await supabase
         .from('homepage_config')
-        .select('version_number')
+        .select('*')
         .eq('id', 1)
         .maybeSingle();
 
@@ -3370,24 +3392,33 @@ async function startServer() {
         return res.status(400).json({ success: false, error: `Không thể khôi phục phiên bản: ${restErr.message}` });
       }
 
-      try {
-        await supabase.from('homepage_config_history').insert({
-          version_number: nextVersion,
-          logo_url: histSnapshot.logo_url,
-          logo_alt: histSnapshot.logo_alt,
-          hero_background_url: histSnapshot.hero_background_url,
-          hero_background_alt: histSnapshot.hero_background_alt,
-          hero_illustration_url: histSnapshot.hero_illustration_url,
-          hero_illustration_alt: histSnapshot.hero_illustration_alt,
-          hotline: histSnapshot.hotline,
-          footer_text: histSnapshot.footer_text,
-          layout_blocks: histSnapshot.layout_blocks,
-          action_type: 'RESTORE',
-          source_version_number: version_number,
-          created_by: userName,
-          created_at: nowIso,
+      const { error: newHistErr } = await supabase.from('homepage_config_history').insert({
+        version_number: nextVersion,
+        logo_url: histSnapshot.logo_url,
+        logo_alt: histSnapshot.logo_alt,
+        hero_background_url: histSnapshot.hero_background_url,
+        hero_background_alt: histSnapshot.hero_background_alt,
+        hero_illustration_url: histSnapshot.hero_illustration_url,
+        hero_illustration_alt: histSnapshot.hero_illustration_alt,
+        hotline: histSnapshot.hotline,
+        footer_text: histSnapshot.footer_text,
+        layout_blocks: histSnapshot.layout_blocks,
+        action_type: 'RESTORE',
+        source_version_number: version_number,
+        created_by: userName,
+        created_at: nowIso,
+      });
+
+      if (newHistErr) {
+        console.error('[RESTORE HISTORY INSERT ERROR]', newHistErr);
+        if (currentCfg) {
+          await supabase.from('homepage_config').upsert(currentCfg, { onConflict: 'id' });
+        }
+        return res.status(500).json({
+          success: false,
+          error: `Lỗi khi lưu lịch sử khôi phục: ${newHistErr.message}. Thao tác đã được hoàn tác.`,
         });
-      } catch (e) {}
+      }
 
       return res.json({ success: true, message: `Đã khôi phục và xuất bản thành công từ phiên bản v${version_number} (tạo v${nextVersion})!` });
     } catch (err: any) {
