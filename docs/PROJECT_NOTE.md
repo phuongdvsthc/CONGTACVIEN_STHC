@@ -700,6 +700,20 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
   - Header và Footer dùng chung luôn nằm cố định ở đầu và cuối trang.
 - **Kiểm tra kỹ thuật:** `npm run lint` và `compile_applet` đạt **PASS 100% (Build succeeded)**. Server đã được khởi động lại (`restart_dev_server`).
 
+### 14. Chuyển đổi trang chủ thành Landing Page Thu hút Đăng ký CTV (6 Khối Chuẩn Mới)
+- **Danh sách 6 khối chính trên trang chủ công khai (`PublicHome.tsx`)**:
+  1. `hero`: Khối Giới thiệu & Banner (tích hợp form đăng ký tài khoản CTV trực tiếp ở cột phải).
+  2. `commission_policy`: Khối Chính sách hoa hồng CTV (mức thù lao 500.000 VNĐ / hồ sơ nhập học, điều kiện tài khoản chờ duyệt).
+  3. `process`: Khối Quy trình trở thành CTV (3 bước đơn giản: Đăng ký & Chờ duyệt, Lấy Link & QR, Nhận Thưởng).
+  4. `success_stories`: Khối Câu chuyện thành công (mặc định tắt nếu chưa có câu chuyện thực tế).
+  5. `faq`: Khối Giải đáp thắc mắc (accordion mở/đóng mượt mà).
+  6. `cta`: Khối Sẵn sàng trở thành CTV (banner kêu gọi hành động với nút cuộn đến form đăng ký).
+- **Loại bỏ khỏi trang chủ**:
+  - Đã gỡ bỏ hoàn toàn Khối Tìm kiếm & Bộ lọc ngành, Danh sách Khóa học, Đăng ký Tư vấn Trực tuyến, và thẻ "Mạng lưới tuyển sinh 5 ngành nghề" khỏi trang chủ công khai (vẫn giữ nguyên hoạt động tại `/catalog` và trang chi tiết khóa học).
+- **Quản trị viên (`AdminHomepageConfigView.tsx` & `server.ts`)**:
+  - Module quản lý trang chủ `/admin/homepage` được nâng cấp toàn diện để quản lý đầy đủ 6 khối, hỗ trợ sắp xếp thứ tự, bật/tắt hiển thị, chỉnh sửa nội dung chi tiết từng khối (tiêu đề, mô tả, bước quy trình, câu hỏi FAQ), cùng cơ chế migration tự động chuyển đổi cấu hình cũ sang cấu trúc 6 khối mới mà không làm mất lịch sử xuất bản.
+- **Kiểm tra kỹ thuật**: `npm run lint` và `compile_applet` đạt **PASS 100% (Build succeeded)**. Server đã được khởi động lại (`restart_dev_server`).
+
 
 
 

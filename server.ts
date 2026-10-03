@@ -1232,11 +1232,111 @@ async function startServer() {
   // Public Homepage Config GET
   app.get('/api/v1/public/homepage-config', async (req: Request, res: Response) => {
     const DEFAULT_LAYOUT_BLOCKS = [
-      { id: 'hero', name: 'Khối Giới thiệu & Banner (Hero Section)', enabled: true, order: 0 },
-      { id: 'courses_search_filter', name: 'Khối Tìm kiếm & Bộ lọc ngành', enabled: true, order: 1 },
-      { id: 'courses_grid', name: 'Khối Danh sách Khóa học', enabled: true, order: 2 },
-      { id: 'consultation_form', name: 'Khối Đăng ký Tư vấn Trực tuyến', enabled: true, order: 3 },
+      {
+        id: 'hero',
+        name: 'Khối Giới thiệu & Banner (Hero Section)',
+        enabled: true,
+        order: 0,
+        config: {
+          title: 'Saigontourist Lan Tỏa Tương Lai Ngành Du Lịch',
+          subtitle: 'Khởi Đầu Nghề Nghiệp Đẳng Cấp 5 Sao',
+          description: 'Trở thành Cầu nối Tuyển sinh cho ngôi trường đào tạo Du lịch - Khách sạn hàng đầu Việt Nam với hơn 35 năm uy tín. Nhận thù lao xứng đáng, thủ tục minh bạch và đối soát tự động.',
+          ctaLabel: 'Đăng Ký Tham Gia Ngay'
+        }
+      },
+      {
+        id: 'commission_policy',
+        name: 'Khối Chính sách hoa hồng CTV',
+        enabled: true,
+        order: 1,
+        config: {
+          title: 'Chính Sách Hoa Hồng Hấp Dẫn & Minh Bạch',
+          amount: '500.000',
+          currency: 'VNĐ',
+          unitLabel: '01 hồ sơ nhập học hợp lệ',
+          description: '500.000 đồng cho mỗi hồ sơ giới thiệu hợp lệ sau khi trường xác nhận học viên đã hoàn tất đóng học phí.',
+          condition: 'Tài khoản chờ duyệt: Tài khoản mới phải chờ trường duyệt (trạng thái PENDING_REVIEW) trước khi được cấp và sử dụng link giới thiệu.',
+          benefits: [
+            'Thù lao: 500.000 VNĐ / hồ sơ nhập học',
+            'Trạng thái: Tài khoản mới sẽ ở trạng thái CHỜ DUYỆT trước khi được cấp link giới thiệu.',
+            'Đối soát và xác nhận minh bạch qua hệ thống.'
+          ],
+          ctaLabel: 'Tìm hiểu chi tiết'
+        }
+      },
+      {
+        id: 'process',
+        name: 'Khối Quy trình trở thành CTV',
+        enabled: true,
+        order: 2,
+        config: {
+          title: '3 Bước Đơn Giản Để Bắt Đầu',
+          subtitle: 'Quy trình đăng ký và giới thiệu tinh gọn, minh bạch',
+          steps: [
+            { id: 'step-1', title: '1. Đăng ký tài khoản', description: 'Đăng ký tài khoản CTV, xác thực email và chờ Ban Tuyển sinh duyệt trạng thái PENDING_REVIEW.', icon: 'UserCheck', order: 0 },
+            { id: 'step-2', title: '2. Lấy Link & QR giới thiệu', description: 'Sau khi được duyệt kích hoạt (ACTIVE), chọn khóa học quan tâm và lấy Link/QR giới thiệu riêng của bạn.', icon: 'QrCode', order: 1 },
+            { id: 'step-3', title: '3. Giới thiệu & Nhận thưởng', description: 'Học viên đăng ký qua link/QR; nhà trường đối chiếu hồ sơ và học phí để ghi nhận hoa hồng thành công.', icon: 'Award', order: 2 }
+          ]
+        }
+      },
+      {
+        id: 'success_stories',
+        name: 'Khối Câu chuyện thành công',
+        enabled: false,
+        order: 3,
+        config: {
+          title: 'Câu Chuyện Thành Công Từ Cộng Tác Viên',
+          subtitle: 'Lắng nghe chia sẻ từ những cầu nối tuyển sinh xuất sắc',
+          stories: []
+        }
+      },
+      {
+        id: 'faq',
+        name: 'Khối Giải đáp thắc mắc',
+        enabled: true,
+        order: 4,
+        config: {
+          title: 'Giải Đáp Thắc Mắc Thường Gặp',
+          subtitle: 'Mọi thông tin về chương trình Cộng tác viên tuyển sinh STHC',
+          faqs: [
+            { id: 'faq-1', question: 'Làm thế nào để đăng ký trở thành Cộng tác viên tuyển sinh?', answer: 'Bạn chỉ cần điền thông tin vào form đăng ký tài khoản CTV ở đầu trang, xác thực email và chờ Ban Tuyển sinh phê duyệt tài khoản.', enabled: true, order: 0 },
+            { id: 'faq-2', question: 'Mức hoa hồng chi trả cho mỗi hồ sơ là bao nhiêu?', answer: 'Mức thù lao là 500.000 VNĐ cho mỗi hồ sơ giới thiệu nhập học thành công sau khi học viên hoàn tất đóng học phí.', enabled: true, order: 1 },
+            { id: 'faq-3', question: 'Khi nào tôi nhận được thù lao giới thiệu?', answer: 'Thù lao được đối soát và xác nhận khi học viên hoàn tất thủ tục nhập học và đóng học phí theo quy định của nhà trường.', enabled: true, order: 2 }
+          ]
+        }
+      },
+      {
+        id: 'cta',
+        name: 'Khối Sẵn sàng trở thành CTV',
+        enabled: true,
+        order: 5,
+        config: {
+          title: 'Sẵn Sàng Trở Thành Cầu Nối Tuyển Sinh?',
+          subtitle: 'Đăng ký ngay hôm nay để nhận quyền lợi hấp dẫn và đồng hành cùng uy tín đào tạo 35 năm.',
+          buttonLabel: 'Đăng Ký Tài Khoản CTV Ngay'
+        }
+      }
     ];
+
+    const sanitizeAndMigrateBlocks = (rawBlocks: any[]) => {
+      if (!Array.isArray(rawBlocks) || rawBlocks.length === 0) {
+        return DEFAULT_LAYOUT_BLOCKS;
+      }
+      const filtered = rawBlocks.filter((b: any) => 
+        b && ['hero', 'commission_policy', 'process', 'success_stories', 'faq', 'cta'].includes(b.id)
+      );
+      DEFAULT_LAYOUT_BLOCKS.forEach((defBlock) => {
+        const exists = filtered.find((b: any) => b.id === defBlock.id);
+        if (!exists) {
+          filtered.push(defBlock);
+        } else {
+          exists.config = { ...defBlock.config, ...(exists.config || {}) };
+          if (!exists.name) exists.name = defBlock.name;
+        }
+      });
+      return filtered.sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+    };
+
     try {
       const { data, error } = await supabase
         .from('homepage_config')
@@ -1246,9 +1346,7 @@ async function startServer() {
       if (error || !data) {
         return res.json({ success: true, data: { logo_url: null, logo_alt: null, hotline: null, footer_text: null, layout_blocks: DEFAULT_LAYOUT_BLOCKS } });
       }
-      if (!data.layout_blocks) {
-        data.layout_blocks = DEFAULT_LAYOUT_BLOCKS;
-      }
+      data.layout_blocks = sanitizeAndMigrateBlocks(data.layout_blocks);
       return res.json({ success: true, data });
     } catch (err: any) {
       return res.json({ success: true, data: { logo_url: null, logo_alt: null, hotline: null, footer_text: null, layout_blocks: DEFAULT_LAYOUT_BLOCKS } });
@@ -2921,11 +3019,111 @@ async function startServer() {
   // Admin Homepage Config GET (Returns published, draft, and history)
   app.get('/api/v1/admin/homepage-config', requireStaffOrAdmin, async (req: Request, res: Response) => {
     const DEFAULT_LAYOUT_BLOCKS = [
-      { id: 'hero', name: 'Khối Giới thiệu & Banner (Hero Section)', enabled: true, order: 0 },
-      { id: 'courses_search_filter', name: 'Khối Tìm kiếm & Bộ lọc ngành', enabled: true, order: 1 },
-      { id: 'courses_grid', name: 'Khối Danh sách Khóa học', enabled: true, order: 2 },
-      { id: 'consultation_form', name: 'Khối Đăng ký Tư vấn Trực tuyến', enabled: true, order: 3 },
+      {
+        id: 'hero',
+        name: 'Khối Giới thiệu & Banner (Hero Section)',
+        enabled: true,
+        order: 0,
+        config: {
+          title: 'Saigontourist Lan Tỏa Tương Lai Ngành Du Lịch',
+          subtitle: 'Khởi Đầu Nghề Nghiệp Đẳng Cấp 5 Sao',
+          description: 'Trở thành Cầu nối Tuyển sinh cho ngôi trường đào tạo Du lịch - Khách sạn hàng đầu Việt Nam với hơn 35 năm uy tín. Nhận thù lao xứng đáng, thủ tục minh bạch và đối soát tự động.',
+          ctaLabel: 'Đăng Ký Tham Gia Ngay'
+        }
+      },
+      {
+        id: 'commission_policy',
+        name: 'Khối Chính sách hoa hồng CTV',
+        enabled: true,
+        order: 1,
+        config: {
+          title: 'Chính Sách Hoa Hồng Hấp Dẫn & Minh Bạch',
+          amount: '500.000',
+          currency: 'VNĐ',
+          unitLabel: '01 hồ sơ nhập học hợp lệ',
+          description: '500.000 đồng cho mỗi hồ sơ giới thiệu hợp lệ sau khi trường xác nhận học viên đã hoàn tất đóng học phí.',
+          condition: 'Tài khoản chờ duyệt: Tài khoản mới phải chờ trường duyệt (trạng thái PENDING_REVIEW) trước khi được cấp và sử dụng link giới thiệu.',
+          benefits: [
+            'Thù lao: 500.000 VNĐ / hồ sơ nhập học',
+            'Trạng thái: Tài khoản mới sẽ ở trạng thái CHỜ DUYỆT trước khi được cấp link giới thiệu.',
+            'Đối soát và xác nhận minh bạch qua hệ thống.'
+          ],
+          ctaLabel: 'Tìm hiểu chi tiết'
+        }
+      },
+      {
+        id: 'process',
+        name: 'Khối Quy trình trở thành CTV',
+        enabled: true,
+        order: 2,
+        config: {
+          title: '3 Bước Đơn Giản Để Bắt Đầu',
+          subtitle: 'Quy trình đăng ký và giới thiệu tinh gọn, minh bạch',
+          steps: [
+            { id: 'step-1', title: '1. Đăng ký tài khoản', description: 'Đăng ký tài khoản CTV, xác thực email và chờ Ban Tuyển sinh duyệt trạng thái PENDING_REVIEW.', icon: 'UserCheck', order: 0 },
+            { id: 'step-2', title: '2. Lấy Link & QR giới thiệu', description: 'Sau khi được duyệt kích hoạt (ACTIVE), chọn khóa học quan tâm và lấy Link/QR giới thiệu riêng của bạn.', icon: 'QrCode', order: 1 },
+            { id: 'step-3', title: '3. Giới thiệu & Nhận thưởng', description: 'Học viên đăng ký qua link/QR; nhà trường đối chiếu hồ sơ và học phí để ghi nhận hoa hồng thành công.', icon: 'Award', order: 2 }
+          ]
+        }
+      },
+      {
+        id: 'success_stories',
+        name: 'Khối Câu chuyện thành công',
+        enabled: false,
+        order: 3,
+        config: {
+          title: 'Câu Chuyện Thành Công Từ Cộng Tác Viên',
+          subtitle: 'Lắng nghe chia sẻ từ những cầu nối tuyển sinh xuất sắc',
+          stories: []
+        }
+      },
+      {
+        id: 'faq',
+        name: 'Khối Giải đáp thắc mắc',
+        enabled: true,
+        order: 4,
+        config: {
+          title: 'Giải Đáp Thắc Mắc Thường Gặp',
+          subtitle: 'Mọi thông tin về chương trình Cộng tác viên tuyển sinh STHC',
+          faqs: [
+            { id: 'faq-1', question: 'Làm thế nào để đăng ký trở thành Cộng tác viên tuyển sinh?', answer: 'Bạn chỉ cần điền thông tin vào form đăng ký tài khoản CTV ở đầu trang, xác thực email và chờ Ban Tuyển sinh phê duyệt tài khoản.', enabled: true, order: 0 },
+            { id: 'faq-2', question: 'Mức hoa hồng chi trả cho mỗi hồ sơ là bao nhiêu?', answer: 'Mức thù lao là 500.000 VNĐ cho mỗi hồ sơ giới thiệu nhập học thành công sau khi học viên hoàn tất đóng học phí.', enabled: true, order: 1 },
+            { id: 'faq-3', question: 'Khi nào tôi nhận được thù lao giới thiệu?', answer: 'Thù lao được đối soát và xác nhận khi học viên hoàn tất thủ tục nhập học và đóng học phí theo quy định của nhà trường.', enabled: true, order: 2 }
+          ]
+        }
+      },
+      {
+        id: 'cta',
+        name: 'Khối Sẵn sàng trở thành CTV',
+        enabled: true,
+        order: 5,
+        config: {
+          title: 'Sẵn Sàng Trở Thành Cầu Nối Tuyển Sinh?',
+          subtitle: 'Đăng ký ngay hôm nay để nhận quyền lợi hấp dẫn và đồng hành cùng uy tín đào tạo 35 năm.',
+          buttonLabel: 'Đăng Ký Tài Khoản CTV Ngay'
+        }
+      }
     ];
+
+    const sanitizeAndMigrateBlocks = (rawBlocks: any[]) => {
+      if (!Array.isArray(rawBlocks) || rawBlocks.length === 0) {
+        return DEFAULT_LAYOUT_BLOCKS;
+      }
+      const filtered = rawBlocks.filter((b: any) => 
+        b && ['hero', 'commission_policy', 'process', 'success_stories', 'faq', 'cta'].includes(b.id)
+      );
+      DEFAULT_LAYOUT_BLOCKS.forEach((defBlock) => {
+        const exists = filtered.find((b: any) => b.id === defBlock.id);
+        if (!exists) {
+          filtered.push(defBlock);
+        } else {
+          exists.config = { ...defBlock.config, ...(exists.config || {}) };
+          if (!exists.name) exists.name = defBlock.name;
+        }
+      });
+      return filtered.sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+    };
+
     try {
       const { data: configData } = await supabase
         .from('homepage_config')
@@ -2942,7 +3140,7 @@ async function startServer() {
         hero_illustration_alt: configData?.hero_illustration_alt || null,
         hotline: configData?.hotline || null,
         footer_text: configData?.footer_text || null,
-        layout_blocks: configData?.layout_blocks || DEFAULT_LAYOUT_BLOCKS,
+        layout_blocks: sanitizeAndMigrateBlocks(configData?.layout_blocks),
         version_number: configData?.version_number || 1,
         published_at: configData?.published_at || configData?.updated_at || new Date().toISOString(),
         published_by: configData?.published_by || 'Ban Tuyển sinh STHC',
@@ -2957,7 +3155,7 @@ async function startServer() {
         hero_illustration_alt: configData?.draft_hero_illustration_alt !== undefined && configData?.draft_hero_illustration_alt !== null ? configData?.draft_hero_illustration_alt : pub.hero_illustration_alt,
         hotline: configData?.draft_hotline !== undefined && configData?.draft_hotline !== null ? configData?.draft_hotline : pub.hotline,
         footer_text: configData?.draft_footer_text !== undefined && configData?.draft_footer_text !== null ? configData?.draft_footer_text : pub.footer_text,
-        layout_blocks: configData?.draft_layout_blocks || pub.layout_blocks,
+        layout_blocks: sanitizeAndMigrateBlocks(configData?.draft_layout_blocks || configData?.layout_blocks),
         draft_updated_at: configData?.draft_updated_at || null,
         draft_updated_by: configData?.draft_updated_by || null,
       };
@@ -2968,7 +3166,10 @@ async function startServer() {
           .from('homepage_config_history')
           .select('*')
           .order('version_number', { ascending: false });
-        history = histData || [];
+        history = (histData || []).map((h: any) => ({
+          ...h,
+          layout_blocks: sanitizeAndMigrateBlocks(h.layout_blocks)
+        }));
       } catch (e) {}
 
       return res.json({
