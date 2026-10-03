@@ -617,4 +617,16 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
   - Chú thích bắt buộc: *“Việc gửi thông tin tại đây chưa thay thế hồ sơ đăng ký chính thức trên cổng tuyển sinh của Nhà trường.”*
 - **Kiểm tra kỹ thuật:** `npm run lint` và `compile_applet` PASS 100% (Build succeeded).
 
+### 7. Điều hướng khi đóng màn hình đăng ký thành công (C1.4)
+- **Hành vi mới:** Sau khi khách gửi đăng ký thành công và backend xác nhận lưu bản ghi `leads`, khi khách đóng popup thành công (bằng nút "Đóng cửa sổ", phím Escape, nhấp nền mờ), hệ thống điều hướng người dùng đến trang catalog khóa học của CTV giới thiệu: `/catalog?ref=[Mã CTV]`.
+- **Quy tắc triển khai:**
+  - Lấy mã CTV từ dữ liệu `affiliate_code` do backend xác nhận trong response thành công (không hardcode, không lấy user đăng nhập).
+  - Sử dụng `URLSearchParams` để tạo URL an toàn.
+  - URL catalog chỉ giữ tham số `ref`, không giữ tham số `course` của khóa vừa đăng ký.
+  - Sử dụng điều hướng `replace` (`window.history.replaceState`) để nút Back của trình duyệt không quay về popup thành công và gây gửi lại form.
+  - Nếu không có mã CTV hợp lệ, điều hướng về `/catalog`.
+  - Đóng form khi chưa gửi hoặc gửi lỗi vẫn giữ nguyên ở trang chi tiết khóa học.
+  - Nút “Hoàn tất hồ sơ đăng ký khoá học” vẫn mở `official_registration_url` trong tab mới như hiện tại.
+
+
 

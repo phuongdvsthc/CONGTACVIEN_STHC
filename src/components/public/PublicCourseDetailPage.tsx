@@ -21,6 +21,7 @@ interface PublicCourseDetailPageProps {
   refCode?: string | null;
   onNavigateHome: () => void;
   onBrowseCatalog: () => void;
+  onSuccessNavigate?: (targetUrl: string) => void;
 }
 
 export const PublicCourseDetailPage: React.FC<PublicCourseDetailPageProps> = ({
@@ -28,6 +29,7 @@ export const PublicCourseDetailPage: React.FC<PublicCourseDetailPageProps> = ({
   refCode,
   onNavigateHome,
   onBrowseCatalog,
+  onSuccessNavigate,
 }) => {
   const [course, setCourse] = useState<Course | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -44,6 +46,8 @@ export const PublicCourseDetailPage: React.FC<PublicCourseDetailPageProps> = ({
     message: string;
     course_title?: string | null;
     official_registration_url?: string | null;
+    affiliate_code?: string | null;
+    affiliate_name?: string | null;
   } | null>(null);
 
   // 1. Tải thông tin khóa học công khai từ API backend (CSDL Supabase)
@@ -118,14 +122,35 @@ export const PublicCourseDetailPage: React.FC<PublicCourseDetailPageProps> = ({
     setIsRegisterModalOpen(true);
   }, [isRegisterModalOpen]);
 
-  const handleCloseRegisterModal = useCallback(() => {
+  const handleCloseSuccessModal = useCallback(() => {
+    const verifiedRef = modalFormResult?.affiliate_code || refCode;
+    const params = new URLSearchParams();
+    if (verifiedRef && verifiedRef.trim()) {
+      params.set('ref', verifiedRef.trim());
+    }
+    const targetUrl = `/catalog${params.toString() ? `?${params.toString()}` : ''}`;
+    setModalFormResult(null);
     setIsRegisterModalOpen(false);
-  }, []);
+    if (onSuccessNavigate) {
+      onSuccessNavigate(targetUrl);
+    } else {
+      window.history.replaceState({}, '', targetUrl);
+      onBrowseCatalog();
+    }
+  }, [modalFormResult, refCode, onSuccessNavigate, onBrowseCatalog]);
+
+  const handleCloseRegisterModal = useCallback(() => {
+    if (modalFormResult) {
+      handleCloseSuccessModal();
+    } else {
+      setIsRegisterModalOpen(false);
+    }
+  }, [modalFormResult, handleCloseSuccessModal]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isRegisterModalOpen) {
-        setIsRegisterModalOpen(false);
+        handleCloseRegisterModal();
       }
     };
     if (isRegisterModalOpen) {
@@ -138,7 +163,7 @@ export const PublicCourseDetailPage: React.FC<PublicCourseDetailPageProps> = ({
       document.body.style.overflow = '';
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isRegisterModalOpen]);
+  }, [isRegisterModalOpen, handleCloseRegisterModal]);
 
   // Chuẩn bị danh sách card thông tin khóa học có dữ liệu thật (Không suy diễn, không hardcode)
   const infoCards: Array<{
@@ -489,18 +514,18 @@ export const PublicCourseDetailPage: React.FC<PublicCourseDetailPageProps> = ({
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto animate-fade-in"
           role="dialog"
           aria-modal="true"
+          onClick={handleCloseRegisterModal}
         >
-          <div className="relative w-full max-w-xl my-8">
+          <div className="relative w-full max-w-xl my-8" onClick={(e) => e.stopPropagation()}>
             {modalFormResult ? (
               <ThankYouScreen
                 appointmentCode={modalFormResult.appointment_code}
                 message={modalFormResult.message}
                 courseTitle={modalFormResult.course_title || course?.title}
                 officialRegistrationUrl={modalFormResult.official_registration_url !== undefined ? modalFormResult.official_registration_url : course?.official_registration_url}
-                onBackToCourses={() => {
-                  setModalFormResult(null);
-                  setIsRegisterModalOpen(false);
-                }}
+                affiliateCode={modalFormResult.affiliate_code}
+                affiliateName={modalFormResult.affiliate_name}
+                onBackToCourses={handleCloseSuccessModal}
               />
             ) : (
               <LeadConsultationForm

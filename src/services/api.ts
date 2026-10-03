@@ -221,6 +221,8 @@ export const api = {
     appointment_code?: string;
     course_title?: string | null;
     official_registration_url?: string | null;
+    affiliate_code?: string | null;
+    affiliate_name?: string | null;
     error?: string;
   }> {
     const res = await fetch('/api/v1/public/leads', {

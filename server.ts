@@ -1634,9 +1634,38 @@ async function startServer() {
       } catch (e) {}
     }
 
-    if (!returnedCourseTitle && targetCourse) {
-      returnedCourseTitle = targetCourse.title || null;
-      returnedOfficialUrl = targetCourse.official_registration_url || null;
+    // Nếu không tìm thấy trong DB, bỏ qua targetCourse không tồn tại
+
+    let returnedAffiliateCode: string | null = null;
+    let returnedAffiliateName: string | null = null;
+    if (assignedAffiliateId) {
+      try {
+        const { data: affRec } = await supabase
+          .from('affiliate_profiles')
+          .select('affiliate_code, profile:profiles!affiliate_profiles_user_id_fkey(full_name)')
+          .eq('id', assignedAffiliateId)
+          .maybeSingle();
+        if (affRec) {
+          returnedAffiliateCode = affRec.affiliate_code || null;
+          returnedAffiliateName = (affRec.profile as any)?.full_name || null;
+        }
+      } catch (e) {}
+
+      // Fallback check demo state affiliates if not found in db or if demo id
+      if (!returnedAffiliateName) {
+        const demoList = [
+          demoState.activeAffiliate,
+          demoState.suspendedAffiliate,
+          demoState.pendingAffiliate,
+          demoState.pendingVerifiedAffiliate,
+          demoState.rejectedAffiliate,
+        ];
+        const foundDemo = demoList.find(d => d.id === assignedAffiliateId || d.affiliate_code === capturedCode);
+        if (foundDemo) {
+          returnedAffiliateCode = foundDemo.affiliate_code;
+          returnedAffiliateName = foundDemo.full_name;
+        }
+      }
     }
 
     // BẢO MẬT PII: Tuyệt đối không echo ngược lại họ tên, số điện thoại hay email trong response
@@ -1646,6 +1675,8 @@ async function startServer() {
       appointment_code: `STHC-TS-${Math.floor(100000 + Math.random() * 900000)}`,
       course_title: returnedCourseTitle,
       official_registration_url: returnedOfficialUrl,
+      affiliate_code: returnedAffiliateCode,
+      affiliate_name: returnedAffiliateName,
       received_at: new Date().toISOString(),
     });
   });

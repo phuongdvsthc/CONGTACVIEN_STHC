@@ -1,23 +1,40 @@
-import React from 'react';
-import { CheckCircle2, ShieldCheck, ExternalLink, X, AlertCircle } from 'lucide-react';
+import React, { useState } from 'react';
+import { CheckCircle2, ShieldCheck, ExternalLink, X, AlertCircle, Copy, Check } from 'lucide-react';
 
 interface ThankYouScreenProps {
   appointmentCode?: string;
   message?: string;
   courseTitle?: string | null;
   officialRegistrationUrl?: string | null;
+  affiliateCode?: string | null;
+  affiliateName?: string | null;
   onBackToCourses: () => void;
 }
 
 export const ThankYouScreen: React.FC<ThankYouScreenProps> = ({
-  appointmentCode,
   message,
   courseTitle,
   officialRegistrationUrl,
+  affiliateCode,
+  affiliateName,
   onBackToCourses,
 }) => {
+  const [copied, setCopied] = useState(false);
   const cleanTitle = courseTitle || 'khóa học';
   const hasOfficialUrl = officialRegistrationUrl && officialRegistrationUrl.trim() !== '';
+  const hasAffiliateInfo = affiliateCode && affiliateCode.trim() !== '' && affiliateName && affiliateName.trim() !== '';
+  const copyText = hasAffiliateInfo ? `${affiliateCode} - ${affiliateName}` : '';
+
+  const handleCopy = async () => {
+    if (!copyText) return;
+    try {
+      await navigator.clipboard.writeText(copyText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // Fallback
+    }
+  };
 
   return (
     <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 sm:p-8 max-w-xl mx-auto text-left space-y-5 animate-fade-in">
@@ -36,33 +53,52 @@ export const ThankYouScreen: React.FC<ThankYouScreenProps> = ({
         </div>
       </div>
 
-      {/* Main message */}
-      <div className="space-y-2 text-xs sm:text-sm text-slate-700 leading-relaxed">
-        <p className="font-medium text-slate-900">
+      {/* Main message (Đã xóa dòng message chung từ API theo yêu cầu) */}
+      <div className="space-y-1.5 text-xs sm:text-sm text-slate-700 leading-relaxed">
+        <p className="font-semibold text-slate-900">
           Cảm ơn bạn đã đăng ký {cleanTitle}. Nhà trường đã ghi nhận thông tin đăng ký của bạn.
-        </p>
-        <p className="text-slate-600">
-          {message || 'Yêu cầu của bạn đã được chuyển đến Phòng Tuyển sinh Trường Trung cấp Du lịch & Khách sạn Saigontourist.'}
         </p>
       </div>
 
-      {appointmentCode && (
-        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs">
-          <div>
-            <span className="font-semibold text-slate-500 block text-[11px]">Mã tiếp nhận hồ sơ</span>
-            <span className="font-mono font-bold text-blue-900 text-sm">{appointmentCode}</span>
-          </div>
-          <span className="text-[11px] text-slate-400 italic">Vui lòng lưu lại mã khi cần hỗ trợ</span>
-        </div>
-      )}
-
       {/* Official Registration URL Section (if available) */}
       {hasOfficialUrl ? (
-        <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-3">
+        <div className="p-4 sm:p-5 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-4">
           <p className="text-xs text-blue-950 leading-relaxed font-medium">
             Để hoàn tất quá trình đăng ký học tại Trường Saigontourist, bạn vui lòng hoàn tất form hồ sơ đăng ký học theo quy định của trường trong link sau:
           </p>
-          <div className="pt-1">
+
+          {/* Hướng dẫn người giới thiệu & Ô chỉ đọc (Yêu cầu 2) */}
+          {hasAffiliateInfo && (
+            <div className="space-y-2 pt-1 border-t border-blue-200/60">
+              <p className="text-xs text-slate-700 leading-relaxed">
+                Khi điền hồ sơ trên cổng tuyển sinh, tại mục <strong className="text-blue-950">“NGƯỜI GIỚI THIỆU”</strong> → ô <strong className="text-blue-950">“Họ và tên”</strong>, bạn vui lòng nhập mã CTV kèm họ và tên cộng tác viên theo nội dung dưới đây:
+              </p>
+              <div className="flex items-center justify-between gap-2 p-3 bg-white border border-blue-300 rounded-xl shadow-2xs">
+                <span className="font-mono font-bold text-xs sm:text-sm text-blue-950 break-words select-all">
+                  {copyText}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-900 hover:bg-blue-950 text-white font-semibold text-xs rounded-lg transition-colors shrink-0 shadow-xs active:scale-95"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Đã chép</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Sao chép</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="pt-2">
             <a
               href={officialRegistrationUrl}
               target="_blank"

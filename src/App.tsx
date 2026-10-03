@@ -599,6 +599,9 @@ export default function App() {
                     const search = refCode ? `?ref=${encodeURIComponent(refCode)}` : '';
                     navigate(`/catalog${search}`);
                   }}
+                  onSuccessNavigate={(targetUrl) => {
+                    navigate(targetUrl, true);
+                  }}
                 />
               ) : (
                 <AffiliateLandingPage
