@@ -714,6 +714,38 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
   - Module quản lý trang chủ `/admin/homepage` được nâng cấp toàn diện để quản lý đầy đủ 6 khối, hỗ trợ sắp xếp thứ tự, bật/tắt hiển thị, chỉnh sửa nội dung chi tiết từng khối (tiêu đề, mô tả, bước quy trình, câu hỏi FAQ), cùng cơ chế migration tự động chuyển đổi cấu hình cũ sang cấu trúc 6 khối mới mà không làm mất lịch sử xuất bản.
 - **Kiểm tra kỹ thuật**: `npm run lint` và `compile_applet` đạt **PASS 100% (Build succeeded)**. Server đã được khởi động lại (`restart_dev_server`).
 
+---
 
+### 15. Sửa lỗi phân quyền module /admin/homepage và Bổ sung Trình chỉnh sửa Video YouTube "Câu chuyện thành công"
 
+1. **Khắc phục triệt để lỗi phân quyền (Permission Denied / 42501)**:
+- **Phân định rõ nguyên nhân**: 
+  - Phân biệt lỗi xác thực vai trò (`ROLE_FORBIDDEN` / `ADMIN_ONLY` HTTP 403) với lỗi phân quyền cấp cơ sở dữ liệu (`42501` insufficient_privilege).
+  - Khắc phục cơ chế kiểm tra token: Khi Bearer token được gửi từ client, nếu token hết hạn hoặc không hợp lệ, backend trả về HTTP 401 `TOKEN_EXPIRED` kèm thông báo rõ ràng để client dọn sạch token cũ, không đánh đồng sang lỗi từ chối vai trò.
+  - Đồng bộ tài khoản Supabase Auth thật cho `admin@sthc.edu.vn` (UID: `879a11fc-ff89-4019-b2f4-57d7843b631b`, role: `admin`, is_active: `true`) và `tuyensinh_canbo@sthc.edu.vn` (UID: `28b8e82c-bc7e-4c0d-b9f1-bad1a3b8195f`, role: `staff`, is_active: `true`).
+  - Phân tách quyền đúng chuẩn:
+    - **Cán bộ Tuyển sinh (Staff)**: Được phép tải cấu hình (`GET`), chỉnh sửa nội dung/ảnh và **Lưu bản nháp** (`PUT`). Tuyệt đối KHÔNG có quyền Xuất bản (`POST /publish`) hoặc Khôi phục (`POST /restore`).
+    - **Quản trị viên (Admin)**: Toàn quyền gồm tải cấu hình, lưu bản nháp, xuất bản và khôi phục.
+    - **Cộng tác viên (CTV) & Khách**: Tuyệt đối bị chặn ở cả backend middleware (`requireStaffOrAdmin`) và giao diện frontend với màn hình "Không có quyền truy cập".
+- **Không bao giờ che giấu hoặc đổi lỗi 42501**: Các lỗi từ CSDL PostgreSQL (RLS / Trigger / Quyền bảng) trả về đầy đủ `Mã lỗi: 42501` cùng thông điệp kỹ thuật nguyên gốc, không gộp thành thông báo chung "Chỉ Admin/Staff".
 
+2. **Trình chỉnh sửa Video YouTube cho khối “Câu chuyện thành công” (`success_stories`)**:
+- Tích hợp trực tiếp vào khối `success_stories` có sẵn, không tạo khối mới.
+- **Tiêu đề & Phụ đề**: Cho phép tùy biến tiêu đề khối và câu khẩu hiệu / slogan.
+- **Danh sách Video YouTube**:
+  - Hỗ trợ thêm nhiều video chia sẻ thực tế từ CTV hoặc video chính.
+  - Nhập liên kết YouTube (hỗ trợ định dạng `watch?v=`, `youtu.be/`, `shorts/`, `embed/` hoặc Video ID 11 ký tự) với cơ chế tự động nhận diện và trích xuất `youtube_video_id`.
+  - Hiển thị badge kiểm tra tính hợp lệ của định dạng liên kết.
+  - Mỗi video có tiêu đề, vai trò/ngành nghề của nhân vật, thành tích nổi bật (badge màu xanh ngọc), và trích dẫn chia sẻ thực tế.
+  - Hỗ trợ nút Di chuyển **Lên / Xuống**, công tắc **Hiển thị / Đã ẩn**, và nút **Xóa video**.
+  - **Trình phát xem trước YouTube trực tiếp (16:9 responsive iframe)** ngay trong form quản trị khi nhập link.
+- **Danh sách câu chuyện / lời chứng thực CTV (Testimonials)**:
+  - Cho phép thêm/sửa/xóa các nhận xét dạng thẻ chữ kèm Họ tên CTV, Vai trò, Thành tích, URL ảnh đại diện (`avatar_url`), và nội dung trích dẫn.
+- **Xem trước thực tế (Preview Modal)**:
+  - Cập nhật modal "Xem trước bản nháp" hiển thị đầy đủ danh sách video 16:9 và lưới thẻ câu chuyện đồng bộ 100% với trang chủ công khai `PublicHome.tsx`.
+- **Lưu bản nháp & Xuất bản**: Lưu trữ và đọc trực tiếp từ `draft_layout_blocks` và `layout_blocks` trong CSDL Supabase, đồng bộ trường `youtube_url`, `youtube_video_id`, `video_title` chính để tương thích ngược.
+
+3. **Kiểm tra kỹ thuật**:
+- `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+- `compile_applet` (`npm run build`): **Build succeeded 100%**.
+- Kiểm thử luồng: Đăng nhập Admin, nạp cấu hình, lưu bản nháp, xem trước modal, xuất bản và khôi phục phiên bản hoạt động hoàn hảo.

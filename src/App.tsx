@@ -532,7 +532,7 @@ export default function App() {
           )}
 
           {currentPath === '/admin/homepage' && (
-            <AdminHomepageConfigView />
+            <AdminHomepageConfigView currentUser={authSession.user} />
           )}
 
           {currentPath === '/admin/staff-accounts' && (

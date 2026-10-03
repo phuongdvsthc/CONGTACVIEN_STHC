@@ -24,7 +24,18 @@ import {
   UserCheck,
   QrCode,
   Send,
+  Play,
+  Video,
 } from 'lucide-react';
+
+export function extractYouTubeId(url?: string): string | null {
+  if (!url) return null;
+  const clean = url.trim();
+  const match = clean.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/i);
+  if (match && match[1]) return match[1];
+  if (/^[a-zA-Z0-9_-]{11}$/.test(clean)) return clean;
+  return null;
+}
 
 interface PublicHomeProps {
   courses: Course[];
@@ -93,12 +104,35 @@ const DEFAULT_LAYOUT_BLOCKS: LayoutBlock[] = [
   {
     id: 'success_stories',
     name: 'Khối Câu chuyện thành công',
-    enabled: false,
+    enabled: true,
     order: 3,
     config: {
       title: 'Câu Chuyện Thành Công Từ Cộng Tác Viên',
-      subtitle: 'Lắng nghe chia sẻ từ những cầu nối tuyển sinh xuất sắc',
-      stories: []
+      subtitle: 'Lắng nghe chia sẻ thực tế và hành trình đồng hành tuyển sinh cùng Trường Saigontourist',
+      youtube_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      youtube_video_id: 'dQw4w9WgXcQ',
+      video_title: 'Chia sẻ từ CTV tiêu biểu đồng hành cùng STHC',
+      video_description: 'Trải nghiệm giới thiệu người học thực tế, đối soát minh bạch và cơ hội lan tỏa tương lai ngành du lịch 5 sao.',
+      stories: [
+        {
+          id: 'story-1',
+          name: 'Nguyễn Hoàng Nam',
+          role: 'Cựu sinh viên Khóa Bếp Á - Âu (2022)',
+          quote: 'Chương trình CTV của Saigontourist rất minh bạch và rõ ràng. Mình vừa giúp các bạn học sinh chọn được ngành nghề uy tín tại trường 5 sao, vừa có nguồn thu nhập xứng đáng 500.000 VNĐ / hồ sơ nhập học.',
+          avatar_url: '',
+          achievement: 'Đã giới thiệu 18 hồ sơ hợp lệ',
+          enabled: true
+        },
+        {
+          id: 'story-2',
+          name: 'Trần Thị Mai Phương',
+          role: 'Chuyên viên Nhà hàng Khách sạn Rex',
+          quote: 'Hệ thống cấp link và mã QR cá nhân hóa tiện lợi vô cùng. Mỗi khi học sinh quan tâm quét mã đăng ký, mình đều theo dõi được tiến độ tư vấn và đối soát học phí theo thời gian thực.',
+          avatar_url: '',
+          achievement: 'Đã giới thiệu 12 hồ sơ hợp lệ',
+          enabled: true
+        }
+      ]
     }
   },
   {
@@ -720,44 +754,153 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
         }
 
         if (block.id === 'success_stories') {
-          const stories = cfg.stories || [];
-          if (!block.enabled || stories.length === 0) return null;
+          const rawVideos = Array.isArray(cfg.videos) ? cfg.videos : [];
+          const activeVideos = rawVideos.filter((v: any) => v && v.enabled !== false);
+          const stories = Array.isArray(cfg.stories) ? cfg.stories : [];
+          const activeStories = stories.filter((s: any) => s && s.enabled !== false);
+          const legacyVideoId = cfg.youtube_video_id || extractYouTubeId(cfg.youtube_url);
+
+          if (!block.enabled || (activeVideos.length === 0 && !legacyVideoId && activeStories.length === 0)) return null;
+
           return (
             <section key="success_stories" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-10">
               <div className="text-center space-y-3 max-w-3xl mx-auto">
                 <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-400/30 px-3.5 py-1 rounded-full uppercase tracking-wider">
-                  Đội ngũ xuất sắc
+                  Đội ngũ xuất sắc & Cảm nhận thực tế
                 </span>
                 <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
                   {cfg.title || 'Câu Chuyện Thành Công Từ Cộng Tác Viên'}
                 </h2>
                 <p className="text-sm text-slate-300 leading-relaxed">
-                  {cfg.subtitle || 'Lắng nghe chia sẻ từ những cầu nối tuyển sinh xuất sắc'}
+                  {cfg.subtitle || 'Lắng nghe chia sẻ thực tế và hành trình lan tỏa tuyển sinh cùng Trường Saigontourist'}
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {stories.filter((s: any) => s.enabled !== false).map((story: any) => (
-                  <div key={story.id} className="bg-[#0B1E3F]/60 border border-blue-900/50 rounded-2xl p-6 space-y-4 shadow-xl">
-                    <div className="flex items-center gap-4">
-                      {story.avatar_url ? (
-                        <img src={story.avatar_url} alt={story.name} className="w-12 h-12 rounded-full object-cover border border-amber-400/40" />
-                      ) : (
-                        <div className="w-12 h-12 rounded-full bg-blue-900 text-amber-400 flex items-center justify-center font-bold">
-                          {story.name?.[0] || 'CTV'}
+              {/* Danh sách các video câu chuyện thành công */}
+              {activeVideos.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
+                  {activeVideos.map((video: any, idx: number) => {
+                    const vId = video.youtube_video_id || extractYouTubeId(video.youtube_url);
+                    return (
+                      <div
+                        key={video.id || idx}
+                        className="rounded-3xl overflow-hidden border border-blue-800/50 bg-[#0B1E3F]/80 shadow-2xl p-5 sm:p-6 space-y-4 backdrop-blur-sm flex flex-col justify-between hover:border-amber-400/50 transition-all group"
+                      >
+                        <div className="space-y-4">
+                          {/* 16:9 YouTube Player */}
+                          {vId ? (
+                            <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-inner group-hover:shadow-amber-400/10 transition-shadow">
+                              <iframe
+                                src={`https://www.youtube.com/embed/${vId}?rel=0&modestbranding=1`}
+                                title={video.title || `Video câu chuyện CTV ${idx + 1}`}
+                                className="absolute inset-0 w-full h-full border-0"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                allowFullScreen
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-full aspect-video rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 text-xs">
+                              <Play className="w-8 h-8 opacity-40 mr-2" />
+                              <span>Video đang được cập nhật</span>
+                            </div>
+                          )}
+
+                          <div className="space-y-2">
+                            <h3 className="text-base sm:text-lg font-bold text-white flex items-start gap-2">
+                              <Play className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0 mt-1" />
+                              <span className="leading-snug">{video.title || 'Chia sẻ từ Cộng tác viên'}</span>
+                            </h3>
+
+                            <div className="flex flex-wrap items-center gap-2 pt-1">
+                              {video.role && (
+                                <span className="inline-block text-[11px] font-medium text-blue-300 bg-blue-900/40 border border-blue-700/40 px-2.5 py-0.5 rounded-md">
+                                  {video.role}
+                                </span>
+                              )}
+                              {video.achievement && (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 rounded-md">
+                                  <Award className="w-3 h-3 shrink-0" />
+                                  <span>{video.achievement}</span>
+                                </span>
+                              )}
+                            </div>
+
+                            {video.quote && (
+                              <p className="text-xs sm:text-sm text-slate-300 italic leading-relaxed pt-1">
+                                "{video.quote}"
+                              </p>
+                            )}
+                          </div>
                         </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : legacyVideoId ? (
+                /* Fallback cho bản có 1 video chính */
+                <div className="max-w-4xl mx-auto rounded-3xl overflow-hidden border border-blue-800/50 bg-[#0B1E3F]/80 shadow-2xl p-4 sm:p-6 space-y-4 backdrop-blur-sm">
+                  <div className="relative w-full aspect-video rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 shadow-inner">
+                    <iframe
+                      src={`https://www.youtube.com/embed/${legacyVideoId}?rel=0&modestbranding=1`}
+                      title={cfg.video_title || 'Video chia sẻ từ Cộng tác viên tiêu biểu STHC'}
+                      className="absolute inset-0 w-full h-full border-0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                      allowFullScreen
+                    />
+                  </div>
+                  {(cfg.video_title || cfg.video_description) && (
+                    <div className="px-2 pt-1">
+                      {cfg.video_title && (
+                        <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+                          <Play className="w-4 h-4 text-amber-400 fill-amber-400 shrink-0" />
+                          <span>{cfg.video_title}</span>
+                        </h3>
                       )}
-                      <div>
-                        <h4 className="font-bold text-white text-sm">{story.name}</h4>
-                        <p className="text-xs text-blue-300">{story.role}</p>
+                      {cfg.video_description && (
+                        <p className="text-xs sm:text-sm text-blue-200/90 mt-1 leading-relaxed">
+                          {cfg.video_description}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
+              {/* Lưới các câu chuyện dạng thẻ (nếu có) */}
+              {activeStories.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pt-2">
+                  {activeStories.map((story: any) => (
+                    <div key={story.id} className="bg-[#0B1E3F]/60 border border-blue-900/50 hover:border-amber-400/40 transition-all rounded-2xl p-6 space-y-4 shadow-xl flex flex-col justify-between">
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-3.5">
+                          {story.avatar_url ? (
+                            <img src={story.avatar_url} alt={story.name} className="w-12 h-12 rounded-full object-cover border-2 border-amber-400/50 shrink-0 shadow-md" />
+                          ) : (
+                            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-700 to-indigo-900 text-amber-400 flex items-center justify-center font-bold text-sm shrink-0 border border-amber-400/30 shadow-md">
+                              {story.name?.[0] || 'CTV'}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <h4 className="font-bold text-white text-sm truncate">{story.name}</h4>
+                            <p className="text-xs text-blue-300 truncate">{story.role}</p>
+                          </div>
+                        </div>
+
+                        {story.achievement && (
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-semibold">
+                            <Award className="w-3.5 h-3.5 shrink-0" />
+                            <span>{story.achievement}</span>
+                          </div>
+                        )}
+
+                        <p className="text-xs sm:text-sm text-slate-300 italic leading-relaxed">
+                          "{story.quote}"
+                        </p>
                       </div>
                     </div>
-                    <p className="text-xs sm:text-sm text-slate-300 italic leading-relaxed">
-                      "{story.quote}"
-                    </p>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </section>
           );
         }

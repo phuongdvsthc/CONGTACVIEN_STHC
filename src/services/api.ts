@@ -4,16 +4,30 @@
 
 import { Course, AffiliateProfile, UserProfile, Lead, Reward, AuditLog } from '../types';
 
+export function getAuthHeaders(): Record<string, string> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('sthc_auth_token') : null;
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 export const api = {
   // --------------------------------------------------------------------------
   // AUTH & SIMULATED SESSION
   // --------------------------------------------------------------------------
   async getMe() {
-    const res = await fetch('/api/v1/auth/me');
+    const res = await fetch('/api/v1/auth/me', {
+      headers: getAuthHeaders(),
+    });
     return res.json();
   },
 
   async switchRole(role: 'public' | 'affiliate_pending' | 'affiliate_active' | 'staff' | 'admin') {
+    try {
+      localStorage.removeItem('sthc_auth_token');
+    } catch (e) {}
     const res = await fetch('/api/v1/auth/switch-demo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -28,12 +42,28 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    return res.json();
+    const data = await res.json();
+    if (data?.success) {
+      if (data?.data?.token) {
+        try {
+          localStorage.setItem('sthc_auth_token', data.data.token);
+        } catch (e) {}
+      } else {
+        try {
+          localStorage.removeItem('sthc_auth_token');
+        } catch (e) {}
+      }
+    }
+    return data;
   },
 
   async logout() {
+    try {
+      localStorage.removeItem('sthc_auth_token');
+    } catch (e) {}
     const res = await fetch('/api/v1/auth/logout', {
       method: 'POST',
+      headers: getAuthHeaders(),
     });
     return res.json();
   },
@@ -527,7 +557,9 @@ export const api = {
   },
 
   async getAdminHomepageConfig() {
-    const res = await fetch('/api/v1/admin/homepage-config');
+    const res = await fetch('/api/v1/admin/homepage-config', {
+      headers: getAuthHeaders(),
+    });
     return res.json();
   },
 
@@ -540,11 +572,14 @@ export const api = {
     hero_background_alt?: string | null;
     hero_illustration_url?: string | null;
     hero_illustration_alt?: string | null;
-    layout_blocks?: Array<{ id: string; name: string; enabled: boolean; order: number }> | null;
+    layout_blocks?: Array<{ id: string; name: string; enabled: boolean; order: number; config?: any }> | null;
   }) {
     const res = await fetch('/api/v1/admin/homepage-config', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
       body: JSON.stringify(payload),
     });
     return res.json();
@@ -553,7 +588,10 @@ export const api = {
   async publishHomepageConfig() {
     const res = await fetch('/api/v1/admin/homepage-config/publish', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
     });
     return res.json();
   },
@@ -561,7 +599,10 @@ export const api = {
   async restoreHomepageVersion(versionNumber: number) {
     const res = await fetch('/api/v1/admin/homepage-config/restore', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
       body: JSON.stringify({ version_number: versionNumber }),
     });
     return res.json();
@@ -570,7 +611,10 @@ export const api = {
   async uploadHomepageLogo(imageBase64: string, fileName: string) {
     const res = await fetch('/api/v1/admin/homepage-assets/upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
       body: JSON.stringify({ imageBase64, fileName }),
     });
     return res.json();
