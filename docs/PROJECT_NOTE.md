@@ -605,5 +605,16 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
 - Kiểm tra tra cứu 2 CTV hợp lệ (`STHCCTV1088` -> "Trần Thị Thu Thảo", `STHCCTV6993` -> "admin"): Hiển thị đúng câu xác nhận người giới thiệu.
 - Kiểm tra CTV tạm ngưng (`STHCCTV3033`) và ref không hợp lệ: API từ chối, giao diện ẩn câu giới thiệu.
 - Kiểm tra mở/đóng popup đăng ký, khóa học cố định, consent bắt buộc, gửi lead và bảo hộ nguồn CTV 90 ngày.
-- Ghi nhận: Module cấu hình home của Admin (logo/hotline/footer động) sẽ được kết nối khi module này được triển khai.
+### 6. Triển khai C1.4 — Luồng xử lý sau khi khách bấm “Gửi đăng ký học” & Màn hình thành công
+- **Gửi và lưu đăng ký:** Tái sử dụng API `submitLead` (`/api/v1/public/leads`) hiện có. Form kiểm tra bắt buộc Họ tên, SĐT, Email hợp lệ và consent theo NĐ 13/2023/NĐ-CP. Trong lúc gửi, nút bị khóa và hiển thị trạng thái "Đang gửi đăng ký...".
+- **Bảo hộ nguồn CTV & Chống trùng:** Backend tra cứu mã `ref` (`checkAffiliateReferralEligibility`), ánh xạ chuẩn sang `affiliate_id`, kiểm tra chống trùng số điện thoại 90 ngày (giữ nguyên vẹn nguồn CTV ban đầu).
+- **Response thành công từ CSDL:** Sau khi ghi nhận thành công vào bảng `public.leads`, backend trả về mã tiếp nhận (`appointment_code`), tên khóa học (`course_title`) và link hồ sơ chính thức (`official_registration_url`) được truy vấn trực tiếp từ bảng `courses` trong CSDL.
+- **Màn hình thành công (`ThankYouScreen.tsx`):**
+  - Tiêu đề: *“Đã tiếp nhận đăng ký học”*.
+  - Nội dung xác nhận: *“Cảm ơn bạn đã đăng ký [Tên khóa học]. Nhà trường đã ghi nhận thông tin đăng ký của bạn.”*
+  - Nếu khóa học có `official_registration_url` hợp lệ: Hiển thị lời mời hoàn tất hồ sơ kèm nút nổi bật **“Hoàn tất hồ sơ đăng ký học”** (mở tab mới an toàn qua `target="_blank" rel="noopener noreferrer"`).
+  - Nếu khóa học chưa có link: Hiển thị thông báo *“Link hoàn tất hồ sơ đang được cập nhật. Nhà trường sẽ liên hệ hướng dẫn bạn.”*
+  - Chú thích bắt buộc: *“Việc gửi thông tin tại đây chưa thay thế hồ sơ đăng ký chính thức trên cổng tuyển sinh của Nhà trường.”*
+- **Kiểm tra kỹ thuật:** `npm run lint` và `compile_applet` PASS 100% (Build succeeded).
+
 

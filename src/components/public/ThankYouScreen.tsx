@@ -1,83 +1,111 @@
 import React from 'react';
-import { CheckCircle2, ShieldCheck, ArrowLeft, PhoneCall, Calendar } from 'lucide-react';
+import { CheckCircle2, ShieldCheck, ExternalLink, X, AlertCircle } from 'lucide-react';
 
 interface ThankYouScreenProps {
   appointmentCode?: string;
   message?: string;
+  courseTitle?: string | null;
+  officialRegistrationUrl?: string | null;
   onBackToCourses: () => void;
 }
 
 export const ThankYouScreen: React.FC<ThankYouScreenProps> = ({
   appointmentCode,
   message,
+  courseTitle,
+  officialRegistrationUrl,
   onBackToCourses,
 }) => {
+  const cleanTitle = courseTitle || 'khóa học';
+  const hasOfficialUrl = officialRegistrationUrl && officialRegistrationUrl.trim() !== '';
+
   return (
-    <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8 max-w-xl mx-auto text-center space-y-6 animate-fade-in">
-      <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto ring-8 ring-emerald-50">
-        <CheckCircle2 className="w-10 h-10" />
+    <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-6 sm:p-8 max-w-xl mx-auto text-left space-y-5 animate-fade-in">
+      {/* Header icon & Title */}
+      <div className="flex items-center gap-4 pb-4 border-b border-slate-100">
+        <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center shrink-0 ring-4 ring-emerald-50">
+          <CheckCircle2 className="w-7 h-7" />
+        </div>
+        <div>
+          <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+            Tiếp nhận thành công
+          </span>
+          <h3 className="text-xl font-bold text-slate-900 tracking-tight mt-1">
+            Đã tiếp nhận đăng ký học
+          </h3>
+        </div>
       </div>
 
-      <div className="space-y-2">
-        <h3 className="text-2xl font-bold text-slate-900 tracking-tight">
-          Đăng Ký Tư Vấn Thành Công!
-        </h3>
-        <p className="text-sm text-slate-600 leading-relaxed max-w-md mx-auto">
-          {message || 'Yêu cầu tư vấn của bạn đã được chuyển đến Phòng Tuyển sinh Trường Trung cấp Du lịch & Khách sạn Saigontourist.'}
+      {/* Main message */}
+      <div className="space-y-2 text-xs sm:text-sm text-slate-700 leading-relaxed">
+        <p className="font-medium text-slate-900">
+          Cảm ơn bạn đã đăng ký {cleanTitle}. Nhà trường đã ghi nhận thông tin đăng ký của bạn.
+        </p>
+        <p className="text-slate-600">
+          {message || 'Yêu cầu của bạn đã được chuyển đến Phòng Tuyển sinh Trường Trung cấp Du lịch & Khách sạn Saigontourist.'}
         </p>
       </div>
 
       {appointmentCode && (
-        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl max-w-sm mx-auto">
-          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block">
-            Mã tiếp nhận hồ sơ tư vấn
-          </span>
-          <span className="text-lg font-mono font-bold text-blue-900 mt-1 block">
-            {appointmentCode}
-          </span>
-          <span className="text-[11px] text-slate-400 mt-1 block">
-            Vui lòng lưu lại mã này khi liên hệ hotline để được hỗ trợ nhanh nhất
-          </span>
+        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs">
+          <div>
+            <span className="font-semibold text-slate-500 block text-[11px]">Mã tiếp nhận hồ sơ</span>
+            <span className="font-mono font-bold text-blue-900 text-sm">{appointmentCode}</span>
+          </div>
+          <span className="text-[11px] text-slate-400 italic">Vui lòng lưu lại mã khi cần hỗ trợ</span>
         </div>
       )}
 
-      {/* Information Checklist */}
-      <div className="text-left bg-blue-50/60 border border-blue-100 rounded-xl p-4 space-y-2 text-xs text-blue-950">
-        <div className="font-semibold flex items-center gap-1.5 text-blue-900">
-          <Calendar className="w-4 h-4 text-blue-800" />
-          <span>Quy trình tiếp theo:</span>
+      {/* Official Registration URL Section (if available) */}
+      {hasOfficialUrl ? (
+        <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-3">
+          <p className="text-xs text-blue-950 leading-relaxed font-medium">
+            Để hoàn tất quá trình đăng ký học tại Trường Saigontourist, bạn vui lòng hoàn tất form hồ sơ đăng ký học theo quy định của trường trong link sau:
+          </p>
+          <div className="pt-1">
+            <a
+              href={officialRegistrationUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full py-3 px-5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 active:scale-98"
+            >
+              <span>Hoàn tất hồ sơ đăng ký học</span>
+              <ExternalLink className="w-4 h-4 text-slate-900" />
+            </a>
+          </div>
         </div>
-        <p className="pl-5 text-slate-600 leading-relaxed">
-          1. Cán bộ tư vấn tuyển sinh sẽ gọi điện thoại theo khung giờ bạn đã lựa chọn (trong vòng 24 giờ làm việc).
-        </p>
-        <p className="pl-5 text-slate-600 leading-relaxed">
-          2. Hướng dẫn chuẩn bị hồ sơ xét tuyển học bạ và giải đáp chi tiết chương trình thực tập tại các khách sạn 5 sao.
-        </p>
+      ) : (
+        <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-2xl flex items-start gap-3 text-amber-950">
+          <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+          <div className="text-xs leading-relaxed space-y-1">
+            <p className="font-bold text-amber-950">Link hoàn tất hồ sơ đang được cập nhật</p>
+            <p className="text-amber-900/90">Nhà trường sẽ liên hệ hướng dẫn bạn trong thời gian sớm nhất.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Disclaimer note */}
+      <div className="p-3 bg-slate-100/80 rounded-xl text-[11px] text-slate-600 leading-relaxed">
+        <span className="font-semibold text-slate-800">Lưu ý: </span>
+        Việc gửi thông tin tại đây chưa thay thế hồ sơ đăng ký chính thức trên cổng tuyển sinh của Nhà trường.
       </div>
 
       {/* PII Protection note */}
-      <div className="flex items-center justify-center gap-1.5 text-xs text-slate-500">
-        <ShieldCheck className="w-4 h-4 text-emerald-600" />
-        <span>Thông tin cá nhân của bạn được bảo mật tuyệt đối theo quy định của Nhà trường.</span>
+      <div className="flex items-center gap-1.5 text-[11px] text-slate-500 pt-1">
+        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+        <span>Thông tin cá nhân được bảo mật tuyệt đối theo Nghị định 13/2023/NĐ-CP.</span>
       </div>
 
       {/* Action buttons */}
-      <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+      <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-100">
         <button
+          type="button"
           onClick={onBackToCourses}
-          className="w-full sm:w-auto px-6 py-2.5 bg-blue-900 hover:bg-blue-950 text-white font-medium text-xs rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2"
+          className="w-full py-3 px-6 bg-blue-900 hover:bg-blue-950 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 active:scale-98"
         >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Xem tiếp các ngành đào tạo</span>
+          <X className="w-4 h-4 text-amber-400" />
+          <span>Đóng cửa sổ</span>
         </button>
-
-        <a
-          href="tel:02838442238"
-          className="w-full sm:w-auto px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium text-xs rounded-xl transition-colors flex items-center justify-center gap-2"
-        >
-          <PhoneCall className="w-4 h-4 text-slate-600" />
-          <span>Hotline Tuyển sinh: (028) 3844 2238</span>
-        </a>
       </div>
     </div>
   );

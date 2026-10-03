@@ -90,6 +90,7 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
   const [formBenefitsTitle, setFormBenefitsTitle] = useState<string>('');
   const [formBenefitsContent, setFormBenefitsContent] = useState<string>('');
   const [formThumbnail, setFormThumbnail] = useState<string>('');
+  const [formOfficialUrl, setFormOfficialUrl] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'basic' | 'thumbnail' | 'content'>('basic');
   const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(false);
   const [uploadingImage, setUploadingImage] = useState<boolean>(false);
@@ -242,6 +243,7 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
     setFormBenefitsTitle('');
     setFormBenefitsContent('');
     setFormThumbnail('');
+    setFormOfficialUrl('');
     setActiveTab('basic');
     setFormIsActive(true);
     setModalError(null);
@@ -276,6 +278,7 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
         setFormBenefitsTitle(fullCourse.benefits_title || '');
         setFormBenefitsContent(fullCourse.benefits_content || '');
         setFormThumbnail(fullCourse.thumbnail_url || '');
+        setFormOfficialUrl(fullCourse.official_registration_url || '');
         setFormIsActive(fullCourse.is_active ?? true);
         setIsFormDirty(false);
         setIsModalOpen(true);
@@ -364,6 +367,20 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
       }
     }
 
+    let cleanOfficialUrl: string | null = null;
+    if (formOfficialUrl.trim() !== '') {
+      const urlStr = formOfficialUrl.trim();
+      if (!urlStr.startsWith('https://')) {
+        setModalError('Link đăng ký học trên cổng tuyển sinh phải bắt đầu bằng https://.');
+        return;
+      }
+      if (urlStr.toLowerCase().startsWith('javascript:') || urlStr.toLowerCase().startsWith('data:') || urlStr.includes('@')) {
+        setModalError('Link đăng ký học không hợp lệ hoặc chứa thông tin đăng nhập không được phép.');
+        return;
+      }
+      cleanOfficialUrl = urlStr;
+    }
+
     setModalSubmitting(true);
     try {
       const payload = {
@@ -378,6 +395,7 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
         benefits_title: formBenefitsTitle.trim() || null,
         benefits_content: formBenefitsContent.trim() || null,
         thumbnail_url: formThumbnail.trim() || null,
+        official_registration_url: cleanOfficialUrl,
       };
 
       const res = editingCourse
@@ -1133,6 +1151,23 @@ export const CourseListView: React.FC<CourseListViewProps> = ({ currentUser }) =
                       />
                       <p className="text-[11px] text-slate-400 mt-1">Phân biệt trống (chưa cập nhật) với học phí 0 đ.</p>
                     </div>
+                  </div>
+
+                  {/* Link đăng ký học trên cổng tuyển sinh */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Link đăng ký học trên cổng tuyển sinh
+                    </label>
+                    <input
+                      type="url"
+                      value={formOfficialUrl}
+                      onChange={(e) => handleFormChange(setFormOfficialUrl, e.target.value)}
+                      placeholder="https://tuyensinh.sthc.edu.vn/dang-ky-khoa-hoc-ba"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
+                    />
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Đường dẫn để người học hoàn tất hồ sơ đăng ký chính thức. Link này được hiển thị sau khi khách gửi đăng ký qua CTV.
+                    </p>
                   </div>
 
                   {/* Trạng thái (Chỉ đọc khi sửa) */}

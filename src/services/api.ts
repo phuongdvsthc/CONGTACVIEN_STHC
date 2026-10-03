@@ -215,7 +215,14 @@ export const api = {
     utm_source?: string;
     utm_medium?: string;
     utm_campaign?: string;
-  }) {
+  }): Promise<{
+    success: boolean;
+    message: string;
+    appointment_code?: string;
+    course_title?: string | null;
+    official_registration_url?: string | null;
+    error?: string;
+  }> {
     const res = await fetch('/api/v1/public/leads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -381,6 +388,7 @@ export const api = {
     benefits_title?: string | null;
     benefits_content?: string | null;
     thumbnail_url?: string | null;
+    official_registration_url?: string | null;
   }) {
     const res = await fetch('/api/v1/admin/courses', {
       method: 'POST',
@@ -402,6 +410,7 @@ export const api = {
     benefits_title?: string | null;
     benefits_content?: string | null;
     thumbnail_url?: string | null;
+    official_registration_url?: string | null;
     is_active?: boolean;
     client_updated_at?: string;
   }) {

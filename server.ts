@@ -238,7 +238,7 @@ const demoState: DemoState = {
   activeAffiliate: {
     id: 'a0000000-0000-0000-0000-000000000002',
     user_id: 'u0000000-0000-0000-0000-000000000002',
-    full_name: 'Trần Thị Thu Thảo',
+    full_name: 'Đào Văn Phương',
     email: 'ctv_hoat_dong@sthc.edu.vn',
     phone: '0908889999',
     affiliate_code: 'STHCCTV1088',
@@ -1614,11 +1614,38 @@ async function startServer() {
       // Fallback: Return success to candidate so UX is uninterrupted
     }
 
+    let returnedCourseTitle: string | null = null;
+    let returnedOfficialUrl: string | null = null;
+    if (resolvedCourseDbId || course_id) {
+      try {
+        let q = supabase.from('courses').select('title, official_registration_url');
+        if (resolvedCourseDbId) {
+          q = q.eq('id', resolvedCourseDbId);
+        } else if (isUUID) {
+          q = q.or(`id.eq.${course_id},code.eq.${course_id},slug.eq.${course_id}`);
+        } else {
+          q = q.or(`code.eq.${course_id},slug.eq.${course_id}`);
+        }
+        const { data: cMeta } = await q.maybeSingle();
+        if (cMeta) {
+          returnedCourseTitle = cMeta.title || null;
+          returnedOfficialUrl = cMeta.official_registration_url || null;
+        }
+      } catch (e) {}
+    }
+
+    if (!returnedCourseTitle && targetCourse) {
+      returnedCourseTitle = targetCourse.title || null;
+      returnedOfficialUrl = targetCourse.official_registration_url || null;
+    }
+
     // BẢO MẬT PII: Tuyệt đối không echo ngược lại họ tên, số điện thoại hay email trong response
     res.status(201).json({
       success: true,
       message: 'Đăng ký tư vấn thành công! Ban Tuyển sinh Trường Trung cấp Du lịch & Khách sạn Saigontourist sẽ liên hệ tư vấn trong thời gian sớm nhất.',
       appointment_code: `STHC-TS-${Math.floor(100000 + Math.random() * 900000)}`,
+      course_title: returnedCourseTitle,
+      official_registration_url: returnedOfficialUrl,
       received_at: new Date().toISOString(),
     });
   });
@@ -4126,7 +4153,7 @@ async function startServer() {
 
   app.post('/api/v1/admin/courses', requireStaffOrAdmin, async (req: Request, res: Response) => {
     try {
-      const { code, title, degree_level, duration_text, tuition_fee_estimate, summary, description_html, benefits_title, benefits_content, thumbnail_url, career_group } = req.body;
+      const { code, title, degree_level, duration_text, tuition_fee_estimate, summary, description_html, benefits_title, benefits_content, thumbnail_url, career_group, official_registration_url } = req.body;
 
       if (!code || !title || !degree_level || !duration_text) {
         return res.status(400).json({
@@ -4169,6 +4196,18 @@ async function startServer() {
         });
       }
 
+      let cleanOfficialUrl: string | null = null;
+      if (official_registration_url !== undefined && official_registration_url !== null && String(official_registration_url).trim() !== '') {
+        const urlStr = String(official_registration_url).trim();
+        if (!urlStr.startsWith('https://')) {
+          return res.status(400).json({ success: false, error: 'Link đăng ký học trên cổng tuyển sinh phải bắt đầu bằng https://.' });
+        }
+        if (urlStr.toLowerCase().startsWith('javascript:') || urlStr.toLowerCase().startsWith('data:') || urlStr.includes('@')) {
+          return res.status(400).json({ success: false, error: 'Link đăng ký học không hợp lệ hoặc chứa thông tin đăng nhập.' });
+        }
+        cleanOfficialUrl = urlStr;
+      }
+
       const slug = cleanCode.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Math.random().toString(36).substring(2, 6);
       const cleanBenefitsTitle = benefits_title !== undefined ? (benefits_title ? String(benefits_title).trim() : null) : null;
       const cleanBenefitsContent = benefits_content !== undefined ? (benefits_content ? String(benefits_content).trim() : null) : null;
@@ -4187,6 +4226,7 @@ async function startServer() {
         benefits_title: cleanBenefitsTitle,
         benefits_content: cleanBenefitsContent,
         thumbnail_url: thumbnail_url !== undefined ? (thumbnail_url ? String(thumbnail_url).trim() : null) : null,
+        official_registration_url: cleanOfficialUrl,
         is_active: true,
         sort_order: 0,
       };
@@ -4203,7 +4243,7 @@ async function startServer() {
           error.code === 'PGRST204' ||
           (error.message && (error.message.includes('schema cache') || error.message.includes('column'))))
       ) {
-        // Fallback if benefits columns do not exist in DB yet
+        delete insertPayload.official_registration_url;
         delete insertPayload.benefits_title;
         delete insertPayload.benefits_content;
         const res2 = await supabase.from('courses').insert(insertPayload).select().single();
@@ -4242,7 +4282,7 @@ async function startServer() {
   app.patch('/api/v1/admin/courses/:id', requireStaffOrAdmin, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { code, title, degree_level, duration_text, tuition_fee_estimate, summary, description_html, benefits_title, benefits_content, thumbnail_url, career_group, is_active, client_updated_at } = req.body;
+      const { code, title, degree_level, duration_text, tuition_fee_estimate, summary, description_html, benefits_title, benefits_content, thumbnail_url, career_group, official_registration_url, is_active, client_updated_at } = req.body;
 
       const { data: existing, error: fetchErr } = await supabase
         .from('courses')
@@ -4323,6 +4363,20 @@ async function startServer() {
       }
       if (thumbnail_url !== undefined) {
         updatePayload.thumbnail_url = thumbnail_url ? String(thumbnail_url).trim() : null;
+      }
+      if (official_registration_url !== undefined) {
+        if (official_registration_url === null || String(official_registration_url).trim() === '') {
+          updatePayload.official_registration_url = null;
+        } else {
+          const urlStr = String(official_registration_url).trim();
+          if (!urlStr.startsWith('https://')) {
+            return res.status(400).json({ success: false, error: 'Link đăng ký học trên cổng tuyển sinh phải bắt đầu bằng https://.' });
+          }
+          if (urlStr.toLowerCase().startsWith('javascript:') || urlStr.toLowerCase().startsWith('data:') || urlStr.includes('@')) {
+            return res.status(400).json({ success: false, error: 'Link đăng ký học không hợp lệ hoặc chứa thông tin đăng nhập.' });
+          }
+          updatePayload.official_registration_url = urlStr;
+        }
       }
       if (career_group !== undefined) {
         if (career_group === null || String(career_group).trim() === '') {

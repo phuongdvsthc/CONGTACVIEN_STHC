@@ -42,6 +42,8 @@ export const PublicCourseDetailPage: React.FC<PublicCourseDetailPageProps> = ({
   const [modalFormResult, setModalFormResult] = useState<{
     appointment_code?: string;
     message: string;
+    course_title?: string | null;
+    official_registration_url?: string | null;
   } | null>(null);
 
   // 1. Tải thông tin khóa học công khai từ API backend (CSDL Supabase)
@@ -429,8 +431,8 @@ export const PublicCourseDetailPage: React.FC<PublicCourseDetailPageProps> = ({
                     {/* Dòng xác nhận người giới thiệu (Yêu cầu 4: Chỉ hiển thị khi backend xác nhận CTV hợp lệ) */}
                     {referrerName && (
                       <p className="text-xs text-slate-600">
-                        Bạn được giới thiệu bởi đối tác{' '}
-                        <strong className="font-bold text-slate-900">{referrerName}</strong>
+                        Bạn được giới thiệu bởi cộng tác viên{' '}
+                        <strong className="font-bold text-slate-900">{referrerName}</strong>.
                       </p>
                     )}
                   </div>
@@ -493,6 +495,8 @@ export const PublicCourseDetailPage: React.FC<PublicCourseDetailPageProps> = ({
               <ThankYouScreen
                 appointmentCode={modalFormResult.appointment_code}
                 message={modalFormResult.message}
+                courseTitle={modalFormResult.course_title || course?.title}
+                officialRegistrationUrl={modalFormResult.official_registration_url !== undefined ? modalFormResult.official_registration_url : course?.official_registration_url}
                 onBackToCourses={() => {
                   setModalFormResult(null);
                   setIsRegisterModalOpen(false);
