@@ -612,9 +612,18 @@ export default function App() {
                   }}
                 />
               ) : (
-                <AffiliateLandingPage
-                  config={defaultLandingConfig}
-                  onOpenLogin={handleOpenLogin}
+                <PublicHome
+                  courses={courses}
+                  refCode={refCode}
+                  onOpenRegisterAffiliate={handleNavigateToRegister}
+                  onOpenLoginAffiliate={(prefilledEmail, customMsg) => handleOpenLogin(prefilledEmail, customMsg)}
+                  onViewCourseDetail={(course) => {
+                    const slug = course.slug || course.code || course.id;
+                    const search = new URLSearchParams();
+                    if (refCode) search.set('ref', refCode);
+                    search.set('course', slug);
+                    navigate(`/?${search.toString()}`);
+                  }}
                 />
               )
             )}
