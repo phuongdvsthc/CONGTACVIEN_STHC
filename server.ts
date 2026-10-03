@@ -1229,6 +1229,36 @@ async function startServer() {
   // ----------------------------------------------------------------------------
   // E1 – PUBLIC ENDPOINTS (Danh mục khóa học & Đăng ký tư vấn)
   // ----------------------------------------------------------------------------
+  // Public Homepage Config GET
+  app.get('/api/v1/public/homepage-config', async (req: Request, res: Response) => {
+    const DEFAULT_LAYOUT_BLOCKS = [
+      { id: 'hero', name: 'Khối Giới thiệu & Banner (Hero Section)', enabled: true, order: 0 },
+      { id: 'courses_search_filter', name: 'Khối Tìm kiếm & Bộ lọc ngành', enabled: true, order: 1 },
+      { id: 'courses_grid', name: 'Khối Danh sách Khóa học', enabled: true, order: 2 },
+      { id: 'consultation_form', name: 'Khối Đăng ký Tư vấn Trực tuyến', enabled: true, order: 3 },
+    ];
+    try {
+      const { data, error } = await supabase
+        .from('homepage_config')
+        .select('*')
+        .eq('id', 1)
+        .maybeSingle();
+      if (error || !data) {
+        return res.json({ success: true, data: { logo_url: null, logo_alt: null, hotline: null, footer_text: null, layout_blocks: DEFAULT_LAYOUT_BLOCKS } });
+      }
+      if (!data.layout_blocks) {
+        data.layout_blocks = DEFAULT_LAYOUT_BLOCKS;
+      }
+      return res.json({ success: true, data });
+    } catch (err: any) {
+      return res.json({ success: true, data: { logo_url: null, logo_alt: null, hotline: null, footer_text: null, layout_blocks: DEFAULT_LAYOUT_BLOCKS } });
+    }
+  });
+
+
+
+
+
   app.get('/api/v1/public/courses', async (req: Request, res: Response) => {
     try {
       const { data: courses, error } = await supabase
@@ -2887,6 +2917,353 @@ async function startServer() {
     }
     next();
   };
+
+  // Admin Homepage Config GET (Returns published, draft, and history)
+  app.get('/api/v1/admin/homepage-config', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    const DEFAULT_LAYOUT_BLOCKS = [
+      { id: 'hero', name: 'Khối Giới thiệu & Banner (Hero Section)', enabled: true, order: 0 },
+      { id: 'courses_search_filter', name: 'Khối Tìm kiếm & Bộ lọc ngành', enabled: true, order: 1 },
+      { id: 'courses_grid', name: 'Khối Danh sách Khóa học', enabled: true, order: 2 },
+      { id: 'consultation_form', name: 'Khối Đăng ký Tư vấn Trực tuyến', enabled: true, order: 3 },
+    ];
+    try {
+      const { data: configData } = await supabase
+        .from('homepage_config')
+        .select('*')
+        .eq('id', 1)
+        .maybeSingle();
+
+      const pub = {
+        logo_url: configData?.logo_url || null,
+        logo_alt: configData?.logo_alt || null,
+        hero_background_url: configData?.hero_background_url || null,
+        hero_background_alt: configData?.hero_background_alt || null,
+        hero_illustration_url: configData?.hero_illustration_url || null,
+        hero_illustration_alt: configData?.hero_illustration_alt || null,
+        hotline: configData?.hotline || null,
+        footer_text: configData?.footer_text || null,
+        layout_blocks: configData?.layout_blocks || DEFAULT_LAYOUT_BLOCKS,
+        version_number: configData?.version_number || 1,
+        published_at: configData?.published_at || configData?.updated_at || new Date().toISOString(),
+        published_by: configData?.published_by || 'Ban Tuyển sinh STHC',
+      };
+
+      const draft = {
+        logo_url: configData?.draft_logo_url !== undefined && configData?.draft_logo_url !== null ? configData?.draft_logo_url : pub.logo_url,
+        logo_alt: configData?.draft_logo_alt !== undefined && configData?.draft_logo_alt !== null ? configData?.draft_logo_alt : pub.logo_alt,
+        hero_background_url: configData?.draft_hero_background_url !== undefined && configData?.draft_hero_background_url !== null ? configData?.draft_hero_background_url : pub.hero_background_url,
+        hero_background_alt: configData?.draft_hero_background_alt !== undefined && configData?.draft_hero_background_alt !== null ? configData?.draft_hero_background_alt : pub.hero_background_alt,
+        hero_illustration_url: configData?.draft_hero_illustration_url !== undefined && configData?.draft_hero_illustration_url !== null ? configData?.draft_hero_illustration_url : pub.hero_illustration_url,
+        hero_illustration_alt: configData?.draft_hero_illustration_alt !== undefined && configData?.draft_hero_illustration_alt !== null ? configData?.draft_hero_illustration_alt : pub.hero_illustration_alt,
+        hotline: configData?.draft_hotline !== undefined && configData?.draft_hotline !== null ? configData?.draft_hotline : pub.hotline,
+        footer_text: configData?.draft_footer_text !== undefined && configData?.draft_footer_text !== null ? configData?.draft_footer_text : pub.footer_text,
+        layout_blocks: configData?.draft_layout_blocks || pub.layout_blocks,
+        draft_updated_at: configData?.draft_updated_at || null,
+        draft_updated_by: configData?.draft_updated_by || null,
+      };
+
+      let history = [];
+      try {
+        const { data: histData } = await supabase
+          .from('homepage_config_history')
+          .select('*')
+          .order('version_number', { ascending: false });
+        history = histData || [];
+      } catch (e) {}
+
+      return res.json({
+        success: true,
+        data: {
+          published: pub,
+          draft: draft,
+          history: history,
+        },
+      });
+    } catch (err: any) {
+      console.error('[GET ADMIN HOMEPAGE CONFIG ERROR]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi lấy cấu hình quản trị.' });
+    }
+  });
+
+  // Admin Homepage Config PUT (Save Draft)
+  app.put('/api/v1/admin/homepage-config', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const userObj = (req as any).user;
+      const userName = userObj?.full_name || userObj?.email || 'Quản trị viên STHC';
+      const {
+        logo_url,
+        logo_alt,
+        hotline,
+        footer_text,
+        hero_background_url,
+        hero_background_alt,
+        hero_illustration_url,
+        hero_illustration_alt,
+        layout_blocks,
+      } = req.body;
+      
+      const draftPayload = {
+        id: 1,
+        draft_logo_url: logo_url !== undefined ? logo_url : null,
+        draft_logo_alt: logo_alt !== undefined ? logo_alt : null,
+        draft_hotline: hotline !== undefined ? hotline : null,
+        draft_footer_text: footer_text !== undefined ? footer_text : null,
+        draft_hero_background_url: hero_background_url !== undefined ? hero_background_url : null,
+        draft_hero_background_alt: hero_background_alt !== undefined ? hero_background_alt : null,
+        draft_hero_illustration_url: hero_illustration_url !== undefined ? hero_illustration_url : null,
+        draft_hero_illustration_alt: hero_illustration_alt !== undefined ? hero_illustration_alt : null,
+        draft_layout_blocks: layout_blocks !== undefined ? layout_blocks : null,
+        draft_updated_at: new Date().toISOString(),
+        draft_updated_by: userName,
+      };
+
+      const { data, error } = await supabase
+        .from('homepage_config')
+        .upsert(draftPayload, { onConflict: 'id' })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('[SAVE HOMEPAGE DRAFT ERROR]', error);
+        return res.status(400).json({ success: false, error: `Không thể lưu bản nháp: ${error.message}` });
+      }
+
+      return res.json({ success: true, message: 'Đã lưu bản nháp thành công!' });
+    } catch (err: any) {
+      console.error('[SAVE HOMEPAGE DRAFT EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi lưu bản nháp.' });
+    }
+  });
+
+  // Admin Homepage Config Publish POST
+  app.post('/api/v1/admin/homepage-config/publish', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const userObj = (req as any).user;
+      const userName = userObj?.full_name || userObj?.email || 'Quản trị viên STHC';
+
+      const { data: currentCfg, error: fetchErr } = await supabase
+        .from('homepage_config')
+        .select('*')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (fetchErr || !currentCfg) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy cấu hình trang chủ.' });
+      }
+
+      const newLogoUrl = currentCfg.draft_logo_url !== undefined && currentCfg.draft_logo_url !== null ? currentCfg.draft_logo_url : currentCfg.logo_url;
+      const newLogoAlt = currentCfg.draft_logo_alt !== undefined && currentCfg.draft_logo_alt !== null ? currentCfg.draft_logo_alt : currentCfg.logo_alt;
+      const newBgUrl = currentCfg.draft_hero_background_url !== undefined && currentCfg.draft_hero_background_url !== null ? currentCfg.draft_hero_background_url : currentCfg.hero_background_url;
+      const newBgAlt = currentCfg.draft_hero_background_alt !== undefined && currentCfg.draft_hero_background_alt !== null ? currentCfg.draft_hero_background_alt : currentCfg.hero_background_alt;
+      const newIllUrl = currentCfg.draft_hero_illustration_url !== undefined && currentCfg.draft_hero_illustration_url !== null ? currentCfg.draft_hero_illustration_url : currentCfg.hero_illustration_url;
+      const newIllAlt = currentCfg.draft_hero_illustration_alt !== undefined && currentCfg.draft_hero_illustration_alt !== null ? currentCfg.draft_hero_illustration_alt : currentCfg.hero_illustration_alt;
+      const newHotline = currentCfg.draft_hotline !== undefined && currentCfg.draft_hotline !== null ? currentCfg.draft_hotline : currentCfg.hotline;
+      const newFooter = currentCfg.draft_footer_text !== undefined && currentCfg.draft_footer_text !== null ? currentCfg.draft_footer_text : currentCfg.footer_text;
+      const newBlocks = currentCfg.draft_layout_blocks || currentCfg.layout_blocks;
+
+      const nextVersion = (currentCfg.version_number || 1) + 1;
+      const nowIso = new Date().toISOString();
+
+      const publishPayload = {
+        id: 1,
+        logo_url: newLogoUrl,
+        logo_alt: newLogoAlt,
+        hero_background_url: newBgUrl,
+        hero_background_alt: newBgAlt,
+        hero_illustration_url: newIllUrl,
+        hero_illustration_alt: newIllAlt,
+        hotline: newHotline,
+        footer_text: newFooter,
+        layout_blocks: newBlocks,
+        version_number: nextVersion,
+        published_at: nowIso,
+        published_by: userName,
+        updated_at: nowIso,
+      };
+
+      const { error: pubErr } = await supabase
+        .from('homepage_config')
+        .upsert(publishPayload, { onConflict: 'id' });
+
+      if (pubErr) {
+        return res.status(400).json({ success: false, error: `Không thể xuất bản cấu hình: ${pubErr.message}` });
+      }
+
+      try {
+        await supabase.from('homepage_config_history').insert({
+          version_number: nextVersion,
+          logo_url: newLogoUrl,
+          logo_alt: newLogoAlt,
+          hero_background_url: newBgUrl,
+          hero_background_alt: newBgAlt,
+          hero_illustration_url: newIllUrl,
+          hero_illustration_alt: newIllAlt,
+          hotline: newHotline,
+          footer_text: newFooter,
+          layout_blocks: newBlocks,
+          action_type: 'PUBLISH',
+          created_by: userName,
+          created_at: nowIso,
+        });
+      } catch (e) {}
+
+      return res.json({ success: true, message: `Đã xuất bản phiên bản v${nextVersion} thành công!` });
+    } catch (err: any) {
+      console.error('[PUBLISH HOMEPAGE EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi xuất bản cấu hình.' });
+    }
+  });
+
+  // Admin Homepage Config Restore POST
+  app.post('/api/v1/admin/homepage-config/restore', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const userObj = (req as any).user;
+      const userName = userObj?.full_name || userObj?.email || 'Quản trị viên STHC';
+      const { version_number } = req.body;
+
+      if (!version_number) {
+        return res.status(400).json({ success: false, error: 'Thiếu số phiên bản cần khôi phục.' });
+      }
+
+      const { data: histSnapshot, error: histErr } = await supabase
+        .from('homepage_config_history')
+        .select('*')
+        .eq('version_number', version_number)
+        .maybeSingle();
+
+      if (histErr || !histSnapshot) {
+        return res.status(404).json({ success: false, error: `Không tìm thấy lịch sử phiên bản v${version_number}.` });
+      }
+
+      const { data: currentCfg } = await supabase
+        .from('homepage_config')
+        .select('version_number')
+        .eq('id', 1)
+        .maybeSingle();
+
+      const nextVersion = (currentCfg?.version_number || 1) + 1;
+      const nowIso = new Date().toISOString();
+
+      const restorePayload = {
+        id: 1,
+        logo_url: histSnapshot.logo_url,
+        logo_alt: histSnapshot.logo_alt,
+        hero_background_url: histSnapshot.hero_background_url,
+        hero_background_alt: histSnapshot.hero_background_alt,
+        hero_illustration_url: histSnapshot.hero_illustration_url,
+        hero_illustration_alt: histSnapshot.hero_illustration_alt,
+        hotline: histSnapshot.hotline,
+        footer_text: histSnapshot.footer_text,
+        layout_blocks: histSnapshot.layout_blocks,
+        version_number: nextVersion,
+        published_at: nowIso,
+        published_by: userName,
+        updated_at: nowIso,
+      };
+
+      const { error: restErr } = await supabase
+        .from('homepage_config')
+        .upsert(restorePayload, { onConflict: 'id' });
+
+      if (restErr) {
+        return res.status(400).json({ success: false, error: `Không thể khôi phục phiên bản: ${restErr.message}` });
+      }
+
+      try {
+        await supabase.from('homepage_config_history').insert({
+          version_number: nextVersion,
+          logo_url: histSnapshot.logo_url,
+          logo_alt: histSnapshot.logo_alt,
+          hero_background_url: histSnapshot.hero_background_url,
+          hero_background_alt: histSnapshot.hero_background_alt,
+          hero_illustration_url: histSnapshot.hero_illustration_url,
+          hero_illustration_alt: histSnapshot.hero_illustration_alt,
+          hotline: histSnapshot.hotline,
+          footer_text: histSnapshot.footer_text,
+          layout_blocks: histSnapshot.layout_blocks,
+          action_type: 'RESTORE',
+          source_version_number: version_number,
+          created_by: userName,
+          created_at: nowIso,
+        });
+      } catch (e) {}
+
+      return res.json({ success: true, message: `Đã khôi phục và xuất bản thành công từ phiên bản v${version_number} (tạo v${nextVersion})!` });
+    } catch (err: any) {
+      console.error('[RESTORE HOMEPAGE EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi khôi phục phiên bản.' });
+    }
+  });
+
+  // Admin Homepage Asset Upload POST
+  app.post('/api/v1/admin/homepage-assets/upload', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const { imageBase64, fileName } = req.body;
+      if (!imageBase64 || typeof imageBase64 !== 'string') {
+        return res.status(400).json({ success: false, error: 'Thiếu dữ liệu ảnh tải lên.' });
+      }
+
+      let base64Data = imageBase64;
+      if (imageBase64.includes('base64,')) {
+        base64Data = imageBase64.split('base64,')[1];
+      }
+
+      let buffer: Buffer;
+      try {
+        buffer = Buffer.from(base64Data, 'base64');
+      } catch (e) {
+        return res.status(400).json({ success: false, error: 'Dữ liệu ảnh base64 không hợp lệ.' });
+      }
+
+      if (buffer.length === 0) {
+        return res.status(400).json({ success: false, error: 'File ảnh rỗng.' });
+      }
+      if (buffer.length > 5 * 1024 * 1024) {
+        return res.status(400).json({ success: false, error: 'Dung lượng ảnh vượt quá giới hạn 5 MB.' });
+      }
+
+      let mimeType = 'image/jpeg';
+      const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+      const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+      const isWebp = buffer.length > 12 && buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 && buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50;
+
+      if (isJpeg) mimeType = 'image/jpeg';
+      else if (isPng) mimeType = 'image/png';
+      else if (isWebp) mimeType = 'image/webp';
+      else {
+        return res.status(400).json({ success: false, error: 'Định dạng file không hợp lệ. Chỉ chấp nhận ảnh JPEG, PNG và WebP.' });
+      }
+
+      const ext = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+      const uniqueName = `logo_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+
+      const { data: uploadData, error: uploadErr } = await supabase.storage
+        .from('course-thumbnails')
+        .upload(uniqueName, buffer, {
+          contentType: mimeType,
+          upsert: false,
+        });
+
+      if (uploadErr) {
+        console.error('[HOMEPAGE LOGO UPLOAD ERROR]', uploadErr);
+        return res.status(400).json({ success: false, error: `Lỗi tải ảnh lên Storage: ${uploadErr.message}` });
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('course-thumbnails')
+        .getPublicUrl(uniqueName);
+
+      return res.json({
+        success: true,
+        url: publicUrl,
+        path: uniqueName,
+        message: 'Tải logo lên thành công!',
+      });
+    } catch (err: any) {
+      console.error('[HOMEPAGE LOGO UPLOAD EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi xử lý tải logo lên.' });
+    }
+  });
 
   // 1. Quản lý Cộng tác viên (với tìm kiếm, lọc trạng thái, phân trang và xác thực email)
   app.get('/api/v1/admin/affiliates', requireStaffOrAdmin, async (req: Request, res: Response) => {

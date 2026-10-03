@@ -630,10 +630,75 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
   - Nếu mã không hợp lệ hoặc hết hạn: Hiển thị thông báo cảnh báo, không gán CTV khác.
   - Chỉ hiển thị các khóa học đang công khai (`is_active: true`).
 - **Giao diện & Tiện ích:**
+  - **Header & Footer dùng chung:** Sử dụng chung hoàn toàn component Header (nền xanh thương hiệu `#0B1E3F`, nút Trang chủ) và Footer (dòng bản quyền `© 2026 STHC - Saigontourist Group. Tất cả quyền được bảo lưu.`) với trang chi tiết khóa học công khai (`PublicCourseDetailPage.tsx`), không có header/footer riêng.
+  - **Tiêu đề trang:** Chỉ hiển thị thẻ `<h2>Danh mục khoá học</h2>`, không có slogan hay đoạn mô tả thừa.
   - Thanh công cụ tìm kiếm (hỗ trợ không dấu), bộ lọc theo Hệ đào tạo và Nhóm nghề, sắp xếp theo tên A–Z / Z–A và phân trang chuẩn.
   - Thẻ khóa học hiển thị 3 cột trên desktop, 2 cột trên tablet, 1 cột trên mobile; có badge Hệ đào tạo, Nhóm nghề từ CSDL, thông tin thời lượng và học phí, kèm nút "Chi tiết" giữ nguyên ref.
   - Đã loại bỏ hoàn toàn các khối thưởng/hoa hồng CTV, link giới thiệu riêng của CTV và QR code trên giao diện khách.
 - **Kiểm tra kỹ thuật:** `npm run lint` và `compile_applet` PASS 100% (Build succeeded).
+
+### 9. Khắc phục lỗi API upload logo và cấu hình trang chủ A6.1
+- **Nguyên nhân:** Thiếu 2 endpoint backend trong `server.ts`:
+  - `POST /api/v1/admin/homepage-assets/upload`
+  - `PUT /api/v1/admin/homepage-config`
+- **Giải pháp triển khai:**
+  - Bổ sung `POST /api/v1/admin/homepage-assets/upload` (được bảo vệ bởi middleware `requireStaffOrAdmin`):
+    - Nhận dữ liệu `imageBase64` và `fileName` từ frontend (`AdminHomepageConfigView.tsx`).
+    - Kiểm tra định dạng (JPEG, PNG, WebP bằng magic bytes buffer) và dung lượng tối đa 5 MB.
+    - Lưu file vào Supabase Storage (`course-thumbnails` bucket) với tên định danh unique và trả về `publicUrl`.
+  - Bổ sung `PUT /api/v1/admin/homepage-config` (bảo vệ bởi `requireStaffOrAdmin`):
+    - Nhận payload gồm `logo_url`, `logo_alt`, `hotline`, `footer_text`.
+    - Upsert vào bảng CSDL `homepage_config` (id = 1).
+  - Giữ nguyên luồng: Upload thành công hiển thị preview logo mới, nhưng chỉ khi bấm “Lưu cấu hình” thì thay đổi mới được áp dụng lên các trang công khai. Hủy hoặc lỗi lưu không làm mất logo cũ.
+- **Kiểm tra thực tế:**
+  - API endpoint hoạt động chính xác, không còn lỗi 404 route không tồn tại.
+  - `npm run lint` và `compile_applet` đạt **PASS 100% (Build succeeded)**.
+  - Server đã được khởi động lại (`restart_dev_server`) để nạp mã nguồn backend mới.
+
+### 10. Hoàn thiện A6.1 – Sửa nội dung Header/Footer và Xem trước bản nháp
+- **Tính năng chỉnh sửa & Quản lý phiên bản nháp:**
+  - Tải cấu hình từ API (`GET /api/v1/public/homepage-config`) khi mở màn hình quản trị `/admin/homepage`.
+  - Tách biệt rõ ràng trạng thái đang chỉnh sửa (bản nháp trong phiên) với cấu hình đang công khai.
+  - Cảnh báo người dùng khi rời trang hoặc làm mới tab nếu có thay đổi chưa lưu (`beforeunload`).
+  - Nút **“Hủy thay đổi”** hoàn tác form về cấu hình đã lưu.
+  - Nút **“Lưu cấu hình”** gửi request `PUT /api/v1/admin/homepage-config`, cập nhật CSDL và đồng bộ cache cho toàn bộ trang công khai.
+- **Tính năng Xem trước bản nháp:**
+  - Nút **“Xem trước bản nháp”** mở modal chuyên dụng với nhãn **“Bản nháp – chưa lưu”**.
+  - Cho phép tùy chọn bố cục xem trước: **Trang chính**, **Danh mục khóa học** (`/catalog`), và **Chi tiết khóa học**.
+  - Cho phép tùy chọn chế độ hiển thị thiết bị: **Máy tính (Desktop)** và **Điện thoại (Mobile)** (khung điện thoại giả lập bo tròn).
+  - Tái sử dụng component `PublicHeader` và `PublicFooter` dùng chung với truyền `draftConfig`, hiển thị trực tiếp logo mới chọn (hỗ trợ instant preview tệp cục bộ qua `URL.createObjectURL`), hotline và footer chưa lưu.
+  - Vô hiệu hóa toàn bộ tương tác/điều hướng (`pointer-events-none` và `preventDefault`) trong khung xem trước để đảm bảo không phát sinh điều hướng hoặc tạo đăng ký nhầm.
+- **Kiểm tra kỹ thuật:** `npm run lint` và `compile_applet` đạt **PASS 100% (Build succeeded)**.
+
+### 11. Triển khai A6.2 – Thay logo, hình nền và hình minh họa trang chính
+- **Màn hình quản trị (`AdminHomepageConfigView.tsx`)**:
+  - Bổ sung nhóm **“B. Quản lý Hình ảnh Trang chính (Hero Section)”**:
+    - **Hình nền trang chính** (`hero_background_url`, `hero_background_alt`): Hỗ trợ chọn/thay ảnh, gỡ ảnh, xem trước và nhập Alt text.
+    - **Hình minh họa trang chính** (`hero_illustration_url`, `hero_illustration_alt`): Hỗ trợ chọn/thay ảnh, gỡ ảnh, xem trước và nhập Alt text.
+  - Hỗ trợ instant preview cục bộ qua `URL.createObjectURL` trước khi lưu.
+  - Giữ nguyên các nút xem trước bản nháp, lưu cấu hình và hủy thay đổi.
+- **Backend & Storage (`server.ts`)**:
+  - Mở rộng API `PUT /api/v1/admin/homepage-config` và `GET /api/v1/public/homepage-config` để lưu trữ và trả về tham chiếu `hero_background_url`, `hero_background_alt`, `hero_illustration_url`, `hero_illustration_alt`.
+  - Tệp ảnh được lưu trữ an toàn trong Supabase Storage (`course-thumbnails` bucket) với giới hạn 5 MB, kiểm tra định dạng JPEG, PNG, WebP.
+- **Đồng bộ trang công khai (`PublicHome.tsx`)**:
+  - Tải cấu hình trang chủ từ API và hiển thị `hero_background_url` (làm lớp nền overlay hero) và `hero_illustration_url` (hiển thị trực tiếp ở cột phải hero section).
+- **Kiểm tra kỹ thuật:** `npm run lint` và `compile_applet` đạt **PASS 100% (Build succeeded)**. Server đã được khởi động lại (`restart_dev_server`).
+
+### 12. Triển khai A6.3 – Sắp xếp và Bật/Tắt các khối bố cục trang chủ
+- **Màn hình quản trị (`AdminHomepageConfigView.tsx`)**:
+  - Bổ sung nhóm **“A. Bố cục trang chủ (Sắp xếp & Bật/Tắt khối)”** quản lý 4 khối nội dung chính:
+    1. `hero`: Khối Giới thiệu & Banner (Hero Section)
+    2. `courses_search_filter`: Khối Tìm kiếm & Bộ lọc ngành
+    3. `courses_grid`: Khối Danh sách Khóa học
+    4. `consultation_form`: Khối Đăng ký Tư vấn Trực tuyến
+  - Mỗi khối có tên tiếng Việt rõ ràng, mã định danh ổn định, công tắc **“Hiển thị”**, và nút **“Lên” / “Xuống”** điều chỉnh thứ tự (vô hiệu hóa tại biên đầu/cuối).
+  - Khối bị tắt vẫn xuất hiện trong danh quản trị để dễ dàng bật lại và giữ nguyên vị trí.
+- **Backend & CSDL (`server.ts`)**:
+  - Cập nhật API `PUT /api/v1/admin/homepage-config` và `GET /api/v1/public/homepage-config` để lưu trữ và truyền tải trường `layout_blocks` (danh sách các khối kèm thứ tự `order` và trạng thái `enabled`).
+- **Trang chủ công khai (`PublicHome.tsx`)**:
+  - Đọc cấu hình `layout_blocks` từ API, tự động sắp xếp và chỉ hiển thị các khối đang bật (`enabled !== false`), hoàn toàn loại bỏ các khoảng trống hoặc khoảng cách thừa do khối bị tắt gây ra.
+  - Header và Footer dùng chung luôn nằm cố định ở đầu và cuối trang.
+- **Kiểm tra kỹ thuật:** `npm run lint` và `compile_applet` đạt **PASS 100% (Build succeeded)**. Server đã được khởi động lại (`restart_dev_server`).
 
 
 

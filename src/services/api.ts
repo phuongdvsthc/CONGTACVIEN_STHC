@@ -507,6 +507,75 @@ export const api = {
     return res.json();
   },
 
+  async getHomepageConfig(): Promise<{
+    success: boolean;
+    data?: {
+      logo_url?: string;
+      logo_alt?: string;
+      hotline?: string;
+      footer_text?: string;
+      hero_background_url?: string;
+      hero_background_alt?: string;
+      hero_illustration_url?: string;
+      hero_illustration_alt?: string;
+      layout_blocks?: Array<{ id: string; name: string; enabled: boolean; order: number }>;
+    };
+    error?: string;
+  }> {
+    const res = await fetch('/api/v1/public/homepage-config');
+    return res.json();
+  },
+
+  async getAdminHomepageConfig() {
+    const res = await fetch('/api/v1/admin/homepage-config');
+    return res.json();
+  },
+
+  async updateHomepageConfig(payload: {
+    logo_url?: string | null;
+    logo_alt?: string | null;
+    hotline?: string | null;
+    footer_text?: string | null;
+    hero_background_url?: string | null;
+    hero_background_alt?: string | null;
+    hero_illustration_url?: string | null;
+    hero_illustration_alt?: string | null;
+    layout_blocks?: Array<{ id: string; name: string; enabled: boolean; order: number }> | null;
+  }) {
+    const res = await fetch('/api/v1/admin/homepage-config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return res.json();
+  },
+
+  async publishHomepageConfig() {
+    const res = await fetch('/api/v1/admin/homepage-config/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    return res.json();
+  },
+
+  async restoreHomepageVersion(versionNumber: number) {
+    const res = await fetch('/api/v1/admin/homepage-config/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version_number: versionNumber }),
+    });
+    return res.json();
+  },
+
+  async uploadHomepageLogo(imageBase64: string, fileName: string) {
+    const res = await fetch('/api/v1/admin/homepage-assets/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64, fileName }),
+    });
+    return res.json();
+  },
+
   getExportRewardsCsvUrl() {
     return '/api/v1/admin/reports/rewards-export';
   },

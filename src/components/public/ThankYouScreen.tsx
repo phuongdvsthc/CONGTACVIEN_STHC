@@ -64,7 +64,15 @@ export const ThankYouScreen: React.FC<ThankYouScreenProps> = ({
       {hasOfficialUrl ? (
         <div className="p-4 sm:p-5 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-4">
           <p className="text-xs text-blue-950 leading-relaxed font-medium">
-            Để hoàn tất quá trình đăng ký học tại Trường Saigontourist, bạn vui lòng hoàn tất form hồ sơ đăng ký học theo quy định của trường trong link sau (nhớ nhập <strong className="font-bold">"Mã CTV + Họ và tên CTV"</strong> trong mục <strong className="font-bold">"Họ và tên người giới thiệu"</strong>):
+            {hasAffiliateInfo ? (
+              <>
+                Để hoàn tất quá trình đăng ký học tại Trường Saigontourist, bạn vui lòng hoàn tất form hồ sơ đăng ký học theo quy định của trường trong link sau (nhớ nhập <strong className="font-bold">"Mã CTV + Họ và tên CTV"</strong> trong mục <strong className="font-bold">"Họ và tên người giới thiệu"</strong>):
+              </>
+            ) : (
+              <>
+                Để hoàn tất quá trình đăng ký học tại Trường Saigontourist, bạn vui lòng hoàn tất form hồ sơ đăng ký học theo quy định của trường trong link sau:
+              </>
+            )}
           </p>
 
           {/* Ô chỉ đọc hiển thị mã và tên CTV thực tế & nút sao chép (Yêu cầu 3) */}

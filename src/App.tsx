@@ -21,6 +21,7 @@ import { AffiliatePendingScreen } from './components/affiliate/AffiliatePendingS
 import { AffiliateRegisterModal } from './components/affiliate/AffiliateRegisterModal';
 import { AdminPortal } from './components/admin/AdminPortal';
 import { AdminPlaceholderPage } from './components/admin/AdminPlaceholderPage';
+import { AdminHomepageConfigView } from './components/admin/AdminHomepageConfigView';
 import { AppLayout } from './components/common/AppLayout';
 import { AccessNoticeScreen } from './components/common/AccessNoticeScreen';
 import { ProfileDetailView } from './components/common/ProfileDetailView';
@@ -531,10 +532,7 @@ export default function App() {
           )}
 
           {currentPath === '/admin/homepage' && (
-            <AdminPlaceholderPage
-              title="Quản lý trang chủ"
-              onNavigateToOverview={() => navigate('/admin')}
-            />
+            <AdminHomepageConfigView />
           )}
 
           {currentPath === '/admin/staff-accounts' && (
@@ -633,6 +631,10 @@ export default function App() {
                     if (refCode) searchParams.set('ref', refCode);
                     searchParams.set('course', slugToUse);
                     navigate(`/?${searchParams.toString()}`);
+                  }}
+                  onNavigateHome={() => {
+                    const search = refCode ? `?ref=${encodeURIComponent(refCode)}` : '';
+                    navigate(`/${search}`);
                   }}
                 />
               </div>
