@@ -64,37 +64,32 @@ export const ThankYouScreen: React.FC<ThankYouScreenProps> = ({
       {hasOfficialUrl ? (
         <div className="p-4 sm:p-5 bg-blue-50/70 border border-blue-200 rounded-2xl space-y-4">
           <p className="text-xs text-blue-950 leading-relaxed font-medium">
-            Để hoàn tất quá trình đăng ký học tại Trường Saigontourist, bạn vui lòng hoàn tất form hồ sơ đăng ký học theo quy định của trường trong link sau:
+            Để hoàn tất quá trình đăng ký học tại Trường Saigontourist, bạn vui lòng hoàn tất form hồ sơ đăng ký học theo quy định của trường trong link sau (nhớ nhập <strong className="font-bold">"Mã CTV + Họ và tên CTV"</strong> trong mục <strong className="font-bold">"Họ và tên người giới thiệu"</strong>):
           </p>
 
-          {/* Hướng dẫn người giới thiệu & Ô chỉ đọc (Yêu cầu 2) */}
+          {/* Ô chỉ đọc hiển thị mã và tên CTV thực tế & nút sao chép (Yêu cầu 3) */}
           {hasAffiliateInfo && (
-            <div className="space-y-2 pt-1 border-t border-blue-200/60">
-              <p className="text-xs text-slate-700 leading-relaxed">
-                Khi điền hồ sơ trên cổng tuyển sinh, tại mục <strong className="text-blue-950">“NGƯỜI GIỚI THIỆU”</strong> → ô <strong className="text-blue-950">“Họ và tên”</strong>, bạn vui lòng nhập mã CTV kèm họ và tên cộng tác viên theo nội dung dưới đây:
-              </p>
-              <div className="flex items-center justify-between gap-2 p-3 bg-white border border-blue-300 rounded-xl shadow-2xs">
-                <span className="font-mono font-bold text-xs sm:text-sm text-blue-950 break-words select-all">
-                  {copyText}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-900 hover:bg-blue-950 text-white font-semibold text-xs rounded-lg transition-colors shrink-0 shadow-xs active:scale-95"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Đã chép</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Sao chép</span>
-                    </>
-                  )}
-                </button>
-              </div>
+            <div className="flex items-center justify-between gap-2 p-3 bg-white border border-blue-300 rounded-xl shadow-2xs">
+              <span className="font-mono font-bold text-xs sm:text-sm text-blue-950 break-words select-all">
+                {copyText}
+              </span>
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-900 hover:bg-blue-950 text-white font-semibold text-xs rounded-lg transition-colors shrink-0 shadow-xs active:scale-95"
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Đã chép</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Sao chép</span>
+                  </>
+                )}
+              </button>
             </div>
           )}
 

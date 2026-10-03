@@ -612,21 +612,29 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
 - **Màn hình thành công (`ThankYouScreen.tsx`):**
   - Tiêu đề: *“Đã tiếp nhận đăng ký học”*.
   - Nội dung xác nhận: *“Cảm ơn bạn đã đăng ký [Tên khóa học]. Nhà trường đã ghi nhận thông tin đăng ký của bạn.”*
-  - Nếu khóa học có `official_registration_url` hợp lệ: Hiển thị lời mời hoàn tất hồ sơ kèm nút nổi bật **“Hoàn tất hồ sơ đăng ký học”** (mở tab mới an toàn qua `target="_blank" rel="noopener noreferrer"`).
-  - Nếu khóa học chưa có link: Hiển thị thông báo *“Link hoàn tất hồ sơ đang được cập nhật. Nhà trường sẽ liên hệ hướng dẫn bạn.”*
-  - Chú thích bắt buộc: *“Việc gửi thông tin tại đây chưa thay thế hồ sơ đăng ký chính thức trên cổng tuyển sinh của Nhà trường.”*
+  - Đoạn hướng dẫn hoàn tất hồ sơ: *“Để hoàn tất quá trình đăng ký học tại Trường Saigontourist, bạn vui lòng hoàn tất form hồ sơ đăng ký học theo quy định của trường trong link sau (nhớ nhập **"Mã CTV + Họ và tên CTV"** trong mục **"Họ và tên người giới thiệu"**):”*
+  - Ô thông tin thực tế CTV: Hiển thị `[Mã CTV] - [Họ và tên CTV]` (ví dụ: `STHCCTV1088 - Đào Văn Phương`) kèm nút **“Sao chép”** thông minh (báo trạng thái "Đã chép" khi thành công).
+  - Nếu khóa học có `official_registration_url` hợp lệ: Hiển thị nút nổi bật **“Hoàn tất hồ sơ đăng ký học”**.
+  - Chú thích bắt buộc và nút đóng cửa sổ (tự động chuyển hướng về `/catalog?ref=[Mã CTV]` khi đóng popup).
 - **Kiểm tra kỹ thuật:** `npm run lint` và `compile_applet` PASS 100% (Build succeeded).
 
-### 7. Điều hướng khi đóng màn hình đăng ký thành công (C1.4)
-- **Hành vi mới:** Sau khi khách gửi đăng ký thành công và backend xác nhận lưu bản ghi `leads`, khi khách đóng popup thành công (bằng nút "Đóng cửa sổ", phím Escape, nhấp nền mờ), hệ thống điều hướng người dùng đến trang catalog khóa học của CTV giới thiệu: `/catalog?ref=[Mã CTV]`.
-- **Quy tắc triển khai:**
-  - Lấy mã CTV từ dữ liệu `affiliate_code` do backend xác nhận trong response thành công (không hardcode, không lấy user đăng nhập).
-  - Sử dụng `URLSearchParams` để tạo URL an toàn.
-  - URL catalog chỉ giữ tham số `ref`, không giữ tham số `course` của khóa vừa đăng ký.
-  - Sử dụng điều hướng `replace` (`window.history.replaceState`) để nút Back của trình duyệt không quay về popup thành công và gây gửi lại form.
-  - Nếu không có mã CTV hợp lệ, điều hướng về `/catalog`.
-  - Đóng form khi chưa gửi hoặc gửi lỗi vẫn giữ nguyên ở trang chi tiết khóa học.
-  - Nút “Hoàn tất hồ sơ đăng ký khoá học” vẫn mở `official_registration_url` trong tab mới như hiện tại.
+### 8. Trang “Danh mục khóa học” công khai (C1.4)
+- **Route và URL:** 
+  - `/catalog?ref=[Mã CTV]` hiển thị danh mục khóa học kèm xác thực người giới thiệu.
+  - Truy cập `/?ref=[Mã CTV]` không kèm `course` sẽ tự động `replaceState` sang `/catalog?ref=[Mã CTV]`.
+  - Truy cập `/?ref=[Mã CTV]&course=[Mã khóa học]` tiếp tục mở trang chi tiết khóa học.
+  - `/catalog` không có ref vẫn hiển thị danh mục chung bình thường.
+- **Xác thực CTV & Nguồn dữ liệu:**
+  - Backend xác thực mã `ref` qua `GET /api/v1/public/affiliate-referrer?ref=...` để lấy họ tên CTV thực tế.
+  - Hiển thị thông báo: *“Các khóa học được giới thiệu bởi cộng tác viên [Họ và tên CTV].”*
+  - Nếu mã không hợp lệ hoặc hết hạn: Hiển thị thông báo cảnh báo, không gán CTV khác.
+  - Chỉ hiển thị các khóa học đang công khai (`is_active: true`).
+- **Giao diện & Tiện ích:**
+  - Thanh công cụ tìm kiếm (hỗ trợ không dấu), bộ lọc theo Hệ đào tạo và Nhóm nghề, sắp xếp theo tên A–Z / Z–A và phân trang chuẩn.
+  - Thẻ khóa học hiển thị 3 cột trên desktop, 2 cột trên tablet, 1 cột trên mobile; có badge Hệ đào tạo, Nhóm nghề từ CSDL, thông tin thời lượng và học phí, kèm nút "Chi tiết" giữ nguyên ref.
+  - Đã loại bỏ hoàn toàn các khối thưởng/hoa hồng CTV, link giới thiệu riêng của CTV và QR code trên giao diện khách.
+- **Kiểm tra kỹ thuật:** `npm run lint` và `compile_applet` PASS 100% (Build succeeded).
+
 
 
 

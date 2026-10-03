@@ -7,6 +7,7 @@ import { AffiliateLandingPage } from './components/landing/AffiliateLandingPage'
 import { LoginPage } from './components/auth/LoginPage';
 import { defaultLandingConfig } from './config/defaultLandingConfig';
 import { PublicHome } from './components/public/PublicHome';
+import { PublicCatalogView } from './components/public/PublicCatalogView';
 import { PublicCourseDetailPage } from './components/public/PublicCourseDetailPage';
 import { AffiliatePolicy } from './components/public/AffiliatePolicy';
 import { LeadConsultationForm } from './components/public/LeadConsultationForm';
@@ -220,6 +221,12 @@ export default function App() {
     const urlRef = params.get('ref');
     const urlCourse = params.get('course');
     const urlRedirect = params.get('redirect_to');
+
+    if (window.location.pathname === '/' && urlRef && !urlCourse) {
+      const search = `?ref=${encodeURIComponent(urlRef)}`;
+      window.history.replaceState({}, '', `/catalog${search}`);
+      setCurrentPath('/catalog');
+    }
 
     if (urlRef) {
       const cleanRef = urlRef.trim();
@@ -549,7 +556,10 @@ export default function App() {
               activeTab={getActiveTabForHeader()}
               onNavigate={(tab) => {
                 if (tab === 'affiliate_landing') navigate('/');
-                else if (tab === 'public_catalog') navigate('/catalog');
+                else if (tab === 'public_catalog') {
+                  const search = refCode ? `?ref=${encodeURIComponent(refCode)}` : '';
+                  navigate(`/catalog${search}`);
+                }
                 else if (tab === 'affiliate_policy') navigate('/policy');
                 else if (tab === 'affiliate_portal') {
                   if (authSession.affiliate?.status === 'ACTIVE') navigate('/portal');
@@ -613,12 +623,10 @@ export default function App() {
 
             {/* ROUTE /catalog: DANH MỤC KHÓA HỌC CÔNG KHAI */}
             {currentPath === '/catalog' && (
-              <div className="bg-slate-50 text-slate-900 py-6 min-h-screen">
-                <PublicHome
-                  courses={courses}
+              <div className="bg-slate-50 text-slate-900 min-h-screen">
+                <PublicCatalogView
                   refCode={refCode}
-                  onOpenRegisterAffiliate={handleNavigateToRegister}
-                  onOpenLoginAffiliate={() => handleOpenLogin()}
+                  courses={courses}
                   onViewCourseDetail={(course) => {
                     const slugToUse = course.slug || course.code || course.id;
                     const searchParams = new URLSearchParams();
