@@ -13,36 +13,64 @@ export function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
+async function apiFetch(url: string, options: RequestInit = {}) {
+  const headers: Record<string, string> = {
+    ...getAuthHeaders(),
+    ...(options.headers as Record<string, string> || {}),
+  };
+  if (options.body && !headers['Content-Type'] && !(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
+  try {
+    const res = await fetch(url, {
+      ...options,
+      headers,
+    });
+    const contentType = res.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return await res.json();
+    }
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return {
+        success: false,
+        error: res.ok ? 'Phản hồi không hợp lệ từ máy chủ.' : `Lỗi máy chủ (${res.status}: ${res.statusText || 'Lỗi'})`,
+        status: res.status,
+      };
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'Lỗi kết nối máy chủ.',
+    };
+  }
+}
+
 export const api = {
   // --------------------------------------------------------------------------
   // AUTH & SIMULATED SESSION
   // --------------------------------------------------------------------------
   async getMe() {
-    const res = await fetch('/api/v1/auth/me', {
-      headers: getAuthHeaders(),
-    });
-    return res.json();
+    return apiFetch('/api/v1/auth/me');
   },
 
   async switchRole(role: 'public' | 'affiliate_pending' | 'affiliate_active' | 'staff' | 'admin') {
     try {
       localStorage.removeItem('sthc_auth_token');
     } catch (e) {}
-    const res = await fetch('/api/v1/auth/switch-demo', {
+    return apiFetch('/api/v1/auth/switch-demo', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role }),
     });
-    return res.json();
   },
 
   async login(email: string, password?: string) {
-    const res = await fetch('/api/v1/auth/login', {
+    const data = await apiFetch('/api/v1/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    const data = await res.json();
     if (data?.success) {
       if (data?.data?.token) {
         try {
@@ -61,11 +89,9 @@ export const api = {
     try {
       localStorage.removeItem('sthc_auth_token');
     } catch (e) {}
-    const res = await fetch('/api/v1/auth/logout', {
+    return apiFetch('/api/v1/auth/logout', {
       method: 'POST',
-      headers: getAuthHeaders(),
     });
-    return res.json();
   },
 
   async register(payload: {
@@ -90,7 +116,10 @@ export const api = {
     try {
       const res = await fetch('/api/v1/auth/register', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
         body: JSON.stringify(payload),
         signal: controller.signal,
       });
@@ -102,7 +131,16 @@ export const api = {
           error: 'Chưa nhận được kết quả đăng ký. Vui lòng kiểm tra email trước khi thử lại.',
         };
       }
-      return res.json();
+      const contentType = res.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        return await res.json();
+      }
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        return { success: false, error: 'Phản hồi đăng ký không hợp lệ từ máy chủ.' };
+      }
     } catch (err: any) {
       clearTimeout(timeoutId);
       if (err.name === 'AbortError' || err.message?.includes('aborted')) {
@@ -119,78 +157,37 @@ export const api = {
     }
   },
 
-  async registerAffiliate(payload: {
-    full_name: string;
-    email: string;
-    phone: string;
-    password?: string;
-    confirm_password?: string;
-    terms_accepted?: boolean;
-    id_card_number?: string;
-    id_card_issued_date?: string;
-    occupation?: string;
-    address?: string;
-    bank_account_number?: string;
-    bank_name?: string;
-    role?: string;
-    status?: string;
-    affiliate_code?: string;
-  }) {
+  async registerAffiliate(payload: any) {
     return this.register(payload);
   },
 
   async getAffiliateProfile(): Promise<{ success: boolean; data?: any; error?: string }> {
-    const res = await fetch('/api/v1/affiliate/profile');
-    return res.json();
+    return apiFetch('/api/v1/affiliate/profile');
   },
 
   async getUserProfile(): Promise<{ success: boolean; data?: UserProfile; error?: string }> {
-    const res = await fetch('/api/v1/user/profile');
-    return res.json();
+    return apiFetch('/api/v1/user/profile');
   },
 
-  async updateAffiliateProfile(payload: {
-    full_name?: string;
-    phone?: string;
-    address?: string;
-    occupation?: string;
-    id_card_number?: string;
-    id_card_issued_date?: string;
-    bank_account_number?: string;
-    bank_name?: string;
-  }): Promise<{ success: boolean; data?: any; error?: string }> {
-    const res = await fetch('/api/v1/affiliate/profile', {
+  async updateAffiliateProfile(payload: any): Promise<{ success: boolean; data?: any; error?: string }> {
+    return apiFetch('/api/v1/affiliate/profile', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json();
   },
 
-  async updateUserProfile(payload: {
-    address?: string;
-    occupation?: string;
-    id_card_number?: string;
-    id_card_issued_date?: string;
-    bank_account_number?: string;
-    bank_name?: string;
-    tax_code?: string;
-  }): Promise<{ success: boolean; data?: any; error?: string }> {
-    const res = await fetch('/api/v1/user/profile', {
+  async updateUserProfile(payload: any): Promise<{ success: boolean; data?: any; error?: string }> {
+    return apiFetch('/api/v1/user/profile', {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json();
   },
 
   async updateAvatar(image: string): Promise<{ success: boolean; data?: { avatar_url: string }; error?: string }> {
-    const res = await fetch('/api/v1/user/avatar', {
+    return apiFetch('/api/v1/user/avatar', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image }),
     });
-    return res.json();
   },
 
   async resendVerification(email: string) {
@@ -199,12 +196,24 @@ export const api = {
     try {
       const res = await fetch('/api/v1/auth/resend-verification', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
         body: JSON.stringify({ email }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
-      return res.json();
+      const contentType = res.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        return await res.json();
+      }
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch {
+        return { success: false, error: 'Phản hồi không hợp lệ từ máy chủ.' };
+      }
     } catch (err: any) {
       clearTimeout(timeoutId);
       return {
@@ -218,77 +227,45 @@ export const api = {
   // E1 - PUBLIC ENDPOINTS
   // --------------------------------------------------------------------------
   async getPublicCourses(): Promise<{ success: boolean; data: Course[] }> {
-    const res = await fetch('/api/v1/public/courses');
-    return res.json();
+    return apiFetch('/api/v1/public/courses');
   },
 
   async getPublicCourse(slug: string): Promise<{ success: boolean; data?: Course; error?: string }> {
-    const res = await fetch(`/api/v1/public/courses/${encodeURIComponent(slug)}`);
-    return res.json();
+    return apiFetch(`/api/v1/public/courses/${encodeURIComponent(slug)}`);
   },
 
   async getPublicAffiliateReferrer(refCode: string): Promise<{ success: boolean; data?: { full_name: string; affiliate_code: string }; error?: string }> {
-    const res = await fetch(`/api/v1/public/affiliate-referrer?ref=${encodeURIComponent(refCode)}`);
-    return res.json();
+    return apiFetch(`/api/v1/public/affiliate-referrer?ref=${encodeURIComponent(refCode)}`);
   },
 
-  async submitLead(payload: {
-    full_name: string;
-    phone: string;
-    email?: string;
-    province?: string;
-    course_id?: string;
-    preferred_contact_time?: string;
-    customer_note?: string;
-    consent_accepted: boolean;
-    ref_code?: string;
-    utm_source?: string;
-    utm_medium?: string;
-    utm_campaign?: string;
-  }): Promise<{
-    success: boolean;
-    message: string;
-    appointment_code?: string;
-    course_title?: string | null;
-    official_registration_url?: string | null;
-    affiliate_code?: string | null;
-    affiliate_name?: string | null;
-    error?: string;
-  }> {
-    const res = await fetch('/api/v1/public/leads', {
+  async submitLead(payload: any): Promise<any> {
+    return apiFetch('/api/v1/public/leads', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json();
   },
 
   // --------------------------------------------------------------------------
   // E2 - AFFILIATE ENDPOINTS
   // --------------------------------------------------------------------------
   async getAffiliateDashboard() {
-    const res = await fetch('/api/v1/affiliate/dashboard');
-    return res.json();
+    return apiFetch('/api/v1/affiliate/dashboard');
   },
 
-  async getAffiliateCourses(): Promise<{ success: boolean; data: (Course & { referral_url: string; affiliate_code: string })[] }> {
-    const res = await fetch('/api/v1/affiliate/courses');
-    return res.json();
+  async getAffiliateCourses(): Promise<{ success: boolean; data: any[] }> {
+    return apiFetch('/api/v1/affiliate/courses');
   },
 
-  async getAffiliateCourseDetail(courseId: string): Promise<{ success: boolean; data?: Course & { referral_url: string; affiliate_code: string }; error?: string }> {
-    const res = await fetch(`/api/v1/affiliate/courses/${encodeURIComponent(courseId)}`);
-    return res.json();
+  async getAffiliateCourseDetail(courseId: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    return apiFetch(`/api/v1/affiliate/courses/${encodeURIComponent(courseId)}`);
   },
 
   async getAffiliateLeads(): Promise<{ success: boolean; data: any[] }> {
-    const res = await fetch('/api/v1/affiliate/leads');
-    return res.json();
+    return apiFetch('/api/v1/affiliate/leads');
   },
 
   async getAffiliateRewards(): Promise<{ success: boolean; data: any[] }> {
-    const res = await fetch('/api/v1/affiliate/rewards');
-    return res.json();
+    return apiFetch('/api/v1/affiliate/rewards');
   },
 
   // --------------------------------------------------------------------------
@@ -312,62 +289,46 @@ export const api = {
     if (params?.limit) query.set('limit', String(params.limit));
 
     const url = `/api/v1/admin/affiliates${query.toString() ? `?${query.toString()}` : ''}`;
-    const res = await fetch(url);
-    return res.json();
+    return apiFetch(url);
   },
 
   async getAffiliateDetail(id: string) {
-    try {
-      const res = await fetch(`/api/v1/admin/affiliates/${id}`);
-      return await res.json();
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Lỗi kết nối máy chủ.' };
-    }
+    return apiFetch(`/api/v1/admin/affiliates/${id}`);
   },
 
   async updateAffiliateStatus(id: string, status: 'ACTIVE' | 'SUSPENDED' | 'REJECTED', review_note?: string) {
-    const res = await fetch(`/api/v1/admin/affiliates/${id}/status`, {
+    return apiFetch(`/api/v1/admin/affiliates/${id}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status, review_note }),
     });
-    return res.json();
   },
 
   async approveAffiliate(id: string, review_note?: string) {
-    const res = await fetch(`/api/v1/admin/affiliates/${id}/approve`, {
+    return apiFetch(`/api/v1/admin/affiliates/${id}/approve`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ review_note }),
     });
-    return res.json();
   },
 
   async rejectAffiliate(id: string, review_note: string) {
-    const res = await fetch(`/api/v1/admin/affiliates/${id}/reject`, {
+    return apiFetch(`/api/v1/admin/affiliates/${id}/reject`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ review_note }),
     });
-    return res.json();
   },
 
   async suspendAffiliate(id: string, reason: string) {
-    const res = await fetch(`/api/v1/admin/affiliates/${id}/suspend`, {
+    return apiFetch(`/api/v1/admin/affiliates/${id}/suspend`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason }),
     });
-    return res.json();
   },
 
   async reactivateAffiliate(id: string, note?: string) {
-    const res = await fetch(`/api/v1/admin/affiliates/${id}/reactivate`, {
+    return apiFetch(`/api/v1/admin/affiliates/${id}/reactivate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ note }),
     });
-    return res.json();
   },
 
   async getAdminCourses(params?: {
@@ -390,151 +351,89 @@ export const api = {
     if (params?.page) q.set('page', String(params.page));
     if (params?.limit) q.set('limit', String(params.limit));
     const qs = q.toString();
-    const res = await fetch(`/api/v1/admin/courses${qs ? `?${qs}` : ''}`);
-    return res.json();
+    return apiFetch(`/api/v1/admin/courses${qs ? `?${qs}` : ''}`);
   },
 
   async uploadCourseThumbnail(imageBase64: string, fileName: string) {
-    const res = await fetch('/api/v1/admin/courses/upload', {
+    return apiFetch('/api/v1/admin/courses/upload', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ imageBase64, fileName }),
     });
-    return res.json();
   },
 
   async getCourseById(id: string): Promise<{ success: boolean; data?: Course; error?: string }> {
-    const res = await fetch(`/api/v1/admin/courses/${id}`);
-    return res.json();
+    return apiFetch(`/api/v1/admin/courses/${id}`);
   },
 
-  async createCourse(payload: {
-    code: string;
-    title: string;
-    degree_level: string;
-    duration_text: string;
-    career_group?: string | null;
-    tuition_fee_estimate?: number | null;
-    summary?: string | null;
-    description_html?: string | null;
-    benefits_title?: string | null;
-    benefits_content?: string | null;
-    thumbnail_url?: string | null;
-    official_registration_url?: string | null;
-  }) {
-    const res = await fetch('/api/v1/admin/courses', {
+  async createCourse(payload: any) {
+    return apiFetch('/api/v1/admin/courses', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json();
   },
 
-  async updateCourse(id: string, payload: {
-    code?: string;
-    title?: string;
-    degree_level?: string;
-    duration_text?: string;
-    career_group?: string | null;
-    tuition_fee_estimate?: number | null;
-    summary?: string | null;
-    description_html?: string | null;
-    benefits_title?: string | null;
-    benefits_content?: string | null;
-    thumbnail_url?: string | null;
-    official_registration_url?: string | null;
-    is_active?: boolean;
-    client_updated_at?: string;
-  }) {
-    const res = await fetch(`/api/v1/admin/courses/${id}`, {
+  async updateCourse(id: string, payload: any) {
+    return apiFetch(`/api/v1/admin/courses/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json();
   },
 
-  async updateCourseStatus(id: string, payload: {
-    action: 'PUBLISH' | 'STOP_REFERRAL' | 'REOPEN_REFERRAL';
-    reason?: string;
-    note?: string;
-  }) {
-    const res = await fetch(`/api/v1/admin/courses/${id}/status`, {
+  async updateCourseStatus(id: string, payload: any) {
+    return apiFetch(`/api/v1/admin/courses/${id}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json();
   },
 
   async getAdminLeads(): Promise<{ success: boolean; data: Lead[] }> {
-    const res = await fetch('/api/v1/admin/leads');
-    return res.json();
+    return apiFetch('/api/v1/admin/leads');
   },
 
   async updateCounselingStatus(id: string, counseling_status: string, counselor_note?: string) {
-    const res = await fetch(`/api/v1/admin/leads/${id}/counseling-status`, {
+    return apiFetch(`/api/v1/admin/leads/${id}/counseling-status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ counseling_status, counselor_note }),
     });
-    return res.json();
   },
 
-  async reconcileLead(id: string, payload: {
-    external_admission_code: string;
-    external_student_code?: string;
-    tuition_fee_collected: number;
-    receipt_number?: string;
-    tuition_paid_at: string;
-    staff_note?: string;
-  }) {
-    const res = await fetch(`/api/v1/admin/leads/${id}/reconcile`, {
+  async reconcileLead(id: string, payload: any) {
+    return apiFetch(`/api/v1/admin/leads/${id}/reconcile`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return res.json();
   },
 
   async voidReconciliation(id: string, void_reason: string) {
-    const res = await fetch(`/api/v1/admin/leads/${id}/void-reconciliation`, {
+    return apiFetch(`/api/v1/admin/leads/${id}/void-reconciliation`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ void_reason }),
     });
-    return res.json();
   },
 
   async getLeadHistory(id: string) {
-    const res = await fetch(`/api/v1/admin/leads/${id}/history`);
-    return res.json();
+    return apiFetch(`/api/v1/admin/leads/${id}/history`);
   },
 
   async getAdminRewards(): Promise<{ success: boolean; data: any[] }> {
-    const res = await fetch('/api/v1/admin/rewards');
-    return res.json();
+    return apiFetch('/api/v1/admin/rewards');
   },
 
   async approveReward(id: string) {
-    const res = await fetch(`/api/v1/admin/rewards/${id}/approve`, {
+    return apiFetch(`/api/v1/admin/rewards/${id}/approve`, {
       method: 'POST',
     });
-    return res.json();
   },
 
   async rejectReward(id: string, rejection_reason: string) {
-    const res = await fetch(`/api/v1/admin/rewards/${id}/reject`, {
+    return apiFetch(`/api/v1/admin/rewards/${id}/reject`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ rejection_reason }),
     });
-    return res.json();
   },
 
   async getAdminAuditLogs(): Promise<{ success: boolean; data: any[] }> {
-    const res = await fetch('/api/v1/admin/audit-logs');
-    return res.json();
+    return apiFetch('/api/v1/admin/audit-logs');
   },
 
   async getHomepageConfig(): Promise<{
@@ -552,72 +451,38 @@ export const api = {
     };
     error?: string;
   }> {
-    const res = await fetch('/api/v1/public/homepage-config');
-    return res.json();
+    return apiFetch('/api/v1/public/homepage-config');
   },
 
   async getAdminHomepageConfig() {
-    const res = await fetch('/api/v1/admin/homepage-config', {
-      headers: getAuthHeaders(),
-    });
-    return res.json();
+    return apiFetch('/api/v1/admin/homepage-config');
   },
 
-  async updateHomepageConfig(payload: {
-    logo_url?: string | null;
-    logo_alt?: string | null;
-    hotline?: string | null;
-    footer_text?: string | null;
-    hero_background_url?: string | null;
-    hero_background_alt?: string | null;
-    hero_illustration_url?: string | null;
-    hero_illustration_alt?: string | null;
-    layout_blocks?: Array<{ id: string; name: string; enabled: boolean; order: number; config?: any }> | null;
-  }) {
-    const res = await fetch('/api/v1/admin/homepage-config', {
+  async updateHomepageConfig(payload: any) {
+    return apiFetch('/api/v1/admin/homepage-config', {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeaders(),
-      },
       body: JSON.stringify(payload),
     });
-    return res.json();
   },
 
   async publishHomepageConfig() {
-    const res = await fetch('/api/v1/admin/homepage-config/publish', {
+    return apiFetch('/api/v1/admin/homepage-config/publish', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeaders(),
-      },
     });
-    return res.json();
   },
 
   async restoreHomepageVersion(versionNumber: number) {
-    const res = await fetch('/api/v1/admin/homepage-config/restore', {
+    return apiFetch('/api/v1/admin/homepage-config/restore', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeaders(),
-      },
       body: JSON.stringify({ version_number: versionNumber }),
     });
-    return res.json();
   },
 
   async uploadHomepageLogo(imageBase64: string, fileName: string) {
-    const res = await fetch('/api/v1/admin/homepage-assets/upload', {
+    return apiFetch('/api/v1/admin/homepage-assets/upload', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeaders(),
-      },
       body: JSON.stringify({ imageBase64, fileName }),
     });
-    return res.json();
   },
 
   getExportRewardsCsvUrl() {

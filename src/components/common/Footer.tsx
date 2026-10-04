@@ -1,7 +1,18 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { GraduationCap, MapPin, Phone, Mail, ShieldCheck } from 'lucide-react';
+import { api } from '../../services/api';
 
 export const Footer: React.FC = () => {
+  const [footerText, setFooterText] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.getHomepageConfig().then((res) => {
+      if (res.success && res.data?.footer_text) {
+        setFooterText(res.data.footer_text);
+      }
+    }).catch(() => {});
+  }, []);
+
   return (
     <footer className="bg-slate-950 text-slate-400 border-t border-slate-800 text-xs">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -63,7 +74,7 @@ export const Footer: React.FC = () => {
         {/* Bottom bar */}
         <div className="mt-12 pt-6 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-slate-400 text-[11px]">
           <div>
-            © 2026 Trường Trung cấp Du lịch & Khách sạn Saigontourist (STHC). Bản quyền được bảo lưu.
+            {footerText || '© 2026 Trường Trung cấp Du lịch & Khách sạn Saigontourist (STHC). Bản quyền được bảo lưu.'}
           </div>
           <div className="flex items-center gap-4 text-slate-400">
             <span>Chính sách bảo mật</span>

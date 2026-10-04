@@ -548,7 +548,7 @@ export default function App() {
             CHỈ HIỂN THỊ HEADER CHUNG KHI Ở CÁC TRANG CÔNG KHAI (/catalog, /policy).
             Trang /, /login và /pending có giao diện độc lập riêng.
           */}
-          {currentPath !== '/' && currentPath !== '/login' && currentPath !== '/pending' && (
+          {currentPath !== '/login' && currentPath !== '/pending' && (
             <Header
               currentRole={authSession.role}
               activeTab={getActiveTabForHeader()}
