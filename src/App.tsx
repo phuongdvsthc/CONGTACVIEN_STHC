@@ -297,14 +297,16 @@ export default function App() {
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'sthc_auth_event' && e.newValue && e.newValue.startsWith('logout:')) {
-        // Đã có tab khác đăng xuất -> lập tức xóa dữ liệu phiên và chuyển về /login
-        setAuthSession({
+        // Đã có tab khác đăng xuất -> lập tức xóa dữ liệu phiên và chuyển về /
+        const publicSession: AuthSessionData = {
           role: 'public',
           user: null,
           affiliate: null,
-        });
+        };
+        setAuthSession(publicSession);
+        authSessionRef.current = publicSession;
         setAccessState({ allowed: true });
-        navigate('/login', true);
+        navigate('/', true, publicSession);
       }
     };
 
@@ -341,7 +343,9 @@ export default function App() {
    * 7. Xử lý ĐĂNG XUẤT TÀI KHOẢN (Đồng bộ đa tab & xóa sạch dữ liệu riêng)
    */
   const handleLogout = async () => {
-    await api.logout();
+    try {
+      await api.logout();
+    } catch (e) {}
 
     // Phát tín hiệu đồng bộ đăng xuất cho các tab khác
     try {
@@ -351,17 +355,19 @@ export default function App() {
     }
 
     // Xóa sạch trạng thái người dùng trong ứng dụng
-    setAuthSession({
+    const publicSession: AuthSessionData = {
       role: 'public',
       user: null,
       affiliate: null,
-    });
+    };
+    setAuthSession(publicSession);
+    authSessionRef.current = publicSession;
     setLoginSuccessNotice(null);
     setRequestedRedirectParam(null);
     setAccessState({ allowed: true });
 
-    // Chuyển hướng về trang /login
-    navigate('/login');
+    // Điều hướng về trang chủ / bằng replace để không giữ trang backend trong lịch sử
+    navigate('/', true, publicSession);
   };
 
   /**
