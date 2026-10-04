@@ -23,6 +23,9 @@ import {
   FileText,
   Camera,
   Edit3,
+  KeyRound,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 
 interface ProfileDetailViewProps {
@@ -70,6 +73,20 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
   const [avatarErrorMsg, setAvatarErrorMsg] = useState<string | null>(null);
   const [avatarSuccessMsg, setAvatarSuccessMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Change Password States
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    current_password: '',
+    new_password: '',
+    confirm_password: '',
+  });
+  const [showCurrentPass, setShowCurrentPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
 
   // requestId để chống race condition khi đổi tài khoản
   const requestIdRef = useRef<number>(0);
@@ -626,6 +643,29 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
               <span className="font-mono text-slate-800">{formatDateVN(profile.created_at)}</span>
             </div>
           </div>
+
+          {/* Card Đổi mật khẩu / Bảo mật tài khoản */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
+            <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+              <KeyRound className="w-4 h-4 text-blue-900" />
+              <span>Bảo mật tài khoản</span>
+            </div>
+            <p className="text-xs text-slate-500">
+              Quản lý mật khẩu và bảo mật đăng nhập tài khoản của bạn.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
+                setPasswordError(null);
+                setPasswordSuccess(null);
+                setIsPasswordModalOpen(true);
+              }}
+              className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors border border-slate-200 flex items-center justify-center gap-2"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-blue-900" /> Đổi mật khẩu
+            </button>
+          </div>
         </div>
 
         {/* ========================================================================= */}
@@ -964,6 +1004,167 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
     </div>
   );
 
+  const passwordModalElement = isPasswordModalOpen && (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-fade-in overflow-y-auto">
+      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-5 relative">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
+            <KeyRound className="w-5 h-5 text-blue-900" /> Đổi mật khẩu
+          </h3>
+          <button
+            onClick={() => setIsPasswordModalOpen(false)}
+            className="p-1.5 bg-slate-100 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-200 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="space-y-4 text-xs">
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Mật khẩu hiện tại</label>
+            <div className="relative">
+              <input
+                type={showCurrentPass ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={passwordForm.current_password}
+                onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
+                placeholder="Nhập mật khẩu hiện tại"
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-blue-900 pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPass(!showCurrentPass)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {showCurrentPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Mật khẩu mới</label>
+            <div className="relative">
+              <input
+                type={showNewPass ? 'text' : 'password'}
+                autoComplete="new-password"
+                value={passwordForm.new_password}
+                onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
+                placeholder="Nhập mật khẩu mới"
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-blue-900 pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPass(!showNewPass)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {showNewPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Yêu cầu: Tối thiểu 6 ký tự, bao gồm chữ và số.
+            </p>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Nhập lại mật khẩu mới</label>
+            <div className="relative">
+              <input
+                type={showConfirmPass ? 'text' : 'password'}
+                autoComplete="new-password"
+                value={passwordForm.confirm_password}
+                onChange={(e) => setPasswordForm({ ...passwordForm, confirm_password: e.target.value })}
+                placeholder="Xác nhận mật khẩu mới"
+                className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:outline-none focus:border-blue-900 pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPass(!showConfirmPass)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {showConfirmPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          {passwordError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+              <span>{passwordError}</span>
+            </div>
+          )}
+
+          {passwordSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span>{passwordSuccess}</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsPasswordModalOpen(false)}
+              disabled={passwordSaving}
+              className="px-4 py-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-bold rounded-xl transition-colors"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                setPasswordError(null);
+                setPasswordSuccess(null);
+
+                if (!passwordForm.current_password || !passwordForm.new_password || !passwordForm.confirm_password) {
+                  setPasswordError('Vui lòng điền đầy đủ tất cả các trường mật khẩu.');
+                  return;
+                }
+                if (passwordForm.new_password !== passwordForm.confirm_password) {
+                  setPasswordError('Mật khẩu mới và xác nhận mật khẩu không khớp.');
+                  return;
+                }
+                if (passwordForm.new_password === passwordForm.current_password) {
+                  setPasswordError('Mật khẩu mới phải khác với mật khẩu hiện tại.');
+                  return;
+                }
+                if (passwordForm.new_password.length < 6) {
+                  setPasswordError('Mật khẩu mới phải có ít nhất 6 ký tự.');
+                  return;
+                }
+
+                setPasswordSaving(true);
+                try {
+                  const res = await api.changePassword(passwordForm);
+                  setPasswordSaving(false);
+                  if (res.success) {
+                    setPasswordSuccess('Đổi mật khẩu thành công. Vui lòng đăng nhập lại.');
+                    try {
+                      localStorage.removeItem('sthc_auth_token');
+                      localStorage.setItem('sthc_auth_event', 'logout:' + Date.now());
+                    } catch (e) {}
+                    setTimeout(() => {
+                      window.location.href = '/login';
+                    }, 1500);
+                  } else {
+                    setPasswordError(res.error || 'Lỗi khi đổi mật khẩu.');
+                  }
+                } catch (err: any) {
+                  setPasswordSaving(false);
+                  setPasswordError(err?.message || 'Lỗi kết nối máy chủ khi đổi mật khẩu.');
+                }
+              }}
+              disabled={passwordSaving}
+              className="px-5 py-2 bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors shadow-sm inline-flex items-center gap-2"
+            >
+              {passwordSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+              Đổi mật khẩu
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   if (isModal) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-xs animate-fade-in overflow-y-auto">
@@ -978,9 +1179,15 @@ export const ProfileDetailView: React.FC<ProfileDetailViewProps> = ({
           </div>
           {mainView}
         </div>
+        {passwordModalElement}
       </div>
     );
   }
 
-  return mainView;
+  return (
+    <>
+      {mainView}
+      {passwordModalElement}
+    </>
+  );
 };

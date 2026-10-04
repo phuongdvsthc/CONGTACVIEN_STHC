@@ -183,6 +183,13 @@ export const api = {
     });
   },
 
+  async changePassword(payload: { current_password: string; new_password: string; confirm_password: string }): Promise<{ success: boolean; message?: string; error?: string }> {
+    return apiFetch('/api/v1/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   async updateAvatar(image: string): Promise<{ success: boolean; data?: { avatar_url: string }; error?: string }> {
     return apiFetch('/api/v1/user/avatar', {
       method: 'POST',

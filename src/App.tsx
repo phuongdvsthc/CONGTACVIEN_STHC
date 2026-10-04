@@ -549,7 +549,7 @@ export default function App() {
           )}
         </AppLayout>
       ) : (
-        <div className="min-h-screen flex flex-col bg-[#070D18] font-sans text-slate-100 antialiased selection:bg-amber-400 selection:text-slate-950">
+        <div className="bg-[#070D18] font-sans text-slate-100 antialiased selection:bg-amber-400 selection:text-slate-950">
           {/* 
             CHỈ HIỂN THỊ HEADER CHUNG KHI Ở CÁC TRANG CÔNG KHAI (/catalog, /policy).
             Trang /, /login và /pending có giao diện độc lập riêng.
@@ -584,7 +584,7 @@ export default function App() {
           )}
 
           {/* Main Body Content theo URL Routing */}
-          <main className="flex-1">
+          <main>
             {/* ROUTE /login: TRANG ĐĂNG NHẬP CTV */}
             {currentPath === '/login' && (
               <LoginPage

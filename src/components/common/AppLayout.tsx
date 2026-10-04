@@ -306,7 +306,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                     <button
                       onClick={() => {
                         setAccountMenuOpen(false);
-                        setP1NoticeModalMessage('Chức năng Đổi mật khẩu sẽ được bổ sung ở bước P1.');
+                        onNavigate(isAdminOrStaff ? '/admin/profile' : '/portal/profile');
                       }}
                       className="w-full text-left px-4 py-2.5 text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition-colors font-medium"
                     >

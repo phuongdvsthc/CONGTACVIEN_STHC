@@ -12,16 +12,12 @@ export const Footer: React.FC = () => {
     }).catch(() => {});
   }, []);
 
-  if (!footerText || !footerText.trim()) {
-    return null;
-  }
+  const textToDisplay = (footerText && footerText.trim()) ? footerText : '© 2026 STHC - Saigontourist Group. Tất cả quyền được bảo lưu.';
 
   return (
-    <footer className="bg-slate-950 text-slate-300 border-t border-slate-800 text-xs sm:text-sm py-8 sm:py-10 text-center">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <p className="leading-relaxed tracking-wide">
-          {footerText}
-        </p>
+    <footer className="mt-6 bg-slate-900 text-slate-400 text-xs border-t border-slate-800 py-4">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-[11px] text-slate-500">
+        <span>{textToDisplay}</span>
       </div>
     </footer>
   );
