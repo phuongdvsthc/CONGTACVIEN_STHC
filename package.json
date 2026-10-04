@@ -12,7 +12,9 @@
     "lint": "tsc --noEmit",
     "bootstrap:admin": "tsx scripts/bootstrap_admin.ts",
     "bootstrap:target": "tsx scripts/bootstrap_target_admin.ts",
-    "test:auth-bootstrap": "tsx scripts/verify_auth_bootstrap.ts"
+    "test:auth-bootstrap": "tsx scripts/verify_auth_bootstrap.ts",
+    "test:reconciliation-db": "tsx scripts/verify_a4_reconciliation_db.ts",
+    "test:reconciliation-api": "tsx scripts/verify_a4_4_reconciliation_api.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

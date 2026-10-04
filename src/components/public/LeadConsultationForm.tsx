@@ -33,7 +33,6 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [province, setProvince] = useState('TP. Hồ Chí Minh');
   const [courseId, setCourseId] = useState(selectedCourseId || (courses[0]?.id || ''));
   const [preferredContactTime, setPreferredContactTime] = useState('Buổi sáng (08h - 11h30)');
   const [customerNote, setCustomerNote] = useState('');

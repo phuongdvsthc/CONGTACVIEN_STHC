@@ -793,3 +793,265 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
 4. **Kiểm tra kỹ thuật**:
    - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
    - `compile_applet` (`npm run build`): **Build succeeded 100%**.
+
+
+### 19. Khắc phục và Hoàn thiện Kiểm thử Toàn luồng A3.7.1
+1. **Dọn dẹp triệt để Overload cũ & Chuẩn hóa chữ ký RPC**:
+   - Viết migration `20261004000001_fix_a3_care_rpc_overloads_and_strict_idempotency.sql`.
+   - `DROP FUNCTION` không `CASCADE` đối với chữ ký 5 tham số cũ từ A3.6.
+   - Thống nhất chữ ký RPC duy nhất 6 tham số: `public.fn_update_lead_care_and_audit(UUID, UUID, VARCHAR, TEXT, TIMESTAMPTZ, VARCHAR)`.
+   - Thu hồi toàn bộ quyền thực thi từ `PUBLIC` và `anon`; cấp quyền `authenticated` và `service_role`.
+2. **Ràng buộc duy nhất & Kiểm soát Idempotency đa luồng**:
+   - Tạo unique index: `uq_audit_logs_lead_care_idempotency` trên `(actor_id, entity_id, idempotency_key)` cho `entity_name = 'leads'`.
+   - Kiểm tra idempotency sau khi đã chiếm khóa bi quan dòng lead (`FOR UPDATE`), ngăn chặn triệt để race condition khi 2 request cùng key gửi đồng thời.
+   - Trả về đúng kết quả ban đầu (`is_idempotent_replay: true`) nếu cùng nội dung; từ chối `22023 / 400 Bad Request` nếu mismatch nội dung.
+3. **Bắt buộc Kiểm soát xung đột phiên bản chính xác (Exact Version / Concurrency)**:
+   - Yêu cầu `client_updated_at` trong các thao tác cập nhật chăm sóc hoặc thêm ghi chú. So sánh chính xác từng microsecond với `leads.updated_at`.
+   - Loại bỏ hoàn toàn dung sai giây, đảm bảo nếu 2 cán bộ thao tác trên cùng một phiên bản thì request đến sau chắc chắn nhận `409 Conflict`.
+4. **Bảo mật và Phân quyền**:
+   - Chặn đứng mọi nỗ lực giả mạo `p_actor_id` của tài khoản khác bằng cách kiểm tra bắt buộc `p_actor_id = auth.uid()` trên kênh direct client call.
+   - Lọc bỏ 100% trường nội bộ (`counselor_note`, `added_note`, `actor`) trên API lịch sử dành cho CTV (`GET /api/v1/affiliate/leads/:id/history`).
+5. **Kiểm tra kỹ thuật**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet` (`npm run build`): **Build succeeded 100%**.
+
+
+### 20. Hoàn thiện Màn hình Danh sách “Khách hàng được giới thiệu” (A3.7.2)
+1. **Tìm kiếm đa tiêu chí gồm Mã CTV**:
+   - Backend `GET /api/v1/admin/leads` hỗ trợ tìm kiếm theo Mã CTV hiện tại (`affiliate_profiles.affiliate_code`) và Mã CTV ghi nhận lúc đăng ký (`leads.affiliate_code_captured`), kết hợp họ tên, SĐT, email khách hàng.
+   - Tìm kiếm không phân biệt hoa/thường (`ILIKE`), không tạo mảng ID lớn về client, phân trang và tổng số áp dụng đồng bộ 100%.
+   - Cập nhật placeholder tìm kiếm trực quan.
+2. **Bộ lọc nguồn CTV Autocomplete / Combobox (Server-side Debounce, Max 20 results)**:
+   - Thay thế dropdown toàn bộ danh mục bằng Combobox Autocomplete tra cứu trên máy chủ qua endpoint `GET /api/v1/admin/affiliates/lookup`.
+   - Debounce ~400ms khi nhập từ 2 ký tự, trả tối đa 20 kết quả dạng `Mã CTV — Họ tên`.
+   - Có cơ chế `sequence ref` chống race condition khi phản hồi mạng chậm.
+   - Hỗ trợ khôi phục nhãn khi tải lại trang qua query `?id=...` mà không cần nạp toàn bộ danh mục CTV.
+   - Không loại bỏ CTV bị khóa (`SUSPENDED`) để vẫn lọc được khách lịch sử của họ.
+3. **Loại bỏ cột “Khung giờ tiện”**:
+   - Xóa bỏ hoàn toàn cột "Khung giờ tiện" khỏi bảng danh sách Admin/Staff.
+4. **Chuẩn hóa “Tiến độ tư vấn” sang Badge chỉ đọc**:
+   - Bảng danh sách chỉ hiển thị Badge trạng thái tĩnh (`NEW`: Mới đăng ký, `CONTACTED`: Đã liên hệ, `CONSULTING`: Đang tư vấn, `UNREACHABLE`: Chưa liên hệ được, `LOST`: Không tiếp tục).
+   - Xóa bỏ handler cập nhật trực tiếp tại dòng bảng để tránh thao tác vô tình; mọi cập nhật chăm sóc thực hiện an toàn trong trang chi tiết `/admin/leads/:id`.
+5. **Thêm cột “Mã hồ sơ (EGOV)”**:
+   - Hiển thị mã EGOV từ kết quả đối chiếu có hiệu lực, giữ số 0 ở đầu (chuỗi string).
+   - Khách chưa có mã hiển thị ô rỗng `—` (không hiển thị text "Chưa cập nhật" hay dữ liệu mẫu).
+6. **Bắt buộc Concurrency Timestamp tại Database (Migration 20261004000002)**:
+   - Trong RPC `fn_update_lead_care_and_audit`, khi có thao tác ghi thực sự, bắt buộc `p_expected_updated_at IS NOT NULL`. Nếu thiếu sẽ bị PostgreSQL từ chối với lỗi `22023`.
+   - Thêm B-Tree index trên `affiliate_profiles(affiliate_code)` và `leads(affiliate_code_captured)`.
+7. **Kiểm tra kỹ thuật**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet` (`npm run build`): **Build succeeded 100%**.
+
+
+### 21. Chuẩn hóa trường “Tỉnh / Thành phố” trong màn hình Chi tiết Lead (Admin/Staff & CTV)
+1. **Kiểm tra nguồn giá trị & Nguyên nhân**:
+   - Trong CSDL: Cột `leads.province` được định nghĩa là `VARCHAR(100)` không có default constraint và không có trigger can thiệp (mặc định đúng là `NULL`).
+   - Nguyên nhân phát sinh: Tại backend `server.ts` endpoint `POST /api/v1/public/leads` trước đây chứa fallback `province: province || 'TP. Hồ Chí Minh'`. Khi form không gửi province, backend tự gán `'TP. Hồ Chí Minh'`.
+2. **Khắc phục luồng lưu dữ liệu**:
+   - Backend `server.ts`: Đã chuẩn hóa `const cleanProvince = (typeof province === 'string' && province.trim()) ? province.trim() : null;` và lưu `province: cleanProvince`. Khi đăng ký mới không có tỉnh, CSDL lưu chuẩn `NULL`.
+   - Dọn dẹp state `province` không dùng trong component `LeadConsultationForm.tsx`.
+   - Không khôi phục trường Tỉnh/Thành phố vào form đăng ký công khai; giữ nguyên cột `province` trong CSDL và dữ liệu thực tế hiện có.
+3. **Quy tắc hiển thị thống nhất trên giao diện**:
+   - Áp dụng cho cả `AdminLeadDetailView.tsx` và `AffiliateLeadDetailView.tsx`:
+     - Nếu `province` là `null`, `undefined`, chuỗi rỗng `""` hoặc chỉ có khoảng trắng: Hiển thị `"Chưa cập nhật"` (màu chữ xám nghiêng `text-slate-400 italic`).
+     - Nếu có dữ liệu thật: Hiển thị đúng giá trị đó (`lead.province.trim()`).
+     - Tuyệt đối không dùng `"TP. Hồ Chí Minh"` hay tỉnh nào khác làm fallback hiển thị.
+4. **Kiểm tra kỹ thuật**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet` (`npm run build`): **Build succeeded 100%**.
+
+
+### 22. Quản trị viên Cấp / Thu hồi vai trò "Cán bộ Tuyển sinh" (Staff)
+1. **Mô hình tài khoản & Phân quyền hệ thống**:
+   - Nguồn vai trò chuẩn: Duy nhất cột `public.profiles.role` (`'affiliate'`, `'staff'`, `'admin'`). Không tạo bảng role thứ hai hoặc hệ thống phân quyền song song.
+   - Tách biệt hoàn toàn vai trò hệ thống (`profiles.role`) và trạng thái tiếp thị của CTV (`affiliate_profiles.status`).
+   - Khi cấp Staff: Nâng cấp `profiles.role = 'staff'`, bảo toàn 100% hồ sơ CTV, mã tiếp thị, khách hàng đã giới thiệu và lịch sử đối soát. Không tự động chuyển `status` sang `ACTIVE` nếu chưa duyệt.
+   - Khi thu hồi Staff: Chuyển `profiles.role = 'affiliate'`, quyền tiếp thị của CTV tiếp tục phụ thuộc vào trạng thái `status` hiện có (`ACTIVE`, `PENDING_REVIEW`, `SUSPENDED`, `REJECTED`).
+2. **Giao diện Màn hình Chi tiết (/admin/affiliates/:id)**:
+   - Thêm khối **"Vai trò tài khoản & Phân quyền hệ thống"** và cập nhật nhãn vai trò tiếng Việt tại thẻ tóm tắt.
+   - Phân quyền giao diện: Chỉ Quản trị viên (`role = 'admin'`) mới thấy các nút thao tác cấp / thu hồi Staff. Cán bộ Tuyển sinh (Staff) chỉ xem ở chế độ chỉ đọc.
+   - Tài khoản CTV: Nút **"Cấp quyền cán bộ tuyển sinh"**.
+   - Tài khoản Staff: Nút **"Thu hồi quyền cán bộ tuyển sinh"**.
+   - Modal xác nhận: Hiển thị đầy đủ Họ tên, Email, Mã CTV, Vai trò trước → Vai trò sau, giải thích quyền hạn, và bắt buộc nhập lý do thao tác.
+   - Ràng buộc an toàn: Không cho phép đổi vai trò tài khoản Admin hoặc tự thay đổi vai trò của chính Admin đang đăng nhập; chặn cấp quyền nếu email chưa xác thực hoặc tài khoản bị vô hiệu hóa.
+3. **API & Database Migration (Migration 20261004000003)**:
+   - Viết migration `/supabase/migrations/20261004000003_admin_assign_revoke_staff_role.sql` định nghĩa hàm RPC nguyên tử `fn_update_user_system_role()`.
+   - Endpoint: `PATCH /api/v1/admin/affiliates/:id/system-role` (bảo vệ bởi `requireAdminOnly`).
+   - Tự động phân giải `user_id` từ `affiliate_profiles.id`, thực hiện cập nhật `profiles.role` và ghi nhật ký `audit_logs` (`SYSTEM_ROLE_ASSIGNED` / `SYSTEM_ROLE_REVOKED`) trong cùng một transaction duy nhất.
+   - Hiệu lực tức thì: Các middleware backend kiểm tra trực tiếp `profiles.role` từ CSDL theo từng request, do đó quyền Staff bị thu hồi ngay lập tức trên các API nội bộ mà không cần chờ hết hạn token.
+4. **Kiểm tra kỹ thuật**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet` (`npm run build`): **Build succeeded 100%**.
+
+---
+
+### 23. Kiểm kê hiện trạng Module “Đối chiếu hồ sơ & học phí” (A4.1)
+1. **Phạm vi & Mục tiêu**:
+   - Thực hiện kiểm kê toàn diện mã nguồn frontend, backend API, cấu trúc CSDL Supabase, phân quyền và dữ liệu thực tế cho module "Đối chiếu hồ sơ & học phí".
+   - Tuân thủ nghiêm ngặt nguyên tắc chỉ đọc (Read-Only), không sửa đổi tính năng hoặc dữ liệu thực tế trên hệ thống.
+   - Báo cáo kiểm kê chi tiết bàn giao tại: `/docs/A4_1_ENROLLMENT_TUITION_RECONCILIATION_AUDIT.md`.
+2. **Kết quả kiểm kê hiện trạng**:
+   - **CSDL & RPC**: Đã có bảng `lead_reconciliations`, `rewards`, các Partial Unique Indexes (`uq_valid_external_admission_code`, `uq_valid_recon_per_lead`, `uq_active_reward_per_lead`) và 2 hàm RPC nguyên tử `fn_reconcile_lead_and_create_reward`, `fn_void_reconciliation_and_reward` từ migration `001` và `004`.
+   - **API Backend**: Đã có các endpoint `POST /api/v1/admin/leads/:id/reconcile`, `POST /api/v1/admin/leads/:id/void-reconciliation`, `GET /api/v1/admin/leads/:id/history`, `GET /api/v1/affiliate/leads/:id/history`, `GET /api/v1/admin/rewards`.
+   - **Giao diện**: Route `/admin/reconcile` và modal đối soát đã được dựng cơ bản trong `AdminPortal.tsx`. Module A3 và Cổng CTV đã hiển thị đồng bộ mã EGOV và tình trạng "Đã nhập học" / "Chưa nhập học".
+3. **Các thiếu sót và lỗi sai trọng yếu cần khắc phục tại A4.2 - A4.5**:
+   - *Lỗi Backend:* Hardcode `staff_id = demoState.adminUser.id` và `voided_by = demoState.adminUser.id` trong API đối soát/hủy đối soát thay vì lấy ID từ token đăng nhập thật; hardcode `affiliate_id = demoState.activeAffiliate.id` trong fallback tạo thưởng.
+   - *Lỗi Frontend:* Modal đối soát tự random sinh mã EGOV/phiếu thu và gán mặc định học phí 14.500.000 VNĐ; tab `/admin/reconcile` chưa có thanh tìm kiếm, bộ lọc trạng thái và phân trang độc lập; trang chi tiết `/admin/leads/:id` chưa tích hợp khối thao tác đối soát.
+   - *Thiếu sót nghiệp vụ:* Chưa có văn bản quy định điều kiện chi tiết để công nhận "Đã nhập học" (tỷ lệ học phí, chứng từ).
+4. **Kết quả thống kê dữ liệu thực tế (Chỉ đọc)**:
+   - Tổng cộng 8 lead trong CSDL: 0 lead có mã EGOV, 0 lead có thông tin học phí, 0 bản ghi `lead_reconciliations`, 0 bản ghi `rewards`. 100% lead đang ở trạng thái `NOT_RECONCILED` / `NONE`.
+5. **Kết luận nghiệm thu A4.1**: **PASS** (Hoàn tất kiểm kê hiện trạng, dừng turn để chờ duyệt bước A4.2).
+
+---
+
+### 24. Chốt nghiệp vụ và ma trận trạng thái Đối chiếu hồ sơ (A4.2)
+1. **Phạm vi & Mục tiêu**:
+   - Thể chế hóa 4 quyết định nghiệp vụ cốt lõi của Nhà trường về module Đối chiếu hồ sơ & học phí.
+   - Xây dựng ma trận trạng thái vòng đời đối soát, phân định rõ ràng giữa Tình trạng nhập học thực tế và Tính hợp lệ của hồ sơ giới thiệu CTV.
+   - Lập kế hoạch thay đổi kỹ thuật chi tiết từ A4.3 đến A4.8, giữ nguyên nguyên tắc không sửa đổi mã nguồn chức năng hay dữ liệu ở bước này.
+   - Tài liệu đặc tả bàn giao: `/docs/A4_2_ENROLLMENT_RECONCILIATION_BUSINESS_RULES.md`.
+2. **Nội dung 4 Quyết định Nghiệp vụ đã chốt**:
+   - **Quyết định 1 (Căn cứ xác nhận nhập học):** Dấu tick "Đã nhập học" trên phần mềm EGOV là căn cứ duy nhất. Không tự suy diễn từ số tiền thu, tỷ lệ học phí, biên lai hay sự tồn tại của mã EGOV. Cán bộ đối chiếu thủ công chéo Họ tên, SĐT, Khóa học để chống ghép nhầm; loại bỏ toàn bộ dữ liệu mẫu hardcode.
+   - **Quyết định 2 (Quy chuẩn Mã EGOV):** Mã EGOV gồm đúng 7 chữ số viết liền (`^[0-9]{7}$`), lưu dạng chuỗi để bảo toàn số 0 ở đầu. Mã là duy nhất đối với các đối soát hợp lệ đang hoạt động (`MATCHED_VALID`) qua Partial Unique Index; khi hủy đối soát (`VOIDED`), mã được giải phóng để cho phép đối soát lại.
+   - **Quyết định 3 (Khách đăng ký trước qua kênh khác):** Ghi nhận `EXISTING_IN_SCHOOL_SYSTEM`, không sinh thưởng cho CTV. Tách bạch rõ 2 trục: *Tình trạng nhập học thực tế của khách* (vẫn là "Đã nhập học" nếu EGOV đã tick) và *Tính hợp lệ giới thiệu* (hiển thị cho CTV: *"Hồ sơ không hợp lệ (khách đã đăng ký trước qua kênh khác)"*).
+   - **Quyết định 4 (Quyền Hủy đối soát):** Cả Admin và Staff đều có quyền tự hủy đối soát có lý do (không cần Admin duyệt trước), áp dụng cả khi khoản thưởng liên kết đang `APPROVED`. Khoản thưởng liên quan lập tức chuyển `VOIDED` trong cùng transaction CSDL; bảo toàn 100% lịch sử kiểm toán trong `lead_reconciliations`, `rewards` và `audit_logs`.
+3. **Phân bổ lộ trình kỹ thuật tiếp theo**:
+   - **A4.3:** CSDL, Constraint Regex 7 số, RPC nguyên tử `fn_reconcile...` và `fn_void...`, kiểm soát xung đột phiên bản `p_expected_updated_at` và `idempotency_key`.
+   - **A4.4:** Backend API, trích xuất `actorId` thật từ JWT session, xử lý lead tự nhiên không sinh thưởng.
+   - **A4.5:** Giao diện danh sách chuyên biệt `/admin/reconcile` với toolbar tìm kiếm mã EGOV, lọc trạng thái, phân trang.
+   - **A4.6:** Giao diện chi tiết, xóa bỏ mock data, form đối soát tích hợp trong `/admin/leads/:id`.
+   - **A4.7:** Đồng bộ hiển thị tách biệt Tình trạng nhập học và Trạng thái CTV tại Module A3 và Cổng CTV.
+   - **A4.8:** Kiểm thử E2E toàn luồng & Bàn giao nghiệm thu module A4.
+4. **Kết luận nghiệm thu A4.2**: **PASS** (Hoàn tất đặc tả nghiệp vụ, dừng turn để chờ duyệt bước A4.3).
+
+---
+
+### 25. Chuẩn hóa Dữ liệu, Constraint và RPC Đối chiếu hồ sơ & Học phí (A4.3)
+1. **Phạm vi & Mục tiêu**:
+   - Thể chế hóa đầy đủ các ràng buộc cơ sở dữ liệu, Partial Unique Index, quy chuẩn Regex mã EGOV 7 chữ số (`^[0-9]{7}$`).
+   - Xây dựng file Migration mới: `/supabase/migrations/20261004000004_standardize_reconciliation_schema_and_rpc.sql`.
+   - Chuẩn hóa các hàm RPC PostgreSQL nguyên tử: `fn_reconcile_lead_and_create_reward`, `fn_void_reconciliation_and_reward`, `fn_get_lead_reconciliation_history`.
+   - Phân biệt rõ hai trục độc lập: *Tình trạng nhập học* (`admission_status`) và *Tính hợp lệ giới thiệu CTV* (`reconciliation_status`).
+   - Lưu giữ mức học phí khóa học tại thời điểm đối soát (`course_tuition_fee`) phục vụ thống kê doanh thu CTV sau này.
+   - Chuyển `tuition_fee_collected` và `tuition_paid_at` sang NULLABLE (vì học phí/biên lai không phải điều kiện bắt buộc để xác nhận nhập học nếu EGOV đã tick "Đã nhập học").
+   - Bổ sung ràng buộc kiểm tra số tiền không âm (`CHECK >= 0`), phân biệt rõ `NULL` (chưa có thông tin) với `0` (miễn phí).
+   - Thiết lập bộ test suite tự động: `scripts/verify_a4_reconciliation_db.ts` (`npm run test:reconciliation-db`).
+   - Báo cáo chi tiết: `/docs/A4_3_ENROLLMENT_RECONCILIATION_DB_SCHEMA_RPC_REPORT.md`.
+2. **Kết quả kiểm thử tự động (10/10 ca PASS 100%)**:
+   - `TC-A4.3-01`: Quy chuẩn Regex mã EGOV 7 số (`^[0-9]{7}$`) -> **PASS**.
+   - `TC-A4.3-02`: Khởi tạo Lead test: `reconciliation_status = NOT_RECONCILED`, `admission_status = NOT_ENROLLED`, `reward_status = NONE` -> **PASS**.
+   - `TC-A4.3-03`: Xác nhận nhập học `MATCHED_VALID`: `admission_status = ENROLLED`, `reconciliation_status = MATCHED_VALID`, sinh thưởng 500.000 VNĐ `PENDING_APPROVAL` -> **PASS**.
+   - `TC-A4.3-04`: Chống trùng mã EGOV đang `MATCHED_VALID` qua Partial Unique Index (Error 23505) -> **PASS**.
+   - `TC-A4.3-05`: Hủy ghép đối soát: Chuyển `VOIDED` nguyên tử cả đối soát và thưởng, đưa Lead về `NOT_RECONCILED` và `NOT_ENROLLED` -> **PASS**.
+   - `TC-A4.3-06`: Giải phóng mã EGOV sau khi `VOIDED` và cho phép đối soát lại thành công -> **PASS**.
+   - `TC-A4.3-07`: `EXISTING_IN_SCHOOL_SYSTEM`: Tình trạng nhập học = `ENROLLED`, `reconciliation_status = EXISTING_IN_SCHOOL_SYSTEM`, `reward_status = NONE`, không sinh thưởng -> **PASS**.
+   - `TC-A4.3-08`: `MISMATCH_INVALID`: `admission_status = NOT_ENROLLED`, `reconciliation_status = MISMATCH_INVALID`, `reward_status = NONE` -> **PASS**.
+   - `TC-A4.3-09`: Lưu giữ mức học phí khóa học độc lập (`tuition_fee_estimate = 14.500.000 VNĐ`) phục vụ thống kê doanh thu -> **PASS**.
+   - `TC-A4.3-10`: Ghi nhận nhật ký kiểm toán (`audit_logs`) đầy đủ với `actor_id` và lý do hủy -> **PASS**.
+3. **Kiểm tra kỹ thuật**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `npm run test:reconciliation-db`: **PASS (10/10 test cases đạt)**.
+   - Không xóa, không reset dữ liệu thực tế và không để lại dữ liệu rác thử nghiệm.
+4. **Kết luận nghiệm thu A4.3**: **PASS** (Hoàn tất CSDL, Constraint & RPC, sẵn sàng chuyển sang bước A4.4).
+
+---
+
+### 26. API và Phân quyền Đối chiếu Hồ sơ & Học phí (A4.4)
+1. **Phạm vi & Mục tiêu**:
+   - Hoàn thiện Backend API trong `server.ts` cho các luồng: Đối soát thủ công (`POST /api/v1/admin/leads/:id/reconcile`), Hủy ghép đối soát có lý do (`POST /api/v1/admin/leads/:id/void-reconciliation`), Xem chi tiết lead và lịch sử đối soát (`GET /api/v1/admin/leads/:id`, `GET /api/v1/admin/leads/:id/history`).
+   - Phân quyền bảo mật: Xác thực danh tính thực từ Bearer token JWT (`profiles.role`), chặn CTV và người dùng chưa xác thực thao tác đối soát/hủy ghép (401/403).
+   - Bảo mật thông tin khách hàng cho CTV: Che 4 số cuối điện thoại (`090812****`), ẩn toàn bộ ghi chú nội bộ của cán bộ tuyển sinh, chỉ cho phép CTV truy cập khách do chính mình giới thiệu (`affiliate_id`).
+   - Chống gửi lặp thực thụ (Idempotency Key): Yêu cầu header `Idempotency-Key`, trả về kết quả đã cache nếu gửi lại cùng payload (`is_idempotent_replay: true`), báo lỗi xung đột 409 nếu gửi cùng key nhưng khác payload.
+   - Kiểm soát xung đột đồng thời: Bắt buộc `client_updated_at` để bảo đảm không ghi đè dữ liệu sửa đổi đồng thời.
+   - Tạo file Migration bổ sung: `/supabase/migrations/20261004000005_harden_reconciliation_rpc_and_idempotency.sql`.
+   - Thiết lập bộ test suite tự động: `scripts/verify_a4_4_reconciliation_api.ts` (`npm run test:reconciliation-api`).
+   - Báo cáo chi tiết: `/docs/A4_4_ENROLLMENT_RECONCILIATION_API_AUTHORIZATION_REPORT.md`.
+2. **Kết quả kiểm thử tự động (10/10 ca PASS 100%)**:
+   - `TC-A4.4-01`: Validate Định dạng Mã EGOV 7 chữ số & Ràng buộc MATCHED_VALID -> **PASS**.
+   - `TC-A4.4-02`: Chặn truyền trạng thái WITHDRAWN qua API đối soát -> **PASS**.
+   - `TC-A4.4-03`: Đối soát hợp lệ MATCHED_VALID & Khởi tạo Thưởng CTV 500k PENDING_APPROVAL -> **PASS**.
+   - `TC-A4.4-04`: Chống ghép trùng Mã EGOV (Duplicate EGOV Code Check) -> **PASS**.
+   - `TC-A4.4-05`: Đối soát EXISTING_IN_SCHOOL_SYSTEM (Bắt buộc lý do, không sinh thưởng) -> **PASS**.
+   - `TC-A4.4-06`: Đối soát MISMATCH_INVALID (Thông tin không khớp, bắt buộc lý do) -> **PASS**.
+   - `TC-A4.4-07`: Kiểm thử Idempotency: Replay thành công & Phát hiện xung đột Payload -> **PASS**.
+   - `TC-A4.4-08`: Hủy ghép đối soát có lý do: Chuyển VOIDED và Giải phóng Mã EGOV -> **PASS**.
+   - `TC-A4.4-09`: Bảo mật Phân quyền CTV: Che SĐT, Ẩn Ghi chú Nội bộ Cán bộ & Phạm vi Dữ liệu -> **PASS**.
+   - `TC-A4.4-10`: Bảo toàn Snapshot Học phí Khóa học (Snapshot Tuition Fee Preservation) -> **PASS**.
+3. **Kiểm tra kỹ thuật**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `npm run test:reconciliation-api`: **PASS (10/10 test cases đạt)**.
+   - `npm run test:reconciliation-db`: **PASS (10/10 test cases đạt)**.
+   - Dữ liệu thực tế được bảo toàn nguyên vẹn 100%.
+4. **Kết luận nghiệm thu A4.4**: **PASS** (Hoàn tất API & Phân quyền, sẵn sàng chuyển sang A4.5).
+
+---
+
+### 27. Danh sách Đối chiếu Hồ sơ & Học phí (A4.5)
+1. **Phạm vi & Mục tiêu**:
+   - Hoàn thiện trang danh sách đối chiếu hồ sơ tại tab `/admin/reconcile` dành cho Quản trị viên và Cán bộ tuyển sinh (Staff).
+   - Tách bạch 2 trục trạng thái: *Tình trạng nhập học* (`admission_status`: Đã nhập học / Chưa nhập học) và *Kết quả đối chiếu* (`reconciliation_status`: Chưa đối chiếu / Hồ sơ hợp lệ / Đăng ký trước kênh khác / Thông tin không khớp / Đã hủy đối chiếu).
+   - Tích hợp tìm kiếm đa năng (Họ tên, SĐT, Mã CTV, Mã EGOV), bộ lọc đa chiều (Khóa học, Tình trạng nhập học, Kết quả đối chiếu, Nguồn giới thiệu, Combobox CTV autocomplete server-side, Khoảng ngày đăng ký).
+   - Phân trang server-side hoàn toàn, chống lặp bản ghi, bảo toàn thông tin khóa học đối chiếu khác khóa quan tâm, hiển thị snapshot học phí chính xác (định dạng VNĐ, nhãn Ước tính nếu có).
+   - Đồng bộ bộ lọc và trang hiện tại vào URL Query Parameters.
+2. **Cấu trúc & Thành phần triển khai**:
+   - Component chuyên biệt: `/src/components/admin/AdminReconciliationListView.tsx`.
+   - Tích hợp tại: `/src/components/admin/AdminPortal.tsx` (thay thế bảng mockup cũ).
+   - Backend API: `GET /api/v1/admin/leads` hỗ trợ query parameters và phân trang.
+   - Tài liệu báo cáo hoàn thành: `/docs/A4_5_ENROLLMENT_RECONCILIATION_LIST_UI_REPORT.md`.
+3. **Kiểm tra kỹ thuật**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+   - Bảo toàn 100% dữ liệu thực tế trong CSDL.
+4. **Kết luận nghiệm thu A4.5**: **PASS** (Hoàn tất Danh sách Đối chiếu Hồ sơ & Học phí).
+
+---
+
+### 28. Chi tiết và Thao tác Đối chiếu Hồ sơ & Học phí (A4.6)
+1. **Phạm vi & Mục tiêu**:
+   - Hoàn thiện màn hình chi tiết hồ sơ ứng viên tại `/admin/leads/:id` (`AdminLeadDetailView.tsx`) dành cho Quản trị viên và Cán bộ tuyển sinh (Staff).
+   - Tích hợp đầy đủ thông tin đối chiếu hiện hành, form/modal xác nhận kết quả đối chiếu (`AdminReconciliationModal.tsx`), modal hủy đối chiếu có lý do bắt buộc (`AdminVoidReconciliationModal.tsx`), và dòng thời gian lịch sử đối chiếu riêng biệt.
+   - Giữ nguyên vẹn chức năng chăm sóc khách hàng A3.6 (`AdminPortal` care form & audit logs).
+2. **Cấu trúc & Thành phần triển khai**:
+   - Component chi tiết lead: `/src/components/admin/AdminLeadDetailView.tsx`.
+   - Modal đối soát: `/src/components/admin/AdminReconciliationModal.tsx`.
+   - Modal hủy đối soát: `/src/components/admin/AdminVoidReconciliationModal.tsx`.
+   - API endpoints: `GET /api/v1/admin/leads/:id`, `POST /api/v1/admin/leads/:id/reconcile`, `POST /api/v1/admin/leads/:id/void-reconciliation`, `GET /api/v1/admin/leads/:id/history`.
+   - Tài liệu báo cáo hoàn thành: `/docs/A4_6_RECONCILIATION_DETAIL_ACTIONS_REPORT.md`.
+3. **Kiểm tra kỹ thuật**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+   - Bảo toàn 100% dữ liệu thực tế và cơ chế Idempotency chống gửi lặp.
+4. **Kết luận nghiệm thu A4.6**: **PASS** (Hoàn tất Chi tiết và Thao tác Đối chiếu Hồ sơ & Học phí).
+
+---
+
+### 29. Đồng bộ Kết quả Đối chiếu sang A3 và Màn hình CTV (A4.7)
+1. **Phạm vi & Mục tiêu**:
+   - Đồng bộ hóa kết quả đối chiếu hồ sơ nhất quán trên toàn hệ thống: Danh sách đối chiếu A4.5 (`/admin/reconcile`), Danh sách khách A3 (`/admin/leads`), Chi tiết khách Admin (`/admin/leads/:id`), Danh sách khách CTV (`/portal/leads`), và Chi tiết khách CTV (`/portal/leads/:id`).
+   - Sử dụng chung hàm helper `getActiveReconciliation` trên backend để chọn bản ghi đối chiếu hiện hành (`MATCHED_VALID`, `EXISTING_IN_SCHOOL_SYSTEM`, `MISMATCH_INVALID`), loại trừ bản ghi đã hủy (`VOIDED`).
+   - Đảm bảo bảo mật tài chính tuyệt đối cho CTV (ẩn học phí snapshot, biên lai, ngày thu, ghi chú nội bộ).
+2. **Cấu trúc & Thành phần triển khai**:
+   - API endpoints đồng bộ: `GET /api/v1/affiliate/leads`, `GET /api/v1/affiliate/leads/:id`, `GET /api/v1/affiliate/leads/:id/history`.
+   - Giao diện CTV: `AffiliateLeadsView.tsx`, `AffiliateLeadDetailView.tsx`.
+   - Tài liệu báo cáo hoàn thành: `/docs/A4_7_RECONCILIATION_RESULTS_A3_AFFILIATE_SYNC_REPORT.md`.
+3. **Kiểm tra kỹ thuật**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+   - Bảo toàn 100% dữ liệu thực tế và tính nhất quán giữa Admin và CTV.
+4. **Kết luận nghiệm thu A4.7**: **PASS** (Hoàn tất Đồng bộ Kết quả Đối chiếu sang A3 và Màn hình CTV).
+
+---
+
+### 30. Kiểm thử Toàn luồng và Chốt Nghiệm thu Module A4 (A4.8)
+1. **Phạm vi & Mục tiêu**:
+   - Kiểm chứng toàn diện E2E toàn bộ module A4: từ đăng ký khách qua link/QR CTV, tra cứu tại A4.5, xác nhận đối chiếu MATCHED_VALID / EXISTING / MISMATCH, sinh thưởng CTV, đồng bộ A3 & Cổng CTV, hủy đối chiếu và đối chiếu lại, kiểm tra concurrency, idempotency và phân quyền bảo mật.
+2. **Tài liệu bàn giao**:
+   - Tài liệu báo cáo nghiệm thu E2E chính thức: `/docs/A4_8_RECONCILIATION_E2E_ACCEPTANCE.md`.
+3. **Kết quả kiểm thử kỹ thuật & nghiệp vụ**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+   - Toàn bộ 16 ca test nghiệp vụ trong ma trận kiểm thử đạt kết quả **PASS**.
+4. **Kết luận nghiệm thu toàn bộ Module A4**: **PASS TOÀN BỘ (100% HOÀN THÀNH)**.
+
+
+

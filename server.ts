@@ -3,6 +3,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 
@@ -1936,45 +1937,52 @@ async function startServer() {
       .limit(1)
       .maybeSingle();
 
+    let insertedLead: { id: string; created_at: string } | null = null;
+
     if (existingLead) {
       isDuplicate = true;
       duplicateReason = 'Số điện thoại đã gửi thông tin đăng ký tư vấn cho khóa học này trong vòng 90 ngày.';
       if (existingLead.affiliate_id) {
         assignedAffiliateId = existingLead.affiliate_id; // Giữ nguyên nguồn CTV ban đầu theo Attribution Window
       }
-    }
+      // BẢO VỆ DỮ LIỆU: KHÔNG TẠO BẢN GHI LEAD MỚI KHI TRÙNG TRONG 90 NGÀY
+      insertedLead = {
+        id: existingLead.id,
+        created_at: existingLead.created_at,
+      };
+    } else {
+      const cleanProvince = (typeof province === 'string' && province.trim()) ? province.trim() : null;
+      const leadPayload = {
+        full_name: full_name.trim(),
+        phone: cleanPhone,
+        email: email ? email.trim() : null,
+        province: cleanProvince,
+        course_id: resolvedCourseDbId || (isUUID ? course_id : null),
+        affiliate_id: assignedAffiliateId,
+        affiliate_code_captured: capturedCode,
+        counseling_status: 'NEW',
+        reconciliation_status: 'NOT_RECONCILED',
+        reward_status: 'NONE',
+        is_duplicate: false,
+        duplicate_reason: null,
+        consent_accepted: true,
+        preferred_contact_time: preferred_contact_time || 'Giờ hành chính (08h - 17h)',
+        customer_note: customer_note || null,
+        utm_source: utm_source || 'direct',
+        utm_medium: utm_medium || (ref_code ? 'affiliate_link' : 'organic'),
+        utm_campaign: utm_campaign || 'tuyensinh_2026',
+      };
 
-    // 4. Lưu Lead vào CSDL
-    const leadPayload = {
-      full_name: full_name.trim(),
-      phone: cleanPhone,
-      email: email ? email.trim() : null,
-      province: province || 'TP. Hồ Chí Minh',
-      course_id: resolvedCourseDbId || (isUUID ? course_id : null),
-      affiliate_id: assignedAffiliateId,
-      affiliate_code_captured: capturedCode,
-      counseling_status: 'NEW',
-      reconciliation_status: 'NOT_RECONCILED',
-      reward_status: 'NONE',
-      is_duplicate: isDuplicate,
-      duplicate_reason: duplicateReason,
-      consent_accepted: true,
-      preferred_contact_time: preferred_contact_time || 'Giờ hành chính (08h - 17h)',
-      customer_note: customer_note || null,
-      utm_source: utm_source || 'direct',
-      utm_medium: utm_medium || (ref_code ? 'affiliate_link' : 'organic'),
-      utm_campaign: utm_campaign || 'tuyensinh_2026',
-    };
+      const { data: dbInserted, error: insertError } = await supabase
+        .from('leads')
+        .insert(leadPayload)
+        .select('id, created_at')
+        .single();
 
-    const { data: insertedLead, error: insertError } = await supabase
-      .from('leads')
-      .insert(leadPayload)
-      .select('id, created_at')
-      .single();
-
-    if (insertError) {
-      console.error('[LEAD INSERT ERROR]', insertError.message);
-      // Fallback: Return success to candidate so UX is uninterrupted
+      if (insertError) {
+        console.error('[LEAD INSERT ERROR]', insertError.message);
+      }
+      insertedLead = dbInserted || { id: `lead-${Date.now()}`, created_at: new Date().toISOString() };
     }
 
     let returnedCourseTitle: string | null = null;
@@ -2460,13 +2468,21 @@ async function startServer() {
 
       const getActiveReconciliation = (reconciliations: any) => {
         if (!reconciliations) return null;
-        const list = Array.isArray(reconciliations) ? reconciliations : [reconciliations];
-        return list.find((r: any) => r && r.reconciliation_status === 'MATCHED_VALID') || null;
+        const list = Array.isArray(reconciliations) ? [...reconciliations] : [reconciliations];
+        if (list.length === 0) return null;
+        list.sort((a: any, b: any) => {
+          const timeA = new Date(a.reconciled_at || a.created_at || 0).getTime();
+          const timeB = new Date(b.reconciled_at || b.created_at || 0).getTime();
+          return timeB - timeA;
+        });
+        const latest = list[0];
+        return (latest && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(latest.reconciliation_status)) ? latest : null;
       };
 
       const formattedRealLeads = (realLeads || []).map((l: any) => {
         const activeRecon = getActiveReconciliation(l.lead_reconciliations);
-        const egovCode = activeRecon?.external_admission_code || null;
+        const reconStatus = activeRecon ? activeRecon.reconciliation_status : 'NOT_RECONCILED';
+        const egovCode = (reconStatus === 'MATCHED_VALID') ? (activeRecon?.external_admission_code || null) : null;
         const courseTitle = l.courses?.title || (l.course_id ? (courseMap[l.course_id] || 'Chương trình tuyển sinh STHC') : 'Tư vấn chung');
 
         return {
@@ -2478,7 +2494,8 @@ async function startServer() {
           customer_note: l.customer_note || null,
           course_title: courseTitle,
           counseling_status: l.counseling_status,
-          reconciliation_status: l.reconciliation_status,
+          reconciliation_status: reconStatus,
+          admission_status: activeRecon?.admission_status || (reconStatus === 'MATCHED_VALID' ? 'ENROLLED' : 'NOT_ENROLLED'),
           reward_status: l.reward_status,
           external_admission_code: egovCode,
           created_at: l.created_at,
@@ -2514,7 +2531,7 @@ async function startServer() {
     try {
       const { data: lead, error } = await supabase
         .from('leads')
-        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status)')
+        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status, reconciled_at, created_at)')
         .eq('id', id)
         .eq('affiliate_id', affiliateId)
         .maybeSingle();
@@ -2530,12 +2547,20 @@ async function startServer() {
 
       const getActiveReconciliation = (reconciliations: any) => {
         if (!reconciliations) return null;
-        const list = Array.isArray(reconciliations) ? reconciliations : [reconciliations];
-        return list.find((r: any) => r && r.reconciliation_status === 'MATCHED_VALID') || null;
+        const list = Array.isArray(reconciliations) ? [...reconciliations] : [reconciliations];
+        if (list.length === 0) return null;
+        list.sort((a: any, b: any) => {
+          const timeA = new Date(a.reconciled_at || a.created_at || 0).getTime();
+          const timeB = new Date(b.reconciled_at || b.created_at || 0).getTime();
+          return timeB - timeA;
+        });
+        const latest = list[0];
+        return (latest && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(latest.reconciliation_status)) ? latest : null;
       };
 
       const activeRecon = getActiveReconciliation(lead.lead_reconciliations);
-      const egovCode = activeRecon?.external_admission_code || null;
+      const reconStatus = activeRecon ? activeRecon.reconciliation_status : 'NOT_RECONCILED';
+      const egovCode = (reconStatus === 'MATCHED_VALID') ? (activeRecon?.external_admission_code || null) : null;
       const courseMap: Record<string, string> = {
         'CBMA-TC-01': 'Kỹ thuật Chế biến Món ăn Á - Âu',
         'BB-TC-02': 'Nghệ thuật Bếp bánh & Bánh ngọt Âu',
@@ -2557,7 +2582,8 @@ async function startServer() {
         customer_note: lead.customer_note || null,
         course_title: courseTitle,
         counseling_status: lead.counseling_status,
-        reconciliation_status: lead.reconciliation_status,
+        reconciliation_status: reconStatus,
+        admission_status: activeRecon?.admission_status || (reconStatus === 'MATCHED_VALID' ? 'ENROLLED' : 'NOT_ENROLLED'),
         reward_status: lead.reward_status,
         external_admission_code: egovCode,
         created_at: lead.created_at,
@@ -2679,12 +2705,19 @@ async function startServer() {
 
       events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
 
+      const sanitizedRecons = (reconciliations || []).map((r: any) => ({
+        external_admission_code: r.external_admission_code,
+        reconciliation_status: r.reconciliation_status,
+        tuition_paid_at: r.tuition_paid_at || null,
+        created_at: r.created_at,
+      }));
+
       return res.json({
         success: true,
         data: {
           lead_id: leadId,
           events,
-          reconciliations: reconciliations || [],
+          reconciliations: sanitizedRecons,
         },
       });
     } catch (err: any) {
@@ -4220,6 +4253,136 @@ async function startServer() {
     }
   });
 
+  // GET /api/v1/admin/affiliates/lookup - Tra cứu nhanh CTV (Autocomplete/Combobox, max 20 kết quả, không tải toàn bộ CSDL)
+  app.get('/api/v1/admin/affiliates/lookup', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const { q, id, limit } = req.query;
+      const limitNum = Math.min(50, Math.max(1, parseInt(String(limit || '20'), 10) || 20));
+
+      // 1. Nếu tra cứu theo ID cụ thể (dùng khi khôi phục URL hoặc chọn lại CTV đã có trong state)
+      if (id && typeof id === 'string' && id.trim() !== '' && id !== 'ALL') {
+        const cleanId = id.trim();
+        const { data: aff, error } = await supabase
+          .from('affiliate_profiles')
+          .select('id, affiliate_code, status, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)')
+          .eq('id', cleanId)
+          .maybeSingle();
+
+        if (error) {
+          console.error('[AFFILIATE LOOKUP BY ID ERROR]:', error);
+        }
+
+        if (aff) {
+          return res.json({
+            success: true,
+            data: [{
+              id: aff.id,
+              affiliate_code: aff.affiliate_code,
+              full_name: (aff as any).profile?.full_name || 'Chưa cập nhật',
+              email: (aff as any).profile?.email || '',
+              phone: (aff as any).profile?.phone || '',
+              status: aff.status,
+            }],
+          });
+        }
+
+        // Demo fallback
+        const demoAff = [
+          demoState.pendingAffiliate,
+          demoState.pendingVerifiedAffiliate,
+          demoState.activeAffiliate,
+          demoState.suspendedAffiliate,
+          demoState.rejectedAffiliate,
+        ].find(a => a && a.id === cleanId);
+
+        if (demoAff) {
+          return res.json({
+            success: true,
+            data: [{
+              id: demoAff.id,
+              affiliate_code: demoAff.affiliate_code,
+              full_name: demoAff.full_name,
+              email: demoAff.email,
+              phone: demoAff.phone,
+              status: demoAff.status,
+            }],
+          });
+        }
+
+        return res.json({ success: true, data: [] });
+      }
+
+      // 2. Tra cứu theo từ khóa tìm kiếm (Tối thiểu 2 ký tự)
+      const queryStr = typeof q === 'string' ? q.trim() : '';
+      if (!queryStr || queryStr.length < 2) {
+        return res.json({
+          success: true,
+          data: [],
+          message: 'Vui lòng nhập tối thiểu 2 ký tự để tra cứu CTV.',
+        });
+      }
+
+      const safe = queryStr.replace(/[,()]/g, ' ').trim();
+
+      // Truy vấn trực tiếp PostgreSQL qua Supabase (Tìm theo mã CTV)
+      const { data: affs, error } = await supabase
+        .from('affiliate_profiles')
+        .select('id, affiliate_code, status, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)')
+        .ilike('affiliate_code', `%${safe}%`)
+        .limit(limitNum);
+
+      if (error) {
+        console.error('[AFFILIATE LOOKUP ERROR]:', error);
+      }
+
+      let results = (affs || []).map((a: any) => ({
+        id: a.id,
+        affiliate_code: a.affiliate_code,
+        full_name: a.profile?.full_name || 'Chưa cập nhật',
+        email: a.profile?.email || '',
+        phone: a.profile?.phone || '',
+        status: a.status,
+      }));
+
+      // Bổ sung các tài khoản demo nếu tìm kiếm khớp
+      const lowerQ = safe.toLowerCase();
+      const demoMatches = [
+        demoState.pendingAffiliate,
+        demoState.pendingVerifiedAffiliate,
+        demoState.activeAffiliate,
+        demoState.suspendedAffiliate,
+        demoState.rejectedAffiliate,
+      ].filter(a =>
+        a && (
+          a.affiliate_code.toLowerCase().includes(lowerQ) ||
+          a.full_name.toLowerCase().includes(lowerQ) ||
+          a.email.toLowerCase().includes(lowerQ)
+        )
+      ).map(a => ({
+        id: a.id,
+        affiliate_code: a.affiliate_code,
+        full_name: a.full_name,
+        email: a.email,
+        phone: a.phone,
+        status: a.status,
+      }));
+
+      for (const d of demoMatches) {
+        if (!results.some(r => r.id === d.id) && results.length < limitNum) {
+          results.push(d);
+        }
+      }
+
+      return res.json({
+        success: true,
+        data: results.slice(0, limitNum),
+      });
+    } catch (err: any) {
+      console.error('[AFFILIATE LOOKUP EXCEPTION]:', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi tra cứu CTV.' });
+    }
+  });
+
   // GET /api/v1/admin/affiliates/:id - Chi tiết hồ sơ CTV
   app.get('/api/v1/admin/affiliates/:id', requireStaffOrAdmin, async (req: Request, res: Response) => {
     try {
@@ -4294,8 +4457,8 @@ async function startServer() {
         return res.status(404).json({ success: false, error: 'Không tìm thấy hồ sơ cộng tác viên.' });
       }
 
-      if (aff.profile && aff.profile.role && aff.profile.role !== 'affiliate') {
-        return res.status(403).json({ success: false, error: 'Không có quyền truy cập hồ sơ quản trị viên hoặc nhân sự.' });
+      if (aff.profile && aff.profile.role === 'admin' && (req as any).user?.role !== 'admin') {
+        return res.status(403).json({ success: false, error: 'Không có quyền truy cập hồ sơ Quản trị viên.' });
       }
 
       let emailVerified = false;
@@ -4328,8 +4491,7 @@ async function startServer() {
             created_at,
             actor:profiles!audit_logs_actor_id_fkey(id, full_name, email)
           `)
-          .eq('entity_name', 'affiliate_profiles')
-          .eq('entity_id', id)
+          .or(`and(entity_name.eq.affiliate_profiles,entity_id.eq.${id}),and(entity_name.eq.profiles,entity_id.eq.${aff.user_id})`)
           .order('created_at', { ascending: false });
         if (logs) auditHistory = logs;
       } catch (logErr) {
@@ -4355,6 +4517,142 @@ async function startServer() {
     } catch (err: any) {
       console.error('[API ADMIN AFFILIATE DETAIL EXCEPTION]', err);
       return res.status(500).json({ success: false, error: 'Lỗi kết nối máy chủ.' });
+    }
+  });
+
+  // PATCH /api/v1/admin/affiliates/:id/system-role - Admin cấp / thu hồi vai trò Cán bộ Tuyển sinh (Staff)
+  app.patch('/api/v1/admin/affiliates/:id/system-role', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { role, reason } = req.body;
+
+      if (!id || typeof id !== 'string' || id.length < 10) {
+        return res.status(400).json({ success: false, error: 'Mã định danh hồ sơ CTV không hợp lệ.' });
+      }
+
+      if (!role || !['staff', 'affiliate'].includes(role)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Vai trò đích không hợp lệ. Chỉ chấp nhận "staff" (Cán bộ Tuyển sinh) hoặc "affiliate" (Cộng tác viên).',
+        });
+      }
+
+      const cleanReason = typeof reason === 'string' ? reason.trim() : '';
+      if (!cleanReason) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bắt buộc phải nhập lý do khi cấp hoặc thu hồi quyền Cán bộ Tuyển sinh.',
+          code: 'REASON_REQUIRED',
+        });
+      }
+
+      // 1. Xác định admin thực hiện từ phiên xác thực
+      const adminUser = (req as any).user || demoState.adminUser;
+      const adminId = adminUser?.id || demoState.adminUser.id;
+      const adminName = adminUser?.full_name || demoState.adminUser.full_name;
+
+      // 2. Demo fallback
+      const demoAff = [
+        demoState.pendingAffiliate,
+        demoState.pendingVerifiedAffiliate,
+        demoState.activeAffiliate,
+        demoState.suspendedAffiliate,
+        demoState.rejectedAffiliate,
+      ].find(a => a && a.id === id);
+
+      if (demoAff) {
+        if (demoAff.user_id === adminId) {
+          return res.status(403).json({
+            success: false,
+            error: 'Bị từ chối: Quản trị viên không thể tự thay đổi vai trò của chính mình.',
+          });
+        }
+
+        if (demoAff.email_verified === false) {
+          return res.status(400).json({
+            success: false,
+            error: 'Không thể cấp quyền: Email của tài khoản chưa được xác thực. Vui lòng yêu cầu người dùng hoàn tất xác thực email trước.',
+            code: 'EMAIL_NOT_VERIFIED',
+          });
+        }
+
+        const currentDemoRole = (demoAff as any).role || 'affiliate';
+        if (currentDemoRole === role) {
+          return res.status(400).json({
+            success: false,
+            error: `Tài khoản người dùng đã ở vai trò "${role === 'staff' ? 'Cán bộ Tuyển sinh' : 'Cộng tác viên'}", không cần thay đổi.`,
+          });
+        }
+
+        const oldRole = currentDemoRole;
+        (demoAff as any).role = role;
+        const nowIso = new Date().toISOString();
+        const actionName = role === 'staff' ? 'SYSTEM_ROLE_ASSIGNED' : 'SYSTEM_ROLE_REVOKED';
+
+        const auditEntry = {
+          id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          actor_id: adminId,
+          action: actionName,
+          entity_name: 'profiles',
+          entity_id: demoAff.user_id,
+          old_values: { role: oldRole },
+          new_values: { role },
+          reason: cleanReason,
+          actor: {
+            id: adminId,
+            full_name: adminName,
+            email: adminUser?.email || 'admin@sthc.edu.vn',
+          },
+          created_at: nowIso,
+        };
+        demoState.auditLogs.unshift(auditEntry);
+
+        return res.json({
+          success: true,
+          message: role === 'staff'
+            ? 'Cấp quyền Cán bộ Tuyển sinh (Staff) thành công!'
+            : 'Thu hồi quyền Cán bộ Tuyển sinh, tài khoản trở về vai trò Cộng tác viên (CTV)!',
+          data: {
+            user_id: demoAff.user_id,
+            affiliate_id: demoAff.id,
+            role,
+            old_role: oldRole,
+            updated_at: nowIso,
+          },
+        });
+      }
+
+      // 3. Thực hiện RPC fn_update_user_system_role trên Supabase CSDL
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc('fn_update_user_system_role', {
+        p_affiliate_id: id,
+        p_admin_id: adminId,
+        p_target_role: role,
+        p_reason: cleanReason,
+        p_client_ip: req.ip || null,
+        p_user_agent: req.headers['user-agent'] || null,
+      });
+
+      if (rpcErr) {
+        console.error('[API UPDATE SYSTEM ROLE RPC ERROR]', rpcErr);
+        const isForbidden = rpcErr.code === '42501';
+        const isClientErr = rpcErr.code === '22023' || rpcErr.code === 'P0002' || rpcErr.code === 'P0003';
+        return res.status(isForbidden ? 403 : (isClientErr ? 400 : 500)).json({
+          success: false,
+          error: rpcErr.message || 'Lỗi hệ thống khi cập nhật vai trò người dùng.',
+          code: rpcErr.code,
+        });
+      }
+
+      return res.json({
+        success: true,
+        message: role === 'staff'
+          ? 'Cấp quyền Cán bộ Tuyển sinh (Staff) thành công!'
+          : 'Thu hồi quyền Cán bộ Tuyển sinh, tài khoản trở về vai trò Cộng tác viên (CTV)!',
+        data: rpcRes || { affiliate_id: id, role, reason: cleanReason },
+      });
+    } catch (err: any) {
+      console.error('[API UPDATE SYSTEM ROLE EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi cập nhật vai trò người dùng.' });
     }
   });
 
@@ -5968,10 +6266,23 @@ async function startServer() {
     }
   });
 
-  // 3. Quản lý Leads (Hỗ trợ tìm kiếm, lọc và phân trang server-side)
+  // 3. Quản lý Leads & Danh sách Đối chiếu Hồ sơ (Hỗ trợ tìm kiếm, lọc đa chiều và phân trang server-side)
   app.get('/api/v1/admin/leads', requireStaffOrAdmin, async (req: Request, res: Response) => {
     try {
-      const { search, course_id, status, admission_status, from_date, to_date, affiliate_id, page, limit } = req.query;
+      const {
+        search,
+        course_id,
+        status,
+        admission_status,
+        reconciliation_status,
+        source_type,
+        affiliate_id,
+        from_date,
+        to_date,
+        page,
+        limit,
+      } = req.query;
+
       const pageNum = Math.max(1, parseInt(String(page || '1'), 10) || 1);
       let limitNum = parseInt(String(limit || '20'), 10) || 20;
       if (![10, 20, 50, 100].includes(limitNum)) limitNum = 20;
@@ -5981,13 +6292,75 @@ async function startServer() {
 
       let query = supabase
         .from('leads')
-        .select('*, courses(title, code), affiliate_profiles(id, affiliate_code, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)), lead_reconciliations(external_admission_code, reconciliation_status)', { count: 'exact' });
+        .select(`
+          *,
+          courses(id, title, code, tuition_fee_estimate),
+          affiliate_profiles(id, affiliate_code, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)),
+          lead_reconciliations(*, courses:course_id(id, title, code))
+        `, { count: 'exact' });
 
       const cleanSearch = typeof search === 'string' ? search.trim() : '';
       if (cleanSearch) {
         const safe = cleanSearch.replace(/[,()]/g, ' ').trim();
         if (safe) {
-          query = query.or(`full_name.ilike.%${safe}%,phone.ilike.%${safe}%,id.eq.${safe}`);
+          // 1. Tra cứu affiliate_id theo mã CTV
+          let matchingAffiliateIds: string[] = [];
+          try {
+            const { data: matchedAffs } = await supabase
+              .from('affiliate_profiles')
+              .select('id')
+              .ilike('affiliate_code', `%${safe}%`)
+              .limit(20);
+            if (matchedAffs && matchedAffs.length > 0) {
+              matchingAffiliateIds = matchedAffs.map((a: any) => a.id);
+            }
+          } catch (affSearchErr) {
+            console.warn('[SEARCH AFFILIATES NOTICE]:', affSearchErr);
+          }
+
+          // Kiểm tra thêm trong demo state
+          const lowerSafe = safe.toLowerCase();
+          const demoMatches = [
+            demoState.pendingAffiliate,
+            demoState.pendingVerifiedAffiliate,
+            demoState.activeAffiliate,
+            demoState.suspendedAffiliate,
+            demoState.rejectedAffiliate,
+          ].filter(a => a && a.affiliate_code.toLowerCase().includes(lowerSafe));
+          for (const dm of demoMatches) {
+            if (!matchingAffiliateIds.includes(dm.id)) {
+              matchingAffiliateIds.push(dm.id);
+            }
+          }
+
+          // 2. Tra cứu lead_id theo mã hồ sơ EGOV trong lead_reconciliations
+          let matchingLeadIdsByEgov: string[] = [];
+          try {
+            const { data: matchedRecons } = await supabase
+              .from('lead_reconciliations')
+              .select('lead_id')
+              .ilike('external_admission_code', `%${safe}%`)
+              .limit(50);
+            if (matchedRecons && matchedRecons.length > 0) {
+              matchingLeadIdsByEgov = matchedRecons.map((r: any) => r.lead_id);
+            }
+          } catch (reconSearchErr) {
+            console.warn('[SEARCH EGOV NOTICE]:', reconSearchErr);
+          }
+
+          const orParts = [
+            `full_name.ilike.%${safe}%`,
+            `phone.ilike.%${safe}%`,
+            `email.ilike.%${safe}%`,
+            `affiliate_code_captured.ilike.%${safe}%`,
+          ];
+          if (matchingAffiliateIds.length > 0) {
+            orParts.push(`affiliate_id.in.(${matchingAffiliateIds.join(',')})`);
+          }
+          if (matchingLeadIdsByEgov.length > 0) {
+            orParts.push(`id.in.(${matchingLeadIdsByEgov.join(',')})`);
+          }
+          query = query.or(orParts.join(','));
         }
       }
 
@@ -5999,11 +6372,30 @@ async function startServer() {
         query = query.eq('counseling_status', status);
       }
 
+      // Bộ lọc tình trạng nhập học (admission_status)
       if (admission_status && admission_status !== 'ALL') {
-        if (admission_status === 'ENROLLED' || admission_status === 'MATCHED_VALID') {
-          query = query.eq('reconciliation_status', 'MATCHED_VALID');
-        } else if (admission_status === 'NOT_ENROLLED' || admission_status === 'NOT_RECONCILED') {
-          query = query.neq('reconciliation_status', 'MATCHED_VALID');
+        if (admission_status === 'ENROLLED') {
+          query = query.in('reconciliation_status', ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM']);
+        } else if (admission_status === 'NOT_ENROLLED') {
+          query = query.not('reconciliation_status', 'in', '("MATCHED_VALID","EXISTING_IN_SCHOOL_SYSTEM")');
+        }
+      }
+
+      // Bộ lọc kết quả đối chiếu (reconciliation_status)
+      if (reconciliation_status && reconciliation_status !== 'ALL') {
+        if (reconciliation_status === 'NOT_RECONCILED') {
+          query = query.in('reconciliation_status', ['NOT_RECONCILED', 'NONE']);
+        } else {
+          query = query.eq('reconciliation_status', reconciliation_status);
+        }
+      }
+
+      // Bộ lọc nguồn giới thiệu (source_type: ALL | AFFILIATE | ORGANIC)
+      if (source_type && source_type !== 'ALL') {
+        if (source_type === 'AFFILIATE') {
+          query = query.not('affiliate_id', 'is', null);
+        } else if (source_type === 'ORGANIC') {
+          query = query.is('affiliate_id', null);
         }
       }
 
@@ -6011,11 +6403,14 @@ async function startServer() {
         query = query.eq('affiliate_id', affiliate_id);
       }
 
-      if (from_date && typeof from_date === 'string') {
-        query = query.gte('created_at', `${from_date}T00:00:00.000Z`);
+      // Lọc ngày đăng ký (chuẩn hóa theo múi giờ Việt Nam Asia/Ho_Chi_Minh UTC+7)
+      if (from_date && typeof from_date === 'string' && from_date.trim()) {
+        const cleanFrom = from_date.trim();
+        query = query.gte('created_at', `${cleanFrom}T00:00:00+07:00`);
       }
-      if (to_date && typeof to_date === 'string') {
-        query = query.lte('created_at', `${to_date}T23:59:59.999Z`);
+      if (to_date && typeof to_date === 'string' && to_date.trim()) {
+        const cleanTo = to_date.trim();
+        query = query.lte('created_at', `${cleanTo}T23:59:59.999+07:00`);
       }
 
       query = query.order('created_at', { ascending: false }).order('id', { ascending: true }).range(from, to);
@@ -6030,17 +6425,51 @@ async function startServer() {
 
       const getActiveReconciliation = (reconciliations: any) => {
         if (!reconciliations) return null;
-        const list = Array.isArray(reconciliations) ? reconciliations : [reconciliations];
-        return list.find((r: any) => r && r.reconciliation_status === 'MATCHED_VALID') || null;
+        const list = Array.isArray(reconciliations) ? [...reconciliations] : [reconciliations];
+        if (list.length === 0) return null;
+        list.sort((a: any, b: any) => {
+          const timeA = new Date(a.reconciled_at || a.created_at || 0).getTime();
+          const timeB = new Date(b.reconciled_at || b.created_at || 0).getTime();
+          return timeB - timeA;
+        });
+        const latest = list[0];
+        return (latest && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(latest.reconciliation_status)) ? latest : null;
       };
 
       const formatted = (leads || []).map((l: any) => {
         const activeRecon = getActiveReconciliation(l.lead_reconciliations);
+        const reconStatus = l.reconciliation_status || (activeRecon ? activeRecon.reconciliation_status : 'NOT_RECONCILED');
+        const admStatus = activeRecon?.admission_status || l.admission_status || (reconStatus === 'MATCHED_VALID' ? 'ENROLLED' : (reconStatus === 'EXISTING_IN_SCHOOL_SYSTEM' ? 'ENROLLED' : 'NOT_ENROLLED'));
+
+        const initialCourseTitle = l.courses?.title || (l.course_id ? 'Chương trình STHC' : 'Tư vấn chung');
+        const initialCourseCode = l.courses?.code || null;
+        const initialCourseFee = l.courses?.tuition_fee_estimate !== undefined && l.courses?.tuition_fee_estimate !== null ? Number(l.courses.tuition_fee_estimate) : null;
+
+        const reconciledCourseTitle = activeRecon?.courses?.title || null;
+        const reconciledCourseCode = activeRecon?.courses?.code || null;
+        const snapshotCourseFee = activeRecon?.course_tuition_fee !== undefined && activeRecon?.course_tuition_fee !== null ? Number(activeRecon.course_tuition_fee) : null;
+        const snapshotCourseFeeType = activeRecon?.course_tuition_fee_type || (activeRecon ? 'ESTIMATE' : null);
+
         return {
           ...l,
           external_admission_code: activeRecon?.external_admission_code || null,
-          course_title: l.courses?.title || 'Chương trình tuyển sinh STHC',
-          affiliate_code: l.affiliate_profiles?.affiliate_code || l.affiliate_code_captured || 'Tự nhiên',
+          external_student_code: activeRecon?.external_student_code || null,
+          reconciliation_status: reconStatus,
+          admission_status: admStatus,
+          current_reconciliation: activeRecon,
+          initial_course_title: initialCourseTitle,
+          initial_course_code: initialCourseCode,
+          initial_course_fee: initialCourseFee,
+          reconciled_course_id: activeRecon?.course_id || null,
+          reconciled_course_title: reconciledCourseTitle,
+          reconciled_course_code: reconciledCourseCode,
+          course_tuition_fee: snapshotCourseFee,
+          course_tuition_fee_type: snapshotCourseFeeType,
+          tuition_fee_collected: activeRecon?.tuition_fee_collected !== undefined && activeRecon?.tuition_fee_collected !== null ? Number(activeRecon.tuition_fee_collected) : null,
+          receipt_number: activeRecon?.receipt_number || null,
+          tuition_paid_at: activeRecon?.tuition_paid_at || null,
+          course_title: initialCourseTitle,
+          affiliate_code: l.affiliate_profiles?.affiliate_code || l.affiliate_code_captured || null,
           affiliate_name: l.affiliate_profiles?.profile?.full_name || null,
         };
       });
@@ -6070,7 +6499,13 @@ async function startServer() {
     try {
       const { data: lead, error } = await supabase
         .from('leads')
-        .select('*, courses(title, code), affiliate_profiles(id, affiliate_code, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)), lead_reconciliations(*), rewards(*)')
+        .select(`
+          *,
+          courses(id, title, code, tuition_fee_estimate),
+          affiliate_profiles(id, affiliate_code, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)),
+          lead_reconciliations(*, courses:course_id(id, title, code), staff:staff_id(id, full_name, email), voided_by_profile:voided_by(id, full_name, email)),
+          rewards(*)
+        `)
         .eq('id', id)
         .maybeSingle();
 
@@ -6080,18 +6515,54 @@ async function startServer() {
 
       const getActiveReconciliation = (reconciliations: any) => {
         if (!reconciliations) return null;
-        const list = Array.isArray(reconciliations) ? reconciliations : [reconciliations];
-        return list.find((r: any) => r && r.reconciliation_status === 'MATCHED_VALID') || null;
+        const list = Array.isArray(reconciliations) ? [...reconciliations] : [reconciliations];
+        if (list.length === 0) return null;
+        list.sort((a: any, b: any) => {
+          const timeA = new Date(a.reconciled_at || a.created_at || 0).getTime();
+          const timeB = new Date(b.reconciled_at || b.created_at || 0).getTime();
+          return timeB - timeA;
+        });
+        const latest = list[0];
+        return (latest && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(latest.reconciliation_status)) ? latest : null;
       };
 
       const activeRecon = getActiveReconciliation(lead.lead_reconciliations);
       const egovCode = activeRecon?.external_admission_code || null;
+      const reconStatus = lead.reconciliation_status || (activeRecon ? activeRecon.reconciliation_status : 'NOT_RECONCILED');
+      const admStatus = lead.admission_status || (reconStatus === 'MATCHED_VALID' ? 'ENROLLED' : (reconStatus === 'EXISTING_IN_SCHOOL_SYSTEM' ? 'ENROLLED' : 'NOT_ENROLLED'));
+
+      const initialCourseTitle = lead.courses?.title || (lead.course_id ? 'Chương trình STHC' : 'Tư vấn chung');
+      const initialCourseCode = lead.courses?.code || null;
+      const initialCourseFee = lead.courses?.tuition_fee_estimate !== undefined && lead.courses?.tuition_fee_estimate !== null ? Number(lead.courses.tuition_fee_estimate) : null;
+
+      const reconciledCourseTitle = activeRecon?.courses?.title || null;
+      const reconciledCourseCode = activeRecon?.courses?.code || null;
+      const snapshotCourseFee = activeRecon?.course_tuition_fee !== undefined && activeRecon?.course_tuition_fee !== null ? Number(activeRecon.course_tuition_fee) : null;
+      const snapshotCourseFeeType = activeRecon?.course_tuition_fee_type || (activeRecon ? 'ESTIMATE' : null);
 
       return res.json({
         success: true,
         data: {
           ...lead,
           external_admission_code: egovCode,
+          external_student_code: activeRecon?.external_student_code || null,
+          reconciliation_status: reconStatus,
+          admission_status: admStatus,
+          current_reconciliation: activeRecon,
+          initial_course_title: initialCourseTitle,
+          initial_course_code: initialCourseCode,
+          initial_course_fee: initialCourseFee,
+          reconciled_course_id: activeRecon?.course_id || null,
+          reconciled_course_title: reconciledCourseTitle,
+          reconciled_course_code: reconciledCourseCode,
+          course_tuition_fee: snapshotCourseFee,
+          course_tuition_fee_type: snapshotCourseFeeType,
+          tuition_fee_collected: activeRecon?.tuition_fee_collected !== undefined && activeRecon?.tuition_fee_collected !== null ? Number(activeRecon.tuition_fee_collected) : null,
+          receipt_number: activeRecon?.receipt_number || null,
+          tuition_paid_at: activeRecon?.tuition_paid_at || null,
+          course_title: initialCourseTitle,
+          affiliate_code: lead.affiliate_profiles?.affiliate_code || lead.affiliate_code_captured || null,
+          affiliate_name: lead.affiliate_profiles?.profile?.full_name || null,
         },
       });
     } catch (err: any) {
@@ -6099,7 +6570,7 @@ async function startServer() {
     }
   });
 
-  // A3.6 / A3.7 – CẬP NHẬT TRẠNG THÁI CHĂM SÓC, GHI CHÚ NỘI BỘ VÀ LỊCH SỬ THAO TÁC NGUYÊN TỬ
+  // A3.6 / A3.7 / A3.7.1 – CẬP NHẬT TRẠNG THÁI CHĂM SÓC, GHI CHÚ NỘI BỘ VÀ LỊCH SỬ THAO TÁC NGUYÊN TỬ
   const handleLeadCareUpdate = async (req: Request, res: Response) => {
     const { id } = req.params;
     const { counseling_status, counselor_note, note, client_updated_at, idempotency_key } = req.body;
@@ -6178,20 +6649,26 @@ async function startServer() {
       });
     }
 
-    // 6. Kiểm tra xung đột cập nhật đồng thời chính xác (Exact Timestamp Concurrency Control)
-    if (client_updated_at && existingLead.updated_at) {
-      if (existingLead.updated_at !== client_updated_at) {
+    const currentStatus = existingLead.counseling_status || 'NEW';
+    const finalStatus = targetStatus || currentStatus;
+    const isStatusChanged = targetStatus !== undefined && targetStatus !== currentStatus;
+    const isNoteAdded = cleanNote !== null;
+
+    // 6. Bắt buộc kiểm soát xung đột phiên bản chính xác (Exact Timestamp Concurrency Control)
+    if (isStatusChanged || isNoteAdded) {
+      if (!client_updated_at) {
+        return res.status(400).json({
+          success: false,
+          error: 'Thiếu thông tin phiên bản hồ sơ (client_updated_at). Vui lòng tải lại trang để bảo toàn tính nhất quán.',
+        });
+      }
+      if (existingLead.updated_at && existingLead.updated_at !== client_updated_at) {
         return res.status(409).json({
           success: false,
           error: 'Xung đột cập nhật: Dữ liệu hồ sơ này đã được chỉnh sửa bởi cán bộ khác. Vui lòng tải lại trang để lấy thông tin mới nhất.',
         });
       }
     }
-
-    const currentStatus = existingLead.counseling_status || 'NEW';
-    const finalStatus = targetStatus || currentStatus;
-    const isStatusChanged = targetStatus !== undefined && targetStatus !== currentStatus;
-    const isNoteAdded = cleanNote !== null;
 
     // 7. Nếu không có thay đổi nào và không có ghi chú mới
     if (!isStatusChanged && !isNoteAdded) {
@@ -6271,195 +6748,690 @@ async function startServer() {
   app.patch('/api/v1/admin/leads/:id/care', requireStaffOrAdmin, handleLeadCareUpdate);
   app.patch('/api/v1/admin/leads/:id/counseling-status', requireStaffOrAdmin, handleLeadCareUpdate);
 
-  // 4. Đối soát thủ công Hồ sơ & Học phí (POST /api/v1/admin/leads/:id/reconcile)
+  // In-memory idempotency store backup for fast deduplication
+  const reconciliationIdempotencyStore = new Map<string, {
+    key: string;
+    lead_id: string;
+    action: 'RECONCILE' | 'VOID';
+    payload_hash: string;
+    response_data: any;
+    created_at: string;
+  }>();
+
+  // 4. Đối soát thủ công Hồ sơ & Học phí (POST /api/v1/admin/leads/:id/reconcile) - Chuẩn hóa A4.4
   app.post('/api/v1/admin/leads/:id/reconcile', requireStaffOrAdmin, async (req: Request, res: Response) => {
     const { id: leadId } = req.params;
     const {
+      reconciliation_status,
+      admission_status,
       external_admission_code,
       external_student_code,
+      course_id,
+      course_tuition_fee,
+      course_tuition_fee_type,
       tuition_fee_collected,
       receipt_number,
       tuition_paid_at,
       staff_note,
+      reason,
+      client_updated_at,
+      idempotency_key,
     } = req.body;
 
-    if (!external_admission_code || !tuition_fee_collected || !tuition_paid_at) {
+    // 1. Header Idempotency-Key bắt buộc
+    const reqIdempotencyKey = String(req.headers['idempotency-key'] || idempotency_key || '').trim() || null;
+    if (!reqIdempotencyKey) {
       return res.status(400).json({
         success: false,
-        error: 'Mã hồ sơ tuyển sinh ngoại bộ, học phí thực thu và ngày đóng học phí là bắt buộc.',
+        error: 'Tiêu đề Idempotency-Key là bắt buộc cho thao tác ghi đối soát để chống gửi lặp dữ liệu.',
+        code: 'MISSING_IDEMPOTENCY_KEY',
       });
     }
 
-    const cleanCode = external_admission_code.trim();
+    // 2. client_updated_at bắt buộc
+    if (!client_updated_at || typeof client_updated_at !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Thiếu thông tin phiên bản hồ sơ (client_updated_at). Vui lòng tải lại trang để bảo toàn tính nhất quán.',
+        code: 'MISSING_CONCURRENCY_TIMESTAMP',
+      });
+    }
 
-    // Thử gọi Database RPC fn_reconcile_lead_and_create_reward
+    // 3. Validate trạng thái đối soát
+    const ALLOWED_RECON_STATUSES = ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'];
+    if (!reconciliation_status || !ALLOWED_RECON_STATUSES.includes(String(reconciliation_status).trim())) {
+      return res.status(400).json({
+        success: false,
+        error: `Trạng thái đối soát không hợp lệ: "${reconciliation_status}". Chỉ chấp nhận: MATCHED_VALID, EXISTING_IN_SCHOOL_SYSTEM, MISMATCH_INVALID.`,
+        code: 'INVALID_RECONCILIATION_STATUS',
+      });
+    }
+    const cleanReconStatus = String(reconciliation_status).trim();
+
+    // 4. Validate tình trạng nhập học
+    const cleanAdmissionStatus = String(admission_status || (cleanReconStatus === 'MATCHED_VALID' ? 'ENROLLED' : (cleanReconStatus === 'MISMATCH_INVALID' ? 'NOT_ENROLLED' : 'ENROLLED'))).trim();
+    if (!['ENROLLED', 'NOT_ENROLLED'].includes(cleanAdmissionStatus)) {
+      return res.status(400).json({
+        success: false,
+        error: `Tình trạng nhập học không hợp lệ: "${admission_status}". Chỉ chấp nhận ENROLLED hoặc NOT_ENROLLED. Không được truyền WITHDRAWN qua thao tác đối soát.`,
+        code: 'INVALID_ADMISSION_STATUS',
+      });
+    }
+
+    // Quy tắc riêng cho từng trạng thái:
+    if (cleanReconStatus === 'MATCHED_VALID' && cleanAdmissionStatus !== 'ENROLLED') {
+      return res.status(400).json({
+        success: false,
+        error: 'Đối soát hợp lệ (MATCHED_VALID) bắt buộc tình trạng nhập học là ENROLLED (EGOV đã tick "Đã nhập học").',
+        code: 'ADMISSION_STATUS_MISMATCH',
+      });
+    }
+
+    if (cleanReconStatus === 'MISMATCH_INVALID' && cleanAdmissionStatus !== 'NOT_ENROLLED') {
+      return res.status(400).json({
+        success: false,
+        error: 'Hồ sơ không khớp (MISMATCH_INVALID) không thể xác nhận tình trạng nhập học là ENROLLED.',
+        code: 'INVALID_ADMISSION_STATUS',
+      });
+    }
+
+    // 5. Validate Mã EGOV 7 chữ số ^[0-9]{7}$
+    let cleanEgovCode: string | null = null;
+    if (external_admission_code !== undefined && external_admission_code !== null) {
+      const trimmed = String(external_admission_code).trim();
+      if (trimmed.length > 0) {
+        if (!/^[0-9]{7}$/.test(trimmed)) {
+          return res.status(400).json({
+            success: false,
+            error: `Mã hồ sơ EGOV không hợp lệ: "${trimmed}". Phải gồm đúng 7 chữ số viết liền nhau (Ví dụ: 0012345, 1089234).`,
+            code: 'INVALID_EGOV_CODE',
+          });
+        }
+        cleanEgovCode = trimmed;
+      }
+    }
+
+    if (cleanReconStatus === 'MATCHED_VALID' && !cleanEgovCode) {
+      return res.status(400).json({
+        success: false,
+        error: 'Mã hồ sơ EGOV là bắt buộc khi xác nhận hồ sơ đối soát hợp lệ (MATCHED_VALID).',
+        code: 'MISSING_EGOV_CODE',
+      });
+    }
+
+    // 6. Validate ghi chú/lý do bắt buộc cho EXISTING_IN_SCHOOL_SYSTEM và MISMATCH_INVALID
+    const rawNote = staff_note !== undefined ? staff_note : reason;
+    let cleanNote: string | null = null;
+    if (rawNote !== undefined && rawNote !== null) {
+      const trimmed = String(rawNote).trim();
+      if (trimmed.length > 2000) {
+        return res.status(400).json({
+          success: false,
+          error: 'Ghi chú đối soát vượt quá độ dài cho phép (tối đa 2000 ký tự).',
+          code: 'NOTE_TOO_LONG',
+        });
+      }
+      if (trimmed.length > 0) cleanNote = trimmed;
+    }
+
+    if ((cleanReconStatus === 'EXISTING_IN_SCHOOL_SYSTEM' || cleanReconStatus === 'MISMATCH_INVALID') && !cleanNote) {
+      return res.status(400).json({
+        success: false,
+        error: cleanReconStatus === 'EXISTING_IN_SCHOOL_SYSTEM'
+          ? 'Bắt buộc phải nhập căn cứ/ghi chú khi xác nhận khách đã đăng ký trước qua kênh khác.'
+          : 'Bắt buộc phải nhập ghi chú lý do không tìm thấy hoặc thông tin không khớp trên EGOV.',
+        code: 'MISSING_RECONCILIATION_NOTE',
+      });
+    }
+
+    // 7. Validate số tiền học phí thực thu (nếu có, không được âm)
+    let cleanTuitionCollected: number | null = null;
+    if (tuition_fee_collected !== undefined && tuition_fee_collected !== null && String(tuition_fee_collected).trim() !== '') {
+      const parsedNum = Number(tuition_fee_collected);
+      if (isNaN(parsedNum) || parsedNum < 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Số tiền học phí thực thu phải là số không âm (>= 0).',
+          code: 'NEGATIVE_TUITION_FEE',
+        });
+      }
+      cleanTuitionCollected = parsedNum;
+    }
+
+    const cleanReceipt = receipt_number !== undefined && receipt_number !== null ? String(receipt_number).trim() || null : null;
+    const cleanStudentCode = external_student_code !== undefined && external_student_code !== null ? String(external_student_code).trim() || null : null;
+    const cleanPaidAt = tuition_paid_at !== undefined && tuition_paid_at !== null ? String(tuition_paid_at).trim() || null : null;
+
+    // 8. Xác thực danh tính cán bộ thực tế
+    const actorId = (req as any).user?.id;
+    const actorRole = (req as any).user?.role;
+    if (!actorId || !['staff', 'admin'].includes(actorRole)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Bị từ chối: Chỉ Cán bộ Tuyển sinh hoặc Quản trị viên mới có quyền thực hiện đối soát.',
+        code: 'FORBIDDEN',
+      });
+    }
+
+    // 9. Tra cứu hồ sơ Lead và kiểm soát xung đột phiên bản
+    const { data: lead, error: fetchErr } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('id', leadId)
+      .maybeSingle();
+
+    if (fetchErr || !lead) {
+      return res.status(404).json({
+        success: false,
+        error: 'Không tìm thấy hồ sơ khách hàng cần đối soát.',
+        code: 'LEAD_NOT_FOUND',
+      });
+    }
+
+    if (lead.updated_at && lead.updated_at !== client_updated_at) {
+      return res.status(409).json({
+        success: false,
+        error: 'Xung đột cập nhật: Dữ liệu hồ sơ này đã được chỉnh sửa bởi cán bộ khác. Vui lòng tải lại trang để lấy thông tin mới nhất.',
+        code: 'CONCURRENT_CONFLICT',
+      });
+    }
+
+    if (lead.reconciliation_status === 'MATCHED_VALID' || lead.reconciliation_status === 'EXISTING_IN_SCHOOL_SYSTEM') {
+      return res.status(409).json({
+        success: false,
+        error: `Hồ sơ này đang có kết quả đối soát có hiệu lực (${lead.reconciliation_status}). Vui lòng hủy ghép trước nếu muốn thay đổi.`,
+        code: 'ALREADY_RECONCILED',
+      });
+    }
+
+    // 10. Kiểm tra Khóa học tồn tại & Xác định Snapshot Học phí
+    let targetCourseId = course_id || lead.course_id || null;
+    let targetCourseFee: number | null = null;
+    let targetCourseFeeType = course_tuition_fee_type || 'ESTIMATE';
+
+    if (targetCourseId) {
+      const { data: courseData } = await supabase
+        .from('courses')
+        .select('id, title, tuition_fee_estimate')
+        .eq('id', targetCourseId)
+        .maybeSingle();
+
+      if (!courseData) {
+        return res.status(400).json({
+          success: false,
+          error: 'Khóa học được chỉ định không tồn tại trong danh mục hệ thống.',
+          code: 'COURSE_NOT_FOUND',
+        });
+      }
+
+      targetCourseFee = course_tuition_fee !== undefined && course_tuition_fee !== null
+        ? Number(course_tuition_fee)
+        : (courseData.tuition_fee_estimate ? Number(courseData.tuition_fee_estimate) : null);
+    }
+
+    // 11. Xử lý Idempotency Cache
+    const idempotencyKeyCompound = `${reqIdempotencyKey}:${leadId}:RECONCILE`;
+    const payloadHash = crypto.createHash('sha256').update(JSON.stringify({
+      leadId,
+      reconciliation_status: cleanReconStatus,
+      admission_status: cleanAdmissionStatus,
+      external_admission_code: cleanEgovCode,
+      external_student_code: cleanStudentCode,
+      course_id: targetCourseId,
+      tuition_fee_collected: cleanTuitionCollected,
+      receipt_number: cleanReceipt,
+      tuition_paid_at: cleanPaidAt,
+      staff_note: cleanNote,
+    })).digest('hex');
+
+    const existingIdem = reconciliationIdempotencyStore.get(idempotencyKeyCompound);
+    if (existingIdem) {
+      if (existingIdem.payload_hash === payloadHash) {
+        return res.json({
+          ...existingIdem.response_data,
+          is_idempotent_replay: true,
+        });
+      } else {
+        return res.status(409).json({
+          success: false,
+          error: 'Xung đột Idempotency-Key: Khóa này đã được sử dụng cho một yêu cầu đối soát với nội dung khác.',
+          code: 'IDEMPOTENCY_PAYLOAD_MISMATCH',
+        });
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+
+    // 12. Thử gọi Database RPC fn_reconcile_lead_and_create_reward
     try {
       const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_reconcile_lead_and_create_reward', {
         p_lead_id: leadId,
-        p_staff_id: demoState.adminUser.id,
-        p_external_admission_code: cleanCode,
-        p_external_student_code: external_student_code || null,
-        p_tuition_fee_collected: Number(tuition_fee_collected),
-        p_receipt_number: receipt_number || null,
-        p_tuition_paid_at: tuition_paid_at,
-        p_staff_note: staff_note || 'Đối soát hồ sơ thực tế tại văn phòng tuyển sinh',
+        p_staff_id: actorId,
+        p_reconciliation_status: cleanReconStatus,
+        p_admission_status: cleanAdmissionStatus,
+        p_external_admission_code: cleanEgovCode,
+        p_external_student_code: cleanStudentCode,
+        p_course_id: targetCourseId,
+        p_tuition_fee_collected: cleanTuitionCollected,
+        p_receipt_number: cleanReceipt,
+        p_tuition_paid_at: cleanPaidAt,
+        p_staff_note: cleanNote,
+        p_expected_updated_at: client_updated_at,
+        p_idempotency_key: reqIdempotencyKey,
       });
 
-      if (!rpcError && rpcResult) {
-        return res.json({
+      if (!rpcError && rpcResult && rpcResult.success) {
+        const responseData = {
           success: true,
-          message: 'Đối soát hồ sơ thành công và đã tự động khởi tạo khoản thưởng 500.000 VNĐ chờ duyệt!',
+          message: rpcResult.message || 'Đối soát hồ sơ thành công!',
           data: rpcResult,
+        };
+
+        reconciliationIdempotencyStore.set(idempotencyKeyCompound, {
+          key: reqIdempotencyKey,
+          lead_id: leadId,
+          action: 'RECONCILE',
+          payload_hash: payloadHash,
+          response_data: responseData,
+          created_at: nowIso,
         });
+
+        return res.json(responseData);
+      }
+
+      if (rpcError) {
+        if (rpcError.code === '40001') {
+          return res.status(409).json({ success: false, error: rpcError.message || 'Xung đột phiên bản dữ liệu đồng thời.', code: 'CONCURRENT_CONFLICT' });
+        }
+        if (rpcError.code === '23505') {
+          return res.status(409).json({ success: false, error: rpcError.message || 'Mã EGOV đã được ghép cho một học viên khác.', code: 'DUPLICATE_EGOV_CODE' });
+        }
+        if (rpcError.code === '42501') {
+          return res.status(403).json({ success: false, error: rpcError.message || 'Bị từ chối quyền thực hiện.', code: 'FORBIDDEN' });
+        }
+        if (rpcError.code === '22023') {
+          return res.status(400).json({ success: false, error: rpcError.message || 'Dữ liệu đầu vào không hợp lệ.', code: 'INVALID_ARGUMENT' });
+        }
       }
     } catch (e: any) {
-      console.warn('RPC fn_reconcile_lead_and_create_reward fallback to API handler:', e.message);
+      console.warn('[RPC fn_reconcile_lead_and_create_reward fallback]:', e.message);
     }
 
-    // Server-level execution fallback if RPC not invoked
-    const { data: existingRecon } = await supabase
-      .from('lead_reconciliations')
-      .select('id')
-      .eq('external_admission_code', cleanCode)
-      .eq('reconciliation_status', 'MATCHED_VALID')
-      .maybeSingle();
+    // 13. Server-level atomic execution fallback
+    if (cleanReconStatus === 'MATCHED_VALID' && cleanEgovCode) {
+      const { data: dupRecon } = await supabase
+        .from('lead_reconciliations')
+        .select('id')
+        .eq('external_admission_code', cleanEgovCode)
+        .eq('reconciliation_status', 'MATCHED_VALID')
+        .maybeSingle();
 
-    if (existingRecon) {
-      return res.status(409).json({
-        success: false,
-        error: `Mã hồ sơ tuyển sinh ngoại bộ "${cleanCode}" đã được đối soát cho một học viên khác trong hệ thống. Vui lòng kiểm tra lại.`,
-      });
+      if (dupRecon) {
+        return res.status(409).json({
+          success: false,
+          error: `Mã hồ sơ EGOV "${cleanEgovCode}" đã được đối soát hợp lệ cho một học viên khác trong hệ thống.`,
+          code: 'DUPLICATE_EGOV_CODE',
+        });
+      }
     }
 
-    // Insert reconciliation record
-    const { data: newRecon } = await supabase
+    // Insert reconciliation
+    const { data: newRecon, error: reconInsertErr } = await supabase
       .from('lead_reconciliations')
       .insert({
         lead_id: leadId,
-        staff_id: demoState.adminUser.id,
-        external_admission_code: cleanCode,
-        external_student_code: external_student_code || null,
-        tuition_fee_collected: Number(tuition_fee_collected),
-        receipt_number: receipt_number || null,
-        tuition_paid_at,
-        reconciliation_status: 'MATCHED_VALID',
-        staff_note: staff_note || null,
+        staff_id: actorId,
+        course_id: targetCourseId,
+        course_tuition_fee: targetCourseFee,
+        course_tuition_fee_type: targetCourseFeeType,
+        external_admission_code: cleanEgovCode || (cleanReconStatus === 'EXISTING_IN_SCHOOL_SYSTEM' ? 'EXISTING_UNLINKED' : 'MISMATCH_NONE'),
+        external_student_code: cleanStudentCode,
+        tuition_fee_collected: cleanTuitionCollected,
+        receipt_number: cleanReceipt,
+        tuition_paid_at: cleanPaidAt,
+        reconciliation_status: cleanReconStatus,
+        staff_note: cleanNote,
+        reconciled_at: nowIso,
       })
       .select('id')
-      .maybeSingle();
+      .single();
 
-    // Update lead
+    if (reconInsertErr || !newRecon) {
+      console.error('[RECONCILIATION INSERT ERROR]', reconInsertErr);
+      return res.status(500).json({ success: false, error: 'Lỗi ghi nhận kết quả đối soát CSDL.', code: 'DB_ERROR' });
+    }
+
+    // Xử lý Thưởng CTV
+    let newRewardId: string | null = null;
+    let newRewardStatus = 'NONE';
+
+    if (cleanReconStatus === 'MATCHED_VALID' && lead.affiliate_id) {
+      const { data: affiliateProf } = await supabase
+        .from('affiliate_profiles')
+        .select('id, status')
+        .eq('id', lead.affiliate_id)
+        .maybeSingle();
+
+      if (affiliateProf && affiliateProf.status === 'ACTIVE') {
+        const { data: newReward } = await supabase
+          .from('rewards')
+          .insert({
+            lead_id: leadId,
+            reconciliation_id: newRecon.id,
+            affiliate_id: lead.affiliate_id,
+            amount: 500000.00,
+            status: 'PENDING_APPROVAL',
+            created_at: nowIso,
+            updated_at: nowIso,
+          })
+          .select('id')
+          .maybeSingle();
+
+        if (newReward) {
+          newRewardId = newReward.id;
+          newRewardStatus = 'PENDING_APPROVAL';
+        }
+      }
+    }
+
+    // Cập nhật Lead
     await supabase
       .from('leads')
       .update({
-        reconciliation_status: 'MATCHED_VALID',
-        reward_status: 'PENDING_APPROVAL',
-        updated_at: new Date().toISOString(),
+        reconciliation_status: cleanReconStatus,
+        reward_status: newRewardStatus,
+        course_id: targetCourseId || lead.course_id,
+        updated_at: nowIso,
       })
       .eq('id', leadId);
 
-    // Create reward
-    const { data: newReward } = await supabase
-      .from('rewards')
-      .insert({
-        lead_id: leadId,
-        reconciliation_id: newRecon?.id || null,
-        affiliate_id: demoState.activeAffiliate.id,
-        amount: 500000.00,
-        status: 'PENDING_APPROVAL',
-      })
-      .select('id')
-      .maybeSingle();
-
-    // Log to audit
+    // Ghi nhật ký kiểm toán (audit_logs)
     await supabase.from('audit_logs').insert({
-      actor_id: demoState.adminUser.id,
+      actor_id: actorId,
       action: 'RECONCILE_LEAD',
       entity_name: 'leads',
       entity_id: leadId,
-      old_values: { reconciliation_status: 'NOT_RECONCILED', reward_status: 'NONE' },
-      new_values: { reconciliation_status: 'MATCHED_VALID', reward_status: 'PENDING_APPROVAL', external_admission_code: cleanCode },
-      reason: staff_note || 'Đối soát khớp hồ sơ và học phí thực thu',
+      old_values: {
+        reconciliation_status: lead.reconciliation_status,
+        reward_status: lead.reward_status,
+      },
+      new_values: {
+        reconciliation_status: cleanReconStatus,
+        admission_status: cleanAdmissionStatus,
+        reward_status: newRewardStatus,
+        external_admission_code: cleanEgovCode,
+        reconciliation_id: newRecon.id,
+        reward_id: newRewardId,
+      },
+      reason: cleanNote || 'Đối soát kết quả hồ sơ tuyển sinh',
+      created_at: nowIso,
     });
 
-    res.json({
+    const responseData = {
       success: true,
-      message: 'Đối soát thành công! Đã tự động tạo khoản thưởng 500.000 VNĐ đang chờ Trưởng bộ phận Tuyển sinh phê duyệt.',
+      message: cleanReconStatus === 'MATCHED_VALID'
+        ? 'Đối soát thành công! Đã xác nhận nhập học và tự động khởi tạo khoản thưởng 500.000 VNĐ chờ duyệt.'
+        : (cleanReconStatus === 'EXISTING_IN_SCHOOL_SYSTEM'
+          ? 'Đã ghi nhận kết quả: Học viên đã đăng ký trước qua kênh khác.'
+          : 'Đã ghi nhận kết quả: Thông tin chưa khớp hồ sơ tuyển sinh.'),
       data: {
         lead_id: leadId,
-        reconciliation_id: newRecon?.id,
-        reward_id: newReward?.id,
-        reward_created: true,
+        reconciliation_id: newRecon.id,
+        reconciliation_status: cleanReconStatus,
+        admission_status: cleanAdmissionStatus,
+        external_admission_code: cleanEgovCode,
+        reward_id: newRewardId,
+        reward_created: Boolean(newRewardId),
+        updated_at: nowIso,
       },
+    };
+
+    reconciliationIdempotencyStore.set(idempotencyKeyCompound, {
+      key: reqIdempotencyKey,
+      lead_id: leadId,
+      action: 'RECONCILE',
+      payload_hash: payloadHash,
+      response_data: responseData,
+      created_at: nowIso,
     });
+
+    return res.json(responseData);
   });
 
-  // 5. Hủy ghép đối soát có lý do (POST /api/v1/admin/leads/:id/void-reconciliation)
+  // 5. Hủy ghép đối soát có lý do (POST /api/v1/admin/leads/:id/void-reconciliation) - Chuẩn hóa A4.4
   app.post('/api/v1/admin/leads/:id/void-reconciliation', requireStaffOrAdmin, async (req: Request, res: Response) => {
     const { id: leadId } = req.params;
-    const { void_reason } = req.body;
+    const {
+      void_reason,
+      target_reconciliation_id,
+      client_updated_at,
+      idempotency_key,
+    } = req.body;
 
-    if (!void_reason || void_reason.trim() === '') {
+    const reqIdempotencyKey = String(req.headers['idempotency-key'] || idempotency_key || '').trim() || null;
+    if (!reqIdempotencyKey) {
+      return res.status(400).json({
+        success: false,
+        error: 'Tiêu đề Idempotency-Key là bắt buộc cho thao tác hủy đối soát.',
+        code: 'MISSING_IDEMPOTENCY_KEY',
+      });
+    }
+
+    if (!client_updated_at || typeof client_updated_at !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Thiếu thông tin phiên bản hồ sơ (client_updated_at). Vui lòng tải lại trang.',
+        code: 'MISSING_CONCURRENCY_TIMESTAMP',
+      });
+    }
+
+    const cleanReason = String(void_reason || '').trim();
+    if (!cleanReason) {
       return res.status(400).json({
         success: false,
         error: 'Bắt buộc phải nhập lý do hủy ghép đối soát để bảo toàn lịch sử kiểm toán.',
+        code: 'MISSING_VOID_REASON',
       });
     }
 
+    if (cleanReason.length > 2000) {
+      return res.status(400).json({
+        success: false,
+        error: 'Lý do hủy vượt quá độ dài cho phép (tối đa 2000 ký tự).',
+        code: 'REASON_TOO_LONG',
+      });
+    }
+
+    const actorId = (req as any).user?.id;
+    const actorRole = (req as any).user?.role;
+    if (!actorId || !['staff', 'admin'].includes(actorRole)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Bị từ chối: Chỉ Cán bộ Tuyển sinh hoặc Quản trị viên mới có quyền hủy ghép đối soát.',
+        code: 'FORBIDDEN',
+      });
+    }
+
+    // Tra cứu lead
+    const { data: lead, error: fetchErr } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('id', leadId)
+      .maybeSingle();
+
+    if (fetchErr || !lead) {
+      return res.status(404).json({
+        success: false,
+        error: 'Không tìm thấy hồ sơ khách hàng cần hủy đối soát.',
+        code: 'LEAD_NOT_FOUND',
+      });
+    }
+
+    if (lead.updated_at && lead.updated_at !== client_updated_at) {
+      return res.status(409).json({
+        success: false,
+        error: 'Xung đột cập nhật: Dữ liệu hồ sơ này đã được chỉnh sửa bởi cán bộ khác. Vui lòng tải lại trang.',
+        code: 'CONCURRENT_CONFLICT',
+      });
+    }
+
+    // Idempotency check
+    const idempotencyKeyCompound = `${reqIdempotencyKey}:${leadId}:VOID`;
+    const payloadHash = crypto.createHash('sha256').update(JSON.stringify({
+      leadId,
+      target_reconciliation_id: target_reconciliation_id || null,
+      void_reason: cleanReason,
+    })).digest('hex');
+
+    const existingIdem = reconciliationIdempotencyStore.get(idempotencyKeyCompound);
+    if (existingIdem) {
+      if (existingIdem.payload_hash === payloadHash) {
+        return res.json({
+          ...existingIdem.response_data,
+          is_idempotent_replay: true,
+        });
+      } else {
+        return res.status(409).json({
+          success: false,
+          error: 'Xung đột Idempotency-Key: Khóa này đã được sử dụng cho một yêu cầu hủy với nội dung khác.',
+          code: 'IDEMPOTENCY_PAYLOAD_MISMATCH',
+        });
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+
+    // Thử gọi Database RPC
     try {
       const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_void_reconciliation_and_reward', {
         p_lead_id: leadId,
-        p_staff_id: demoState.adminUser.id,
-        p_void_reason: void_reason.trim(),
+        p_staff_id: actorId,
+        p_void_reason: cleanReason,
+        p_target_reconciliation_id: target_reconciliation_id || null,
+        p_expected_updated_at: client_updated_at,
+        p_idempotency_key: reqIdempotencyKey,
       });
 
-      if (!rpcError && rpcResult) {
-        return res.json({
+      if (!rpcError && rpcResult && rpcResult.success) {
+        const responseData = {
           success: true,
-          message: 'Đã hủy ghép đối soát thành công và bảo toàn lịch sử kiểm toán!',
+          message: rpcResult.message || 'Đã hủy ghép đối soát thành công và bảo toàn lịch sử kiểm toán!',
           data: rpcResult,
+        };
+
+        reconciliationIdempotencyStore.set(idempotencyKeyCompound, {
+          key: reqIdempotencyKey,
+          lead_id: leadId,
+          action: 'VOID',
+          payload_hash: payloadHash,
+          response_data: responseData,
+          created_at: nowIso,
         });
+
+        return res.json(responseData);
       }
     } catch (e: any) {
-      console.warn('RPC fn_void_reconciliation_and_reward fallback:', e.message);
+      console.warn('[RPC fn_void_reconciliation_and_reward fallback]:', e.message);
     }
 
-    // Fallback update
+    // Server-level fallback execution
+    let reconQuery = supabase
+      .from('lead_reconciliations')
+      .select('*')
+      .eq('lead_id', leadId);
+
+    if (target_reconciliation_id) {
+      reconQuery = reconQuery.eq('id', target_reconciliation_id);
+    } else {
+      reconQuery = reconQuery.in('reconciliation_status', ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID']);
+    }
+
+    const { data: activeRecons } = await reconQuery.order('reconciled_at', { ascending: false }).limit(1);
+    const targetRecon = activeRecons?.[0];
+
+    if (!targetRecon) {
+      return res.status(400).json({
+        success: false,
+        error: 'Hồ sơ này hiện không có bản ghi đối soát nào đang có hiệu lực để hủy.',
+        code: 'NO_ACTIVE_RECONCILIATION',
+      });
+    }
+
+    // 1. Void reconciliation
     await supabase
       .from('lead_reconciliations')
       .update({
         reconciliation_status: 'VOIDED',
-        void_reason: void_reason.trim(),
-        voided_by: demoState.adminUser.id,
-        voided_at: new Date().toISOString(),
+        void_reason: cleanReason,
+        voided_by: actorId,
+        voided_at: nowIso,
       })
-      .eq('lead_id', leadId)
-      .eq('reconciliation_status', 'MATCHED_VALID');
+      .eq('id', targetRecon.id);
 
-    await supabase
+    // 2. Void linked rewards
+    const { data: linkedRewards } = await supabase
       .from('rewards')
       .update({
         status: 'VOIDED',
-        void_reason: void_reason.trim(),
-        voided_by: demoState.adminUser.id,
-        voided_at: new Date().toISOString(),
+        void_reason: cleanReason,
+        voided_by: actorId,
+        voided_at: nowIso,
+        updated_at: nowIso,
       })
-      .eq('lead_id', leadId)
-      .in('status', ['PENDING_APPROVAL', 'APPROVED']);
+      .eq('reconciliation_id', targetRecon.id)
+      .in('status', ['PENDING_APPROVAL', 'APPROVED'])
+      .select('id');
 
+    // 3. Reset lead
     await supabase
       .from('leads')
       .update({
         reconciliation_status: 'NOT_RECONCILED',
         reward_status: 'NONE',
-        updated_at: new Date().toISOString(),
+        updated_at: nowIso,
       })
       .eq('id', leadId);
 
-    res.json({
-      success: true,
-      message: 'Hủy ghép thành công! Mã hồ sơ đã được giải phóng để đối soát lại.',
+    // 4. Insert audit log
+    await supabase.from('audit_logs').insert({
+      actor_id: actorId,
+      action: 'VOID_RECONCILIATION',
+      entity_name: 'lead_reconciliations',
+      entity_id: targetRecon.id,
+      old_values: {
+        external_admission_code: targetRecon.external_admission_code,
+        reconciliation_status: targetRecon.reconciliation_status,
+      },
+      new_values: {
+        reconciliation_status: 'VOIDED',
+        reward_status: 'VOIDED',
+        lead_reconciliation_status: 'NOT_RECONCILED',
+      },
+      reason: cleanReason,
+      created_at: nowIso,
     });
+
+    const responseData = {
+      success: true,
+      message: 'Hủy ghép thành công! Bản ghi đối soát và khoản thưởng liên quan đã chuyển sang VOIDED, mã EGOV đã được giải phóng để đối soát lại.',
+      data: {
+        lead_id: leadId,
+        voided_reconciliation_id: targetRecon.id,
+        voided_reward_id: linkedRewards?.[0]?.id || null,
+        updated_at: nowIso,
+      },
+    };
+
+    reconciliationIdempotencyStore.set(idempotencyKeyCompound, {
+      key: reqIdempotencyKey,
+      lead_id: leadId,
+      action: 'VOID',
+      payload_hash: payloadHash,
+      response_data: responseData,
+      created_at: nowIso,
+    });
+
+    return res.json(responseData);
   });
 
   // 6. Xem lịch sử chăm sóc, đối soát và thưởng của 1 lead (A3.6)
@@ -6514,7 +7486,7 @@ async function startServer() {
     // 3. Lấy đối soát & thưởng
     const { data: reconciliations } = await supabase
       .from('lead_reconciliations')
-      .select('*, staff:staff_id(full_name, email)')
+      .select('*, courses:course_id(id, title, code), staff:staff_id(id, full_name, email), voided_by_profile:voided_by(id, full_name, email)')
       .eq('lead_id', leadId)
       .order('created_at', { ascending: false });
 

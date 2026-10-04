@@ -539,8 +539,12 @@ export default function App() {
               leadId={currentPath.replace('/admin/leads/', '')}
               currentUser={authSession.user}
               onBack={() => {
-                window.history.pushState({}, '', '/admin/leads');
-                window.dispatchEvent(new PopStateEvent('popstate'));
+                if (window.history.length > 1) {
+                  window.history.back();
+                } else {
+                  window.history.pushState({}, '', '/admin/reconcile');
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                }
               }}
             />
           ) : (currentPath === '/admin' ||

@@ -157,7 +157,9 @@ export const AffiliateLeadDetailView: React.FC<AffiliateLeadDetailViewProps> = (
 
               <div className="space-y-1">
                 <span className="text-slate-500 font-medium">Tỉnh / Thành phố:</span>
-                <p className="text-slate-800 font-medium">{lead.province || '—'}</p>
+                <p className={lead.province && lead.province.trim() ? 'text-slate-800 font-medium' : 'text-slate-400 italic font-medium'}>
+                  {lead.province && lead.province.trim() ? lead.province.trim() : 'Chưa cập nhật'}
+                </p>
               </div>
             </div>
 
@@ -199,16 +201,24 @@ export const AffiliateLeadDetailView: React.FC<AffiliateLeadDetailViewProps> = (
               </div>
 
               <div className="space-y-1">
-                <span className="text-slate-500 font-medium">Tình trạng nhập học:</span>
+                <span className="text-slate-500 font-medium">Kết quả đối soát hồ sơ:</span>
                 <p>
                   {lead.reconciliation_status === 'MATCHED_VALID' ? (
                     <span className="px-2.5 py-1 bg-emerald-50 text-emerald-800 font-bold rounded-lg border border-emerald-200 inline-flex items-center gap-1">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                      Đã nhập học
+                      Đã nhập học (Hồ sơ hợp lệ)
+                    </span>
+                  ) : lead.reconciliation_status === 'EXISTING_IN_SCHOOL_SYSTEM' ? (
+                    <span className="px-2.5 py-1 bg-purple-50 text-purple-900 font-bold rounded-lg border border-purple-200 inline-block">
+                      Hồ sơ không hợp lệ (khách đã đăng ký trước qua kênh khác)
+                    </span>
+                  ) : lead.reconciliation_status === 'MISMATCH_INVALID' ? (
+                    <span className="px-2.5 py-1 bg-rose-50 text-rose-900 font-bold rounded-lg border border-rose-200 inline-block">
+                      Thông tin không khớp
                     </span>
                   ) : (
                     <span className="px-2.5 py-1 bg-slate-100 text-slate-600 font-semibold rounded-lg border border-slate-200 inline-block">
-                      Chưa nhập học
+                      Chưa đối chiếu
                     </span>
                   )}
                 </p>

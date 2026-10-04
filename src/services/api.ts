@@ -370,6 +370,40 @@ export const api = {
     });
   },
 
+  async updateSystemRole(affiliateId: string, role: 'staff' | 'affiliate', reason: string): Promise<{
+    success: boolean;
+    message?: string;
+    data?: any;
+    error?: string;
+    code?: string;
+  }> {
+    return apiFetch(`/api/v1/admin/affiliates/${affiliateId}/system-role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role, reason }),
+    });
+  },
+
+  async lookupAffiliates(params: { q?: string; id?: string; limit?: number }): Promise<{
+    success: boolean;
+    data?: Array<{
+      id: string;
+      affiliate_code: string;
+      full_name: string;
+      email: string;
+      phone: string;
+      status: string;
+    }>;
+    message?: string;
+    error?: string;
+  }> {
+    const p = new URLSearchParams();
+    if (params.q) p.set('q', params.q);
+    if (params.id) p.set('id', params.id);
+    if (params.limit) p.set('limit', String(params.limit));
+    const qs = p.toString();
+    return apiFetch(`/api/v1/admin/affiliates/lookup${qs ? `?${qs}` : ''}`);
+  },
+
   async getAdminCourses(params?: {
     search?: string;
     page?: number;
@@ -430,6 +464,8 @@ export const api = {
     course_id?: string;
     status?: string;
     admission_status?: string;
+    reconciliation_status?: string;
+    source_type?: string;
     affiliate_id?: string;
     from_date?: string;
     to_date?: string;
@@ -446,6 +482,8 @@ export const api = {
     if (params?.course_id && params.course_id !== 'ALL') q.set('course_id', params.course_id);
     if (params?.status && params.status !== 'ALL') q.set('status', params.status);
     if (params?.admission_status && params.admission_status !== 'ALL') q.set('admission_status', params.admission_status);
+    if (params?.reconciliation_status && params.reconciliation_status !== 'ALL') q.set('reconciliation_status', params.reconciliation_status);
+    if (params?.source_type && params.source_type !== 'ALL') q.set('source_type', params.source_type);
     if (params?.affiliate_id && params.affiliate_id !== 'ALL') q.set('affiliate_id', params.affiliate_id);
     if (params?.from_date) q.set('from_date', params.from_date);
     if (params?.to_date) q.set('to_date', params.to_date);
@@ -478,17 +516,32 @@ export const api = {
     });
   },
 
-  async reconcileLead(id: string, payload: any) {
+  async reconcileLead(id: string, payload: any, idempotencyKey?: string) {
+    const headers: Record<string, string> = {};
+    if (idempotencyKey) {
+      headers['Idempotency-Key'] = idempotencyKey;
+    }
     return apiFetch(`/api/v1/admin/leads/${id}/reconcile`, {
       method: 'POST',
+      headers,
       body: JSON.stringify(payload),
     });
   },
 
-  async voidReconciliation(id: string, void_reason: string) {
+  async voidReconciliation(id: string, payload: {
+    void_reason: string;
+    target_reconciliation_id?: string;
+    client_updated_at?: string;
+  } | string, idempotencyKey?: string) {
+    const bodyObj = typeof payload === 'string' ? { void_reason: payload } : payload;
+    const headers: Record<string, string> = {};
+    if (idempotencyKey) {
+      headers['Idempotency-Key'] = idempotencyKey;
+    }
     return apiFetch(`/api/v1/admin/leads/${id}/void-reconciliation`, {
       method: 'POST',
-      body: JSON.stringify({ void_reason }),
+      headers,
+      body: JSON.stringify(bodyObj),
     });
   },
 

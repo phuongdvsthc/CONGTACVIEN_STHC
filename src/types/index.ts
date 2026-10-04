@@ -138,6 +138,8 @@ export interface UserProfile {
   reactivation_note?: string | null;
 }
 
+export type AdmissionStatus = 'NOT_ENROLLED' | 'ENROLLED' | 'WITHDRAWN';
+
 export interface Lead {
   id: string;
   full_name: string;
@@ -150,6 +152,7 @@ export interface Lead {
   affiliate_code_captured?: string;
   counseling_status: CounselingStatus;
   reconciliation_status: ReconciliationStatus;
+  admission_status?: AdmissionStatus;
   reward_status: RewardStatus;
   is_duplicate: boolean;
   duplicate_reason?: string;
@@ -157,6 +160,8 @@ export interface Lead {
   preferred_contact_time?: string;
   customer_note?: string;
   counselor_note?: string;
+  external_admission_code?: string;
+  tuition_fee_collected?: number | null;
   utm_source?: string;
   utm_medium?: string;
   utm_campaign?: string;
@@ -164,18 +169,23 @@ export interface Lead {
   updated_at: string;
   course?: Course;
   affiliate?: AffiliateProfile;
+  current_reconciliation?: LeadReconciliation;
 }
 
 export interface LeadReconciliation {
   id: string;
   lead_id: string;
   staff_id: string;
+  course_id?: string;
+  course_tuition_fee?: number | null;
+  course_tuition_fee_type?: string | null;
   external_admission_code: string;
   external_student_code?: string;
-  tuition_fee_collected: number;
+  tuition_fee_collected?: number | null;
   receipt_number?: string;
-  tuition_paid_at: string;
+  tuition_paid_at?: string | null;
   reconciliation_status: ReconciliationStatus;
+  admission_status?: AdmissionStatus;
   staff_note?: string;
   void_reason?: string;
   voided_by?: string;

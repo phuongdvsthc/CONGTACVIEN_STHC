@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
+import { Course, Lead } from '../../types';
 import {
   FileText,
   ArrowLeft,
@@ -18,7 +19,12 @@ import {
   MessageSquare,
   Lock,
   ExternalLink,
+  RotateCcw,
+  FileCheck2,
+  Building,
 } from 'lucide-react';
+import { AdminReconciliationModal } from './AdminReconciliationModal';
+import { AdminVoidReconciliationModal } from './AdminVoidReconciliationModal';
 
 interface AdminLeadDetailViewProps {
   leadId: string;
@@ -29,26 +35,32 @@ interface AdminLeadDetailViewProps {
 export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId, currentUser, onBack }) => {
   const [lead, setLead] = useState<any | null>(null);
   const [history, setHistory] = useState<any | null>(null);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Care Form State
+  // Modals
+  const [reconcileModalOpen, setReconcileModalOpen] = useState<boolean>(false);
+  const [voidModalOpen, setVoidModalOpen] = useState<boolean>(false);
+
+  // Care Form State (A3.6)
   const [counselingStatus, setCounselingStatus] = useState<string>('NEW');
   const [newNote, setNewNote] = useState<string>('');
   const [isSavingCare, setIsSavingCare] = useState<boolean>(false);
   const [careFeedback, setCareFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
-    loadAdminLeadDetail();
+    loadData();
   }, [leadId]);
 
-  const loadAdminLeadDetail = async () => {
+  const loadData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [detailRes, historyRes] = await Promise.all([
+      const [detailRes, historyRes, coursesRes] = await Promise.all([
         api.getAdminLeadDetail(leadId),
         api.getLeadHistory(leadId),
+        api.getAdminCourses({ limit: 100 }),
       ]);
 
       if (detailRes.success && detailRes.data) {
@@ -60,6 +72,10 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
 
       if (historyRes.success && historyRes.data) {
         setHistory(historyRes.data);
+      }
+
+      if (coursesRes.success && coursesRes.data) {
+        setCourses(coursesRes.data);
       }
     } catch (err: any) {
       setError(err?.message || 'Lỗi kết nối máy chủ.');
@@ -106,8 +122,7 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
           message: res.message || 'Lưu tiến độ chăm sóc khách hàng thành công!',
         });
         setNewNote('');
-        // Reload detail and history to refresh timeline atomically
-        await loadAdminLeadDetail();
+        await loadData();
         setTimeout(() => setCareFeedback(null), 5000);
       } else {
         setCareFeedback({
@@ -123,6 +138,11 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
     } finally {
       setIsSavingCare(false);
     }
+  };
+
+  const formatVND = (amount: number | null | undefined) => {
+    if (amount === undefined || amount === null) return '—';
+    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
   };
 
   const formatDateVN = (isoString: string) => {
@@ -150,6 +170,64 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
       case 'UNREACHABLE': return 'UNREACHABLE (Chưa liên hệ được)';
       case 'LOST': return 'LOST (Không tiếp tục)';
       default: return status || 'Mới đăng ký';
+    }
+  };
+
+  const renderAdmissionStatus = (status: string | undefined) => {
+    if (status === 'ENROLLED') {
+      return (
+        <span className="font-semibold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg text-xs inline-flex items-center gap-1 border border-emerald-200">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+          <span>Đã nhập học (ENROLLED)</span>
+        </span>
+      );
+    }
+    if (status === 'NOT_ENROLLED') {
+      return (
+        <span className="text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg text-xs inline-flex items-center gap-1 border border-slate-200 font-medium">
+          <span>Chưa nhập học (NOT_ENROLLED)</span>
+        </span>
+      );
+    }
+    return (
+      <span className="text-amber-800 bg-amber-50 px-2.5 py-1 rounded-lg text-xs inline-flex items-center gap-1 border border-amber-200">
+        <span>Chưa xác định</span>
+      </span>
+    );
+  };
+
+  const renderReconciliationStatus = (status: string | undefined) => {
+    switch (status) {
+      case 'MATCHED_VALID':
+        return (
+          <span className="font-bold text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-lg text-xs border border-emerald-200 inline-block">
+            Hồ sơ hợp lệ (MATCHED_VALID)
+          </span>
+        );
+      case 'EXISTING_IN_SCHOOL_SYSTEM':
+        return (
+          <span className="font-bold text-purple-900 bg-purple-50 px-2.5 py-1 rounded-lg text-xs border border-purple-200 inline-block">
+            Đăng ký trước qua kênh khác (EXISTING)
+          </span>
+        );
+      case 'MISMATCH_INVALID':
+        return (
+          <span className="font-bold text-rose-900 bg-rose-50 px-2.5 py-1 rounded-lg text-xs border border-rose-200 inline-block">
+            Thông tin không khớp (MISMATCH)
+          </span>
+        );
+      case 'VOIDED':
+        return (
+          <span className="font-medium text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg text-xs border border-slate-200 inline-block">
+            Đã hủy đối chiếu (VOIDED)
+          </span>
+        );
+      default:
+        return (
+          <span className="text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg text-xs border border-slate-200 inline-block font-medium">
+            Chưa đối chiếu (NOT_RECONCILED)
+          </span>
+        );
     }
   };
 
@@ -184,22 +262,26 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
   const reconList = history?.reconciliations || lead.lead_reconciliations || [];
   const rewardList = history?.rewards || lead.rewards || [];
   const careHistoryList = history?.care_history || [];
+  const activeRecon = lead.current_reconciliation || reconList.find((r: any) => ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(r.reconciliation_status));
+  const hasActiveRecon = Boolean(activeRecon && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(activeRecon.reconciliation_status));
+
+  const hasDifferentCourse = lead.reconciled_course_title && lead.initial_course_title && lead.reconciled_course_title !== lead.initial_course_title;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 animate-fade-in">
-      {/* HEADER */}
-      <div className="flex items-center justify-between bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 animate-fade-in">
+      {/* HEADER & ACTIONS */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-white rounded-2xl border border-slate-200 p-6 shadow-sm gap-4">
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors"
-            title="Quay lại danh sách"
+            className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors shrink-0"
+            title="Quay lại"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold text-blue-900 uppercase tracking-wider mb-0.5">
-              <span>Cổng Quản trị Tuyển sinh STHC</span>
+              <span>Hồ sơ tuyển sinh STHC</span>
               <span>•</span>
               <span className="font-mono text-slate-500">ID: {lead.id}</span>
             </div>
@@ -207,17 +289,37 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
           </div>
         </div>
 
-        <button
-          onClick={loadAdminLeadDetail}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-100 transition-colors border border-blue-200"
-        >
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span>Tải lại</span>
-        </button>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <button
+            onClick={loadData}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Tải lại</span>
+          </button>
+
+          {!hasActiveRecon ? (
+            <button
+              onClick={() => setReconcileModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 transition-colors shadow-sm"
+            >
+              <FileCheck2 className="w-4 h-4" />
+              <span>Đối chiếu hồ sơ</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setVoidModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-rose-800 bg-rose-100 hover:bg-rose-200 transition-colors shadow-sm"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Hủy đối chiếu</span>
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* LEFT 2 COLS: PERSONAL INFO, REFERRAL, CARE FORM */}
+        {/* LEFT 2 COLS: PERSONAL INFO, RECONCILIATION SUMMARY, CARE FORM */}
         <div className="lg:col-span-2 space-y-6">
           {/* Section A: Personal Info */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
@@ -232,7 +334,7 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
                 <strong className="text-slate-900 text-sm">{lead.full_name}</strong>
               </div>
               <div>
-                <span className="text-slate-500 font-medium block">Số điện thoại đầy đủ:</span>
+                <span className="text-slate-500 font-medium block">Số điện thoại:</span>
                 <strong className="text-blue-900 font-mono text-sm">{lead.phone}</strong>
               </div>
               <div>
@@ -241,7 +343,23 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
               </div>
               <div>
                 <span className="text-slate-500 font-medium block">Tỉnh / Thành phố:</span>
-                <span className="text-slate-800">{lead.province || '—'}</span>
+                <span className={lead.province && lead.province.trim() ? 'text-slate-800' : 'text-slate-400 italic'}>
+                  {lead.province && lead.province.trim() ? lead.province.trim() : 'Chưa cập nhật'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 font-medium block">Ngày đăng ký (GMT+7):</span>
+                <span className="text-slate-800 font-mono">{formatDateVN(lead.created_at)}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 font-medium block">Nguồn giới thiệu:</span>
+                {lead.affiliate_code ? (
+                  <span className="font-mono font-bold text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                    {lead.affiliate_code} — {lead.affiliate_name || 'Cộng tác viên'}
+                  </span>
+                ) : (
+                  <span className="text-slate-500 italic">Khách tự đăng ký</span>
+                )}
               </div>
             </div>
 
@@ -255,56 +373,85 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
             )}
           </div>
 
-          {/* Section B: Referral & Admission Overview */}
+          {/* Section B: Active Reconciliation & Tuition Snapshot Detail */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
               <ShieldCheck className="w-4 h-4 text-blue-900" />
-              <span>B. Nguồn giới thiệu & Tình trạng tuyển sinh</span>
+              <span>B. Thông tin Đối chiếu Hồ sơ & Học phí Hiện hành</span>
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div>
-                <span className="text-slate-500 font-medium block">Khóa học đăng ký:</span>
-                <strong className="text-slate-900">{lead.course_title || lead.courses?.title || 'Chương trình STHC'}</strong>
+                <span className="text-slate-500 font-medium block">Kết quả đối chiếu:</span>
+                <div className="mt-1">{renderReconciliationStatus(lead.reconciliation_status)}</div>
               </div>
+
               <div>
-                <span className="text-slate-500 font-medium block">Nguồn CTV ghi nhận:</span>
-                <span className="font-mono font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded">
-                  {lead.affiliate_code_captured || lead.affiliate_code || 'Tự nhiên'}
+                <span className="text-slate-500 font-medium block">Tình trạng nhập học EGOV:</span>
+                <div className="mt-1">{renderAdmissionStatus(lead.admission_status)}</div>
+              </div>
+
+              <div>
+                <span className="text-slate-500 font-medium block">Mã hồ sơ EGOV:</span>
+                <span className="font-mono font-bold text-blue-900 text-sm">
+                  {lead.external_admission_code ? String(lead.external_admission_code) : '—'}
                 </span>
               </div>
+
               <div>
-                <span className="text-slate-500 font-medium block">Tiến độ tư vấn hiện tại:</span>
-                <span className="px-2.5 py-1 bg-blue-50 text-blue-900 font-semibold rounded-lg border border-blue-200 inline-block">
-                  {getCounselingLabel(lead.counseling_status)}
+                <span className="text-slate-500 font-medium block">Mã học viên trên EGOV:</span>
+                <span className="font-mono text-slate-800">
+                  {lead.external_student_code || activeRecon?.external_student_code || '—'}
                 </span>
               </div>
+
               <div>
-                <span className="text-slate-500 font-medium block">Tình trạng đối soát hồ sơ:</span>
-                <span className={`font-bold ${lead.reconciliation_status === 'MATCHED_VALID' ? 'text-emerald-700' : 'text-slate-600'}`}>
-                  {lead.reconciliation_status === 'MATCHED_VALID' ? 'Đã đối soát (MATCHED_VALID)' : 'Chưa đối soát'}
+                <span className="text-slate-500 font-medium block">Khóa học đăng ký ban đầu:</span>
+                <strong className="text-slate-900">{lead.initial_course_title || 'Chương trình STHC'}</strong>
+              </div>
+
+              <div>
+                <span className="text-slate-500 font-medium block">Khóa học đối chiếu thực tế:</span>
+                <strong className={hasDifferentCourse ? 'text-purple-900' : 'text-slate-900'}>
+                  {lead.reconciled_course_title || lead.initial_course_title || 'Chương trình STHC'}
+                </strong>
+              </div>
+
+              <div>
+                <span className="text-slate-500 font-medium block">Học phí khóa học (Snapshot):</span>
+                <span className="font-mono font-bold text-slate-900 text-sm">
+                  {formatVND(lead.course_tuition_fee)}
+                  {lead.course_tuition_fee_type === 'ESTIMATE' && <span className="text-[10px] text-slate-500 font-sans ml-1">(Ước tính)</span>}
+                  {lead.course_tuition_fee_type === 'OFFICIAL' && <span className="text-[10px] text-emerald-700 font-sans ml-1">(Chính thức)</span>}
                 </span>
+              </div>
+
+              <div>
+                <span className="text-slate-500 font-medium block">Học phí thực thu:</span>
+                <span className="font-mono font-bold text-emerald-900 text-sm">
+                  {formatVND(lead.tuition_fee_collected)}
+                </span>
+              </div>
+
+              <div>
+                <span className="text-slate-500 font-medium block">Số biên lai thu tiền:</span>
+                <span className="font-mono text-slate-800">{lead.receipt_number || '—'}</span>
+              </div>
+
+              <div>
+                <span className="text-slate-500 font-medium block">Ngày đóng học phí:</span>
+                <span className="text-slate-800">{lead.tuition_paid_at ? formatDateVN(lead.tuition_paid_at) : '—'}</span>
               </div>
             </div>
 
-            {/* Link sang module Đối chiếu hồ sơ */}
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs bg-slate-50/70 p-3 rounded-xl border border-slate-200/70">
-              <div className="flex items-center gap-2 text-slate-700 font-medium">
-                <FileText className="w-4 h-4 text-blue-900" />
-                <span>Nghiệp vụ đối soát mã EGOV & học phí thực thu:</span>
+            {activeRecon?.staff_note && (
+              <div className="pt-2 border-t border-slate-100 space-y-1">
+                <span className="text-xs text-slate-500 font-medium">Ghi chú / Căn cứ đối chiếu:</span>
+                <div className="p-3 bg-slate-50 rounded-xl text-xs text-slate-700 italic border border-slate-200">
+                  "{activeRecon.staff_note}"
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  window.history.pushState({}, '', '/admin/reconcile');
-                  window.dispatchEvent(new PopStateEvent('popstate'));
-                }}
-                className="inline-flex items-center gap-1.5 text-blue-900 hover:text-blue-950 font-bold hover:underline"
-              >
-                <span>Mở module Đối chiếu</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </button>
-            </div>
+            )}
           </div>
 
           {/* Section C: Chăm sóc khách hàng & Ghi chú nội bộ (A3.6) */}
@@ -316,7 +463,7 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
               </h3>
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
                 <Lock className="w-3 h-3 text-amber-600" />
-                Nội bộ Cán bộ Tuyển sinh
+                Nội bộ Cán bộ
               </span>
             </div>
 
@@ -374,17 +521,6 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
                 />
               </div>
 
-              {lead.counselor_note && (
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-600 text-[11px] space-y-1">
-                  <span className="font-bold text-slate-700 block">Ghi chú gần nhất hiện tại:</span>
-                  <p className="italic">{lead.counselor_note}</p>
-                </div>
-              )}
-
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-[11px] leading-relaxed">
-                <strong>Lưu ý bảo mật:</strong> Ghi chú chăm sóc và thông tin đối soát chỉ hiển thị nội bộ cho Cán bộ Tuyển sinh và Quản trị viên; CTV không xem được các ghi chú nội bộ này.
-              </div>
-
               <div className="pt-2 flex justify-end">
                 <button
                   type="submit"
@@ -408,9 +544,77 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
           </div>
         </div>
 
-        {/* RIGHT COL: TIMELINES */}
+        {/* RIGHT COL: TIMELINES (RECONCILIATIONS & CARE HISTORY) */}
         <div className="space-y-6">
-          {/* Care History (Audit Logs) */}
+          {/* Lịch sử Đối soát & Thưởng */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
+              <DollarSign className="w-4 h-4 text-blue-900" />
+              <span>Lịch sử đối soát & Thưởng</span>
+            </h3>
+
+            <div className="space-y-3">
+              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Bản ghi đối soát:</h4>
+              {reconList.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">Chưa có bản ghi đối soát nào.</p>
+              ) : (
+                <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
+                  {reconList.map((r: any, i: number) => {
+                    const isVoided = r.reconciliation_status === 'VOIDED';
+                    return (
+                      <div key={i} className={`p-3 rounded-xl border text-xs space-y-1.5 ${isVoided ? 'bg-slate-100 border-slate-300 opacity-75' : 'bg-slate-50 border-slate-200'}`}>
+                        <div className="flex justify-between items-center font-mono">
+                          <strong className="text-blue-900">{r.external_admission_code || '—'}</strong>
+                          <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${
+                            isVoided ? 'bg-slate-200 text-slate-700' : 'bg-emerald-100 text-emerald-900'
+                          }`}>
+                            {r.reconciliation_status}
+                          </span>
+                        </div>
+                        <div className="text-slate-700 font-medium">Khóa học: {r.courses?.title || 'Chương trình STHC'}</div>
+                        <div className="text-slate-600">Học phí: {formatVND(r.course_tuition_fee)} | Thực thu: {formatVND(r.tuition_fee_collected)}</div>
+                        <div className="text-[11px] text-slate-400 flex items-center justify-between pt-1 border-t border-slate-200/60">
+                          <span>Thực hiện: {r.staff?.full_name || 'Cán bộ'}</span>
+                          <span>{formatDateVN(r.reconciled_at || r.created_at)}</span>
+                        </div>
+                        {isVoided && r.void_reason && (
+                          <div className="p-2 bg-rose-50 rounded-lg text-rose-900 text-[11px] border border-rose-200 space-y-0.5">
+                            <strong className="block text-rose-950">Lý do hủy:</strong>
+                            <p className="italic">"{r.void_reason}"</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3 pt-3 border-t border-slate-100">
+              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Khoản thưởng CTV:</h4>
+              {rewardList.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">Chưa có khoản thưởng khởi tạo.</p>
+              ) : (
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {rewardList.map((rew: any, i: number) => (
+                    <div key={i} className="p-3 bg-amber-50/50 rounded-xl border border-amber-200 text-xs space-y-1">
+                      <div className="flex justify-between items-center font-mono">
+                        <strong className="text-amber-900">{formatVND(rew.amount || 500000)}</strong>
+                        <span className={`font-semibold px-2 py-0.5 rounded text-[10px] ${
+                          rew.status === 'APPROVED' ? 'bg-emerald-100 text-emerald-900' : (rew.status === 'VOIDED' ? 'bg-rose-100 text-rose-900' : 'bg-amber-100 text-amber-900')
+                        }`}>
+                          {rew.status}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500">Khởi tạo: {formatDateVN(rew.created_at)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Lịch sử Chăm sóc (Audit Logs) */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
               <Clock className="w-4 h-4 text-blue-900" />
@@ -418,9 +622,9 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
             </h3>
 
             {careHistoryList.length === 0 ? (
-              <p className="text-xs text-slate-400 py-4 text-center">Chưa có lịch sử chăm sóc được ghi nhận.</p>
+              <p className="text-xs text-slate-400 py-4 text-center italic">Chưa có lịch sử chăm sóc được ghi nhận.</p>
             ) : (
-              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
                 {careHistoryList.map((c: any, i: number) => (
                   <div key={i} className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
                     <div className="flex justify-between items-center text-[11px]">
@@ -429,7 +633,7 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
                     </div>
                     {c.old_values?.counseling_status && c.new_values?.counseling_status && c.old_values.counseling_status !== c.new_values.counseling_status && (
                       <div className="text-slate-700 text-[11px]">
-                        Chuyển trạng thái: <strong className="text-slate-900">{c.old_values.counseling_status}</strong> → <strong className="text-emerald-700">{c.new_values.counseling_status}</strong>
+                        Tiến độ: <strong className="text-slate-900">{c.old_values.counseling_status}</strong> → <strong className="text-emerald-700">{c.new_values.counseling_status}</strong>
                       </div>
                     )}
                     {c.note && (
@@ -442,51 +646,31 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
               </div>
             )}
           </div>
-
-          {/* Reconciliations & Rewards */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
-              <DollarSign className="w-4 h-4 text-blue-900" />
-              <span>Lịch sử đối soát & Thưởng</span>
-            </h3>
-
-            <div className="space-y-3">
-              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Bản ghi đối soát:</h4>
-              {reconList.length === 0 ? (
-                <p className="text-xs text-slate-400">Chưa có bản ghi đối soát.</p>
-              ) : (
-                reconList.map((r: any, i: number) => (
-                  <div key={i} className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
-                    <div className="flex justify-between items-center font-mono">
-                      <strong className="text-blue-900">{r.external_admission_code}</strong>
-                      <span className="text-emerald-700 font-semibold">{r.reconciliation_status}</span>
-                    </div>
-                    <div className="text-slate-600">Học phí: {Number(r.tuition_fee_collected || 0).toLocaleString('vi-VN')} VNĐ</div>
-                    <div className="text-[11px] text-slate-400">{formatDateVN(r.tuition_paid_at || r.created_at)}</div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="space-y-3 pt-3 border-t border-slate-100">
-              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Khoản thưởng CTV:</h4>
-              {rewardList.length === 0 ? (
-                <p className="text-xs text-slate-400">Chưa có khoản thưởng khởi tạo.</p>
-              ) : (
-                rewardList.map((rew: any, i: number) => (
-                  <div key={i} className="p-3 bg-amber-50/50 rounded-xl border border-amber-200 text-xs space-y-1">
-                    <div className="flex justify-between items-center font-mono">
-                      <strong className="text-amber-900">{Number(rew.amount || 500000).toLocaleString('vi-VN')} VNĐ</strong>
-                      <span className="text-amber-800 font-semibold">{rew.status}</span>
-                    </div>
-                    <div className="text-[11px] text-slate-500">Khởi tạo: {formatDateVN(rew.created_at)}</div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
         </div>
       </div>
+
+      {/* RECONCILIATION MODAL */}
+      <AdminReconciliationModal
+        lead={lead}
+        courses={courses}
+        isOpen={reconcileModalOpen}
+        onClose={() => setReconcileModalOpen(false)}
+        onSuccess={() => {
+          setReconcileModalOpen(false);
+          loadData();
+        }}
+      />
+
+      {/* VOID RECONCILIATION MODAL */}
+      <AdminVoidReconciliationModal
+        lead={lead}
+        isOpen={voidModalOpen}
+        onClose={() => setVoidModalOpen(false)}
+        onSuccess={() => {
+          setVoidModalOpen(false);
+          loadData();
+        }}
+      />
     </div>
   );
 };

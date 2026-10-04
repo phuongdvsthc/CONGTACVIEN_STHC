@@ -275,7 +275,6 @@ export const AffiliateLeadsView: React.FC<AffiliateLeadsViewProps> = ({ onNaviga
                 {leads.map((l, index) => {
                   const stt = (pagination.page - 1) * pagination.limit + index + 1;
                   const isEnrolled = l.reconciliation_status === 'MATCHED_VALID';
-                  const egovCode = l.external_admission_code || 'Chưa cập nhật';
 
                   return (
                     <tr key={l.id || index} className="hover:bg-slate-50/80 transition-colors">
@@ -288,21 +287,29 @@ export const AffiliateLeadsView: React.FC<AffiliateLeadsViewProps> = ({ onNaviga
                       <td className="py-3.5 px-4 font-mono">
                         {l.external_admission_code ? (
                           <span className="font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
-                            {egovCode}
+                            {String(l.external_admission_code)}
                           </span>
                         ) : (
-                          <span className="text-slate-400 italic">Chưa cập nhật</span>
+                          <span className="text-slate-300">—</span>
                         )}
                       </td>
                       <td className="py-3.5 px-4">
-                        {isEnrolled ? (
+                        {l.reconciliation_status === 'MATCHED_VALID' ? (
                           <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            Đã nhập học
+                            Đã nhập học (Hợp lệ)
+                          </span>
+                        ) : l.reconciliation_status === 'EXISTING_IN_SCHOOL_SYSTEM' ? (
+                          <span className="inline-flex items-center gap-1 font-bold text-purple-800 bg-purple-50 px-2.5 py-1 rounded-md border border-purple-200" title="Khách đã đăng ký trước qua kênh khác">
+                            Hồ sơ không hợp lệ (khách đã đăng ký trước qua kênh khác)
+                          </span>
+                        ) : l.reconciliation_status === 'MISMATCH_INVALID' ? (
+                          <span className="inline-flex items-center gap-1 font-bold text-rose-800 bg-rose-50 px-2.5 py-1 rounded-md border border-rose-200">
+                            Thông tin không khớp
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 font-medium text-slate-600 bg-slate-100 px-2.5 py-1 rounded-md">
-                            Chưa nhập học
+                            Chưa đối chiếu
                           </span>
                         )}
                       </td>
