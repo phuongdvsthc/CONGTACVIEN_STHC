@@ -1,18 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Menu,
-  X,
   GraduationCap,
-  ChevronRight,
-  User,
   LogIn,
-  LogOut,
-  Clock,
-  CheckCircle2,
-  Shield,
   Phone,
+  User,
+  LogOut,
 } from 'lucide-react';
-import { UserRole } from '../../types';
 import { api } from '../../services/api';
 
 interface HeaderProps {
@@ -30,9 +23,7 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   currentRole,
-  activeTab,
   onNavigate,
-  onOpenConsultationModal,
   onOpenRegisterAffiliate,
   onOpenLoginAffiliate,
   onLogout,
@@ -40,7 +31,6 @@ export const Header: React.FC<HeaderProps> = ({
   currentAffiliate,
   refCode,
 }) => {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [headerConfig, setHeaderConfig] = useState<{
     logo_url?: string | null;
     logo_alt?: string | null;
@@ -59,294 +49,125 @@ export const Header: React.FC<HeaderProps> = ({
     }).catch(() => {});
   }, []);
 
+  const handleRegisterClick = () => {
+    const scrollToForm = () => {
+      const el = document.getElementById('affiliate-registration-card');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        const input = el.querySelector('input');
+        if (input) setTimeout(() => input.focus(), 300);
+      } else {
+        onOpenRegisterAffiliate();
+      }
+    };
+
+    if (window.location.pathname !== '/') {
+      onNavigate('affiliate_landing');
+      setTimeout(scrollToForm, 300);
+    } else {
+      scrollToForm();
+    }
+  };
+
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs">
+    <header className="sticky top-0 z-40 bg-[#0B1E3F] text-slate-100 border-b border-blue-900/60 shadow-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Zone 1: Logo and wordmark */}
+        <div className="flex items-center justify-between h-18 py-2.5">
+          {/* 1. Logo on the left */}
           <div className="flex items-center gap-3">
             <button
               onClick={() => onNavigate('affiliate_landing')}
-              className="flex items-center gap-2.5 text-left group"
+              className="flex items-center gap-2 text-left group focus:outline-none"
             >
               {headerConfig.logo_url ? (
                 <img
                   src={headerConfig.logo_url}
                   alt={headerConfig.logo_alt || 'Logo Trường Saigontourist'}
-                  className="w-10 h-10 rounded-xl object-cover shadow-sm border border-slate-200"
+                  className="h-10 sm:h-12 w-auto max-w-[200px] object-contain rounded-lg bg-white/5 p-1 border border-blue-800/40"
                 />
               ) : (
-                <div className="w-10 h-10 rounded-xl bg-blue-900 flex items-center justify-center text-amber-400 shadow-sm group-hover:bg-blue-950 transition-colors">
+                <div className="w-10 h-10 rounded-xl bg-blue-800 flex items-center justify-center text-amber-400 shadow-sm border border-amber-400/30">
                   <GraduationCap className="w-6 h-6" />
                 </div>
               )}
-              <div className="flex flex-col">
-                <span className="text-base font-bold text-slate-900 tracking-tight leading-none group-hover:text-blue-900 transition-colors">
-                  TRƯỜNG SAIGONTOURIST
-                </span>
-                <span className="text-[11px] font-medium text-slate-500 tracking-wider">
-                  CỔNG CỘNG TÁC VIÊN TUYỂN SINH
-                </span>
-              </div>
             </button>
 
             {refCode && (
-              <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-amber-50 text-amber-800 border border-amber-200">
-                Mã giới thiệu: <strong className="ml-1 font-mono">{refCode}</strong>
+              <span className="hidden md:inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-medium bg-amber-500/20 text-amber-300 border border-amber-400/30">
+                Mã CTV: <strong>{refCode}</strong>
               </span>
             )}
           </div>
 
-          {/* Zone 2: 4-6 clean text navigation links (Hidden for staff/admin) */}
-          {currentRole !== 'staff' && currentRole !== 'admin' && (
-            <nav className="hidden lg:flex items-center gap-6 text-sm font-medium text-slate-600">
-              <button
-                onClick={() => onNavigate('affiliate_landing')}
-                className={`hover:text-blue-900 transition-colors ${
-                  activeTab === 'affiliate_landing' ? 'text-blue-900 font-semibold border-b-2 border-blue-900 py-4' : ''
-                }`}
+          {/* 2. Hotline, Login, Register */}
+          <div className="flex items-center gap-3 sm:gap-4">
+            {headerConfig.hotline && (
+              <a
+                href={`tel:${headerConfig.hotline.replace(/\s+/g, '')}`}
+                className="hidden sm:flex items-center gap-2 px-3.5 py-2 bg-blue-950/60 border border-blue-800/60 text-blue-100 rounded-xl text-xs font-semibold hover:bg-blue-950 transition-colors shadow-xs"
               >
-                Giới thiệu & Đăng ký CTV
-              </button>
-
-              <button
-                onClick={() => onNavigate('public_catalog')}
-                className={`hover:text-blue-900 transition-colors ${
-                  activeTab === 'public_catalog' ? 'text-blue-900 font-semibold border-b-2 border-blue-900 py-4' : ''
-                }`}
-              >
-                Ngành đào tạo STHC
-              </button>
-
-              <button
-                onClick={() => onNavigate('affiliate_policy')}
-                className={`hover:text-blue-900 transition-colors ${
-                  activeTab === 'affiliate_policy' ? 'text-blue-900 font-semibold border-b-2 border-blue-900 py-4' : ''
-                }`}
-              >
-                Chính sách 500k
-              </button>
-
-              {/* Portal Link depends on Role */}
-              {currentRole === 'public' && (
-                <button
-                  onClick={onOpenLoginAffiliate}
-                  className="hover:text-blue-900 transition-colors text-slate-600"
-                >
-                  Cổng CTV Tuyển Sinh
-                </button>
-              )}
-
-              {(currentRole === 'affiliate_pending' || currentRole === 'affiliate_active') && (
-                <button
-                  onClick={() => onNavigate('affiliate_portal')}
-                  className={`hover:text-blue-900 transition-colors ${
-                    activeTab === 'affiliate_portal' ? 'text-blue-900 font-semibold border-b-2 border-blue-900 py-4' : ''
-                  }`}
-                >
-                  Cổng CTV Của Tôi
-                </button>
-              )}
-            </nav>
-          )}
-
-          {/* Zone 3: 1-2 primary actions */}
-          <div className="flex items-center gap-2.5">
-            {/* PUBLIC STATE: Show Login & Register CTA */}
-            {currentRole === 'public' && (
-              <div className="hidden sm:flex items-center gap-2">
-                <button
-                  onClick={onOpenLoginAffiliate}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 hover:text-blue-900 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-1.5"
-                >
-                  <LogIn className="w-3.5 h-3.5 text-blue-900" />
-                  <span>Đăng nhập CTV</span>
-                </button>
-                <button
-                  onClick={onOpenRegisterAffiliate}
-                  className="px-3 py-1.5 text-xs font-semibold text-blue-900 hover:text-blue-950 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
-                >
-                  Đăng ký CTV
-                </button>
-              </div>
+                <div className="w-6 h-6 rounded-lg bg-amber-400 text-slate-950 flex items-center justify-center shrink-0">
+                  <Phone className="w-3.5 h-3.5" />
+                </div>
+                <span>{headerConfig.hotline}</span>
+              </a>
             )}
 
-            {/* AFFILIATE PENDING STATE */}
-            {currentRole === 'affiliate_pending' && (
-              <div className="hidden sm:flex items-center gap-2 text-xs">
-                <div className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg flex items-center gap-1.5 font-medium">
-                  <Clock className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
-                  <span>Hồ sơ Chờ Duyệt</span>
-                </div>
+            {currentRole === 'staff' || currentRole === 'admin' ? (
+              <div className="flex items-center gap-2.5">
+                <span className="text-xs font-medium text-blue-200 hidden md:inline">{currentUser?.email}</span>
                 {onLogout && (
                   <button
                     onClick={onLogout}
-                    title="Đăng xuất tài khoản"
-                    className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors flex items-center gap-1"
+                    className="px-3.5 py-2 bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 border border-rose-500/40 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
                   >
-                    <LogOut className="w-4 h-4" />
-                    <span className="text-[11px] font-medium hidden md:inline">Thoát</span>
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* AFFILIATE ACTIVE STATE */}
-            {currentRole === 'affiliate_active' && (
-              <div className="hidden sm:flex items-center gap-2 text-xs">
-                <div className="px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg flex items-center gap-1.5 font-medium">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="font-mono font-bold">{currentAffiliate?.affiliate_code || 'STHCCTV'}</span>
-                </div>
-                {onLogout && (
-                  <button
-                    onClick={onLogout}
-                    title="Đăng xuất tài khoản"
-                    className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors flex items-center gap-1"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    <span className="text-[11px] font-medium hidden md:inline">Thoát</span>
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* STAFF / ADMIN STATE */}
-            {(currentRole === 'staff' || currentRole === 'admin') && (
-              <div className="flex items-center gap-3 text-xs">
-                <div className="px-3 py-1.5 bg-slate-100 text-slate-800 border border-slate-200 rounded-xl flex items-center gap-2 font-medium">
-                  <span className="font-mono font-bold text-blue-900">{currentUser?.email || 'admin@sthc.edu.vn'}</span>
-                </div>
-                {onLogout && (
-                  <button
-                    onClick={onLogout}
-                    title="Đăng xuất tài khoản"
-                    className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl transition-colors flex items-center gap-1.5 border border-rose-200 shadow-sm"
-                  >
-                    <LogOut className="w-4 h-4" />
+                    <LogOut className="w-3.5 h-3.5" />
                     <span>Đăng xuất</span>
                   </button>
                 )}
               </div>
-            )}
+            ) : currentRole === 'affiliate_active' || currentRole === 'affiliate_pending' ? (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onNavigate('affiliate_portal')}
+                  className="px-3.5 py-2 bg-blue-900 hover:bg-blue-950 text-white border border-blue-700/60 rounded-xl text-xs font-bold shadow-xs transition-all flex items-center gap-1.5"
+                >
+                  <User className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden sm:inline">Cổng CTV</span>
+                </button>
+                {onLogout && (
+                  <button
+                    onClick={onLogout}
+                    className="p-2 text-slate-300 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors"
+                    title="Đăng xuất"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                {/* 3. Nút Đăng nhập (light border) */}
+                <button
+                  onClick={onOpenLoginAffiliate}
+                  className="px-3.5 sm:px-4 py-2 text-xs font-semibold text-white border border-blue-400/40 hover:bg-blue-900/50 rounded-xl transition-all shadow-xs flex items-center gap-1.5"
+                >
+                  <LogIn className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Đăng nhập</span>
+                </button>
 
-            {/* Main Lead Consultation CTA (Hidden for staff/admin) */}
-            {currentRole !== 'staff' && currentRole !== 'admin' && (
-              <button
-                onClick={onOpenConsultationModal}
-                className="px-3.5 py-2 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-lg shadow-sm transition-all flex items-center gap-1 whitespace-nowrap active:scale-95"
-              >
-                <span>Đăng Ký Tư Vấn</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+                {/* 4. Nút Đăng ký (prominent yellow) */}
+                <button
+                  onClick={handleRegisterClick}
+                  className="px-4 sm:px-5 py-2 text-xs font-extrabold text-slate-950 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-md transition-all active:scale-95 flex items-center"
+                >
+                  <span>Đăng ký</span>
+                </button>
+              </div>
             )}
-
-            {/* Mobile menu toggle */}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="lg:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100"
-            >
-              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
           </div>
         </div>
       </div>
-
-      {/* Mobile drawer */}
-      {mobileMenuOpen && (
-        <div className="lg:hidden border-t border-slate-200 bg-white px-4 pt-3 pb-6 space-y-3">
-          <nav className="flex flex-col space-y-2">
-            <button
-              onClick={() => {
-                onNavigate('affiliate_landing');
-                setMobileMenuOpen(false);
-              }}
-              className="text-left py-2 px-3 rounded-lg text-sm font-semibold text-blue-900 bg-blue-50/60"
-            >
-              Giới thiệu & Đăng ký CTV
-            </button>
-            <button
-              onClick={() => {
-                onNavigate('public_catalog');
-                setMobileMenuOpen(false);
-              }}
-              className="text-left py-2 px-3 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Ngành đào tạo STHC
-            </button>
-            <button
-              onClick={() => {
-                onNavigate('affiliate_policy');
-                setMobileMenuOpen(false);
-              }}
-              className="text-left py-2 px-3 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              Chính sách thưởng 500k
-            </button>
-
-            {currentRole === 'public' && (
-              <>
-                <button
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    onOpenLoginAffiliate();
-                  }}
-                  className="text-left py-2 px-3 rounded-lg text-sm font-medium text-blue-900 bg-blue-50/50 flex items-center justify-between"
-                >
-                  <span>Đăng nhập Cổng CTV</span>
-                  <LogIn className="w-4 h-4 text-blue-900" />
-                </button>
-                <button
-                  onClick={() => {
-                    setMobileMenuOpen(false);
-                    onOpenRegisterAffiliate();
-                  }}
-                  className="text-left py-2 px-3 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Đăng ký CTV mới
-                </button>
-              </>
-            )}
-
-            {(currentRole === 'affiliate_pending' || currentRole === 'affiliate_active') && (
-              <button
-                onClick={() => {
-                  onNavigate('affiliate_portal');
-                  setMobileMenuOpen(false);
-                }}
-                className="text-left py-2 px-3 rounded-lg text-sm font-semibold text-blue-900 bg-blue-50"
-              >
-                Cổng CTV Tuyển Sinh {currentRole === 'affiliate_pending' ? '(Chờ duyệt)' : '(Hoạt động)'}
-              </button>
-            )}
-
-            {(currentRole === 'staff' || currentRole === 'admin') && (
-              <button
-                onClick={() => {
-                  onNavigate('admin_portal');
-                  setMobileMenuOpen(false);
-                }}
-                className="text-left py-2 px-3 rounded-lg text-sm font-semibold text-blue-900 bg-blue-50"
-              >
-                Cổng Quản Trị Hệ Thống
-              </button>
-            )}
-
-            {currentRole !== 'public' && onLogout && (
-              <button
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  onLogout();
-                }}
-                className="text-left py-2 px-3 rounded-lg text-sm font-medium text-rose-600 hover:bg-rose-50 flex items-center justify-between"
-              >
-                <span>Đăng xuất tài khoản</span>
-                <LogOut className="w-4 h-4" />
-              </button>
-            )}
-          </nav>
-        </div>
-      )}
     </header>
   );
 };

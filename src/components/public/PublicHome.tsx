@@ -339,13 +339,13 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
     : DEFAULT_LAYOUT_BLOCKS;
 
   return (
-    <div className="space-y-16 pb-24 font-sans text-slate-100 bg-[#070D18]">
+    <div className="space-y-10 pb-20 font-sans text-slate-100 bg-[#070D18]">
       {activeBlocks.map((block) => {
         const cfg = block.config || DEFAULT_LAYOUT_BLOCKS.find(d => d.id === block.id)?.config || {};
 
         if (block.id === 'hero') {
           return (
-            <section key="hero" className="relative overflow-hidden bg-gradient-to-b from-[#0B1E3F] via-[#0A1628] to-[#070D18] py-12 sm:py-16 lg:py-20 px-4 sm:px-6 lg:px-8">
+            <section key="hero" className="relative overflow-hidden bg-gradient-to-b from-[#0B1E3F] via-[#0A1628] to-[#070D18] py-6 sm:py-10 lg:py-12 px-4 sm:px-6 lg:px-8">
               {homeConfig.hero_background_url && (
                 <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
                   <img
@@ -360,15 +360,10 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
                   {/* Left Column: Hero Content */}
                   <div className="lg:col-span-7 space-y-6">
-                    {refCode ? (
+                    {refCode && (
                       <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 text-xs font-semibold tracking-wide">
                         <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                         <span>Bạn đang truy cập qua liên kết giới thiệu của CTV: <strong>{refCode}</strong></span>
-                      </div>
-                    ) : (
-                      <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 border border-white/20 text-slate-300 text-xs font-medium tracking-wide">
-                        <GraduationCap className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Tuyển sinh Trung cấp chính quy & Sơ cấp nghề 2026</span>
                       </div>
                     )}
 
@@ -388,7 +383,7 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
                     <div className="pt-2 grid grid-cols-3 gap-4 border-t border-slate-800 text-left">
                       <div>
                         <span className="text-2xl font-bold font-mono text-amber-400 block tabular-nums">
-                          35+ Năm
+                          37+ Năm
                         </span>
                         <span className="text-xs text-slate-400">Tiên phong đào tạo</span>
                       </div>
@@ -402,7 +397,7 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
                         <span className="text-2xl font-bold font-mono text-amber-400 block tabular-nums">
                           500.000đ
                         </span>
-                        <span className="text-xs text-slate-400">Thù lao thưởng CTV</span>
+                        <span className="text-xs text-slate-400">Thù lao thưởng Cộng tác viên</span>
                       </div>
                     </div>
 
