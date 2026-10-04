@@ -368,13 +368,13 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
                     )}
 
                     <div className="space-y-3">
-                      <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-white leading-tight">
+                      <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-white leading-snug">
                         {cfg.title || 'Saigontourist Lan Tỏa Tương Lai Ngành Du Lịch'}
-                        <span className="block text-amber-400 mt-1 font-serif font-normal italic text-2xl sm:text-3xl lg:text-4xl">
-                          {cfg.subtitle || 'Khởi Đầu Nghề Nghiệp Đẳng Cấp 5 Sao'}
-                        </span>
-                      </h1>
-                      <p className="text-sm sm:text-base text-blue-100/90 leading-relaxed max-w-2xl">
+                      </h2>
+                      <p className="text-xl sm:text-2xl font-semibold text-amber-400 leading-snug">
+                        {cfg.subtitle || 'Khởi Đầu Nghề Nghiệp Đẳng Cấp 5 Sao'}
+                      </p>
+                      <p className="text-sm sm:text-base text-blue-100/90 leading-relaxed max-w-2xl pt-1">
                         {cfg.description || 'Trở thành Cầu nối Tuyển sinh cho ngôi trường đào tạo Du lịch - Khách sạn hàng đầu Việt Nam với hơn 35 năm uy tín. Nhận thù lao xứng đáng, thủ tục minh bạch và đối soát tự động.'}
                       </p>
                     </div>
@@ -677,16 +677,18 @@ export const PublicHome: React.FC<PublicHomeProps> = ({
 
               <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-center bg-gradient-to-br from-[#0B1E3F]/80 to-[#0A1628] border border-blue-800/40 rounded-3xl p-6 sm:p-10 shadow-2xl">
                 <div className="md:col-span-5 space-y-4 text-center md:text-left">
-                  <div className="inline-flex p-3.5 rounded-2xl bg-amber-400 text-slate-950 font-bold shadow-lg">
-                    <Award className="w-8 h-8" />
+                  <div className="flex items-center gap-4 justify-center md:justify-start">
+                    <div className="p-3.5 rounded-2xl bg-amber-400 text-slate-950 font-bold shadow-lg shrink-0">
+                      <Award className="w-8 h-8 sm:w-10 sm:h-10" />
+                    </div>
+                    <div className="flex items-baseline gap-1.5 flex-wrap">
+                      <span className="text-2xl sm:text-3xl font-black font-mono text-amber-400 tracking-tight whitespace-nowrap">
+                        {cfg.amount || '500.000'} {cfg.currency || 'VNĐ'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <span className="text-4xl sm:text-5xl font-black font-mono text-amber-400 tracking-tight block">
-                      {cfg.amount || '500.000'} <span className="text-xl sm:text-2xl font-bold">{cfg.currency || 'VNĐ'}</span>
-                    </span>
-                    <span className="text-xs font-semibold text-blue-200 uppercase tracking-widest">
-                      / {cfg.unitLabel || '01 hồ sơ nhập học hợp lệ'}
-                    </span>
+                  <div className="text-xs sm:text-sm font-semibold text-blue-200 uppercase tracking-wide">
+                    / {cfg.unitLabel || '01 hồ sơ nhập học hợp lệ'}
                   </div>
                   <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
                     {cfg.description}
