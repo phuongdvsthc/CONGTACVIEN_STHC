@@ -71,6 +71,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
   const [affiliatesLoading, setAffiliatesLoading] = useState(false);
   const [affiliatesError, setAffiliatesError] = useState<string | null>(null);
 
+  // Leads list state & pagination (A3.4)
+  const [leadSearchInput, setLeadSearchInput] = useState('');
+  const [leadDebouncedSearch, setLeadDebouncedSearch] = useState('');
+  const [leadCourseFilter, setLeadCourseFilter] = useState('ALL');
+  const [leadStatusFilter, setLeadStatusFilter] = useState('ALL');
+  const [leadAdmissionFilter, setLeadAdmissionFilter] = useState('ALL');
+  const [leadAffiliateFilter, setLeadAffiliateFilter] = useState('ALL');
+  const [leadFromDate, setLeadFromDate] = useState('');
+  const [leadToDate, setLeadToDate] = useState('');
+  const [leadPage, setLeadPage] = useState(1);
+  const [leadLimit, setLeadLimit] = useState(20);
+  const [leadPagination, setLeadPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
+  const [leadsLoading, setLeadsLoading] = useState(false);
+  const [leadsError, setLeadsError] = useState<string | null>(null);
+
   // Debounce search input (400ms)
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -79,6 +94,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
     }, 400);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  // Debounce lead search input (400ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLeadDebouncedSearch(leadSearchInput);
+      setLeadPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [leadSearchInput]);
 
   useEffect(() => {
     const clean = currentPath.split('?')[0].split('#')[0];
@@ -98,6 +122,42 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
   useEffect(() => {
     loadAffiliates();
   }, [debouncedSearch, statusFilter, page, limit]);
+
+  useEffect(() => {
+    if (activeTab === 'leads') {
+      loadAdminLeads();
+    }
+  }, [leadDebouncedSearch, leadCourseFilter, leadStatusFilter, leadAdmissionFilter, leadAffiliateFilter, leadFromDate, leadToDate, leadPage, leadLimit, activeTab]);
+
+  const loadAdminLeads = async () => {
+    setLeadsLoading(true);
+    setLeadsError(null);
+    try {
+      const res = await api.getAdminLeads({
+        search: leadDebouncedSearch,
+        course_id: leadCourseFilter,
+        status: leadStatusFilter,
+        admission_status: leadAdmissionFilter,
+        affiliate_id: leadAffiliateFilter,
+        from_date: leadFromDate || undefined,
+        to_date: leadToDate || undefined,
+        page: leadPage,
+        limit: leadLimit,
+      });
+      if (res.success && res.data) {
+        setLeads(res.data);
+        if (res.pagination) {
+          setLeadPagination(res.pagination);
+        }
+      } else {
+        setLeadsError(res.error || 'Lỗi tải danh sách lead');
+      }
+    } catch (err: any) {
+      setLeadsError(err.message || 'Lỗi kết nối máy chủ');
+    } finally {
+      setLeadsLoading(false);
+    }
+  };
 
   const loadAffiliates = async () => {
     setAffiliatesLoading(true);
@@ -182,12 +242,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
     }
   };
 
-  // 2. Cập nhật Lead counseling status
+  // 2. Cập nhật Lead counseling status (A3.6)
   const handleUpdateLeadCounseling = async (leadId: string, status: string, note?: string) => {
     try {
       const res = await api.updateCounselingStatus(leadId, status, note);
       if (res.success) {
         showFeedback('success', res.message || 'Cập nhật tiến độ tư vấn thành công!');
+        loadAdminLeads();
         loadAllData();
       } else {
         showFeedback('error', res.error || 'Lỗi cập nhật');
@@ -607,87 +668,318 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
       )}
 
       {/* ---------------------------------------------------------------------- */}
-      {/* TAB 3: TIẾP NHẬN & CẬP NHẬT LEAD */}
+      {/* TAB 3: TIẾP NHẬN & CẬP NHẬT LEAD (A3.4) */}
       {/* ---------------------------------------------------------------------- */}
       {activeTab === 'leads' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <div className="flex items-center justify-between">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-bold text-slate-900">Danh Sách Ứng Viên Đăng Ký Tư Vấn (Leads)</h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Cán bộ tuyển sinh xem đầy đủ số điện thoại gốc và cập nhật tiến độ tư vấn
+                Cán bộ tuyển sinh xem đầy đủ số điện thoại gốc, lọc theo khóa học, CTV, trạng thái tư vấn và đối soát hồ sơ.
               </p>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-y border-slate-200 uppercase tracking-wider text-[11px]">
-                <tr>
-                  <th className="py-3 px-4">Họ và tên</th>
-                  <th className="py-3 px-4">Số điện thoại</th>
-                  <th className="py-3 px-4">Nguồn CTV</th>
-                  <th className="py-3 px-4">Khung giờ tiện</th>
-                  <th className="py-3 px-4">Tiến độ tư vấn</th>
-                  <th className="py-3 px-4">Đối soát</th>
-                  <th className="py-3 px-4 text-right">Cập nhật</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {leads.map((l) => (
-                  <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-4 font-semibold text-slate-900">
-                      <div>{l.full_name}</div>
-                      <div className="text-[11px] text-slate-400">{l.email || l.province}</div>
-                    </td>
-                    <td className="py-3 px-4 font-mono font-bold text-blue-900">
-                      {l.phone}
-                    </td>
-                    <td className="py-3 px-4">
-                      {l.affiliate_code_captured ? (
-                        <span className="font-mono font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded">
-                          {l.affiliate_code_captured}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400">Tự nhiên</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-slate-600">
-                      {l.preferred_contact_time || 'Giờ hành chính'}
-                    </td>
-                    <td className="py-3 px-4">
-                      <select
-                        value={l.counseling_status}
-                        onChange={(e) => handleUpdateLeadCounseling(l.id, e.target.value)}
-                        className="p-1 border border-slate-200 rounded text-xs bg-white font-medium"
-                      >
-                        <option value="NEW">NEW (Mới)</option>
-                        <option value="CONTACTED">CONTACTED (Đã gọi)</option>
-                        <option value="CONSULTING">CONSULTING (Đang tư vấn)</option>
-                        <option value="UNREACHABLE">UNREACHABLE (Không liên lạc được)</option>
-                        <option value="LOST">LOST (Hủy)</option>
-                      </select>
-                    </td>
-                    <td className="py-3 px-4">
-                      {l.reconciliation_status === 'MATCHED_VALID' ? (
-                        <span className="text-emerald-700 font-semibold">Đã đối soát</span>
-                      ) : (
-                        <span className="text-slate-400">Chưa đối soát</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => handleViewHistory(l)}
-                        className="px-2.5 py-1 text-xs text-blue-900 hover:bg-blue-50 rounded transition-colors font-medium"
-                      >
-                        Lịch sử
-                      </button>
-                    </td>
-                  </tr>
+          {/* TOOLBAR: Search & Filters */}
+          <div className="bg-slate-50/70 p-4 rounded-xl border border-slate-200 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Search input */}
+              <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={leadSearchInput}
+                  onChange={(e) => setLeadSearchInput(e.target.value)}
+                  placeholder="Tìm theo họ tên, SĐT, email..."
+                  className="w-full pl-10 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
+                />
+              </div>
+
+              {/* Course filter */}
+              <select
+                value={leadCourseFilter}
+                onChange={(e) => {
+                  setLeadCourseFilter(e.target.value);
+                  setLeadPage(1);
+                }}
+                className="py-2 px-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-900/20"
+              >
+                <option value="ALL">Tất cả khóa học</option>
+                {courses.map((c: any) => (
+                  <option key={c.id} value={c.id}>
+                    {c.code} - {c.title}
+                  </option>
                 ))}
-              </tbody>
-            </table>
+              </select>
+
+              {/* Counseling status filter */}
+              <select
+                value={leadStatusFilter}
+                onChange={(e) => {
+                  setLeadStatusFilter(e.target.value);
+                  setLeadPage(1);
+                }}
+                className="py-2 px-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-900/20"
+              >
+                <option value="ALL">Tất cả tiến độ tư vấn</option>
+                <option value="NEW">NEW (Mới đăng ký)</option>
+                <option value="CONTACTED">CONTACTED (Đã gọi)</option>
+                <option value="CONSULTING">CONSULTING (Đang tư vấn)</option>
+                <option value="UNREACHABLE">UNREACHABLE (Không gọi được)</option>
+                <option value="LOST">LOST (Hủy / Không tiếp tục)</option>
+              </select>
+
+              {/* Admission / Reconciliation status filter */}
+              <select
+                value={leadAdmissionFilter}
+                onChange={(e) => {
+                  setLeadAdmissionFilter(e.target.value);
+                  setLeadPage(1);
+                }}
+                className="py-2 px-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-900/20"
+              >
+                <option value="ALL">Tất cả trạng thái đối soát</option>
+                <option value="MATCHED_VALID">Đã đối soát (MATCHED_VALID)</option>
+                <option value="NOT_RECONCILED">Chưa đối soát</option>
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-center pt-2 border-t border-slate-200/60">
+              {/* Affiliate filter */}
+              <select
+                value={leadAffiliateFilter}
+                onChange={(e) => {
+                  setLeadAffiliateFilter(e.target.value);
+                  setLeadPage(1);
+                }}
+                className="py-2 px-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-900/20"
+              >
+                <option value="ALL">Tất cả nguồn CTV</option>
+                <option value="">Tự nhiên (Không CTV)</option>
+                {affiliates.map((aff: any) => (
+                  <option key={aff.id} value={aff.id}>
+                    {aff.affiliate_code} - {aff.profiles?.full_name || aff.full_name || aff.email}
+                  </option>
+                ))}
+              </select>
+
+              {/* From Date */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-500 font-medium shrink-0">Từ ngày:</span>
+                <input
+                  type="date"
+                  value={leadFromDate}
+                  onChange={(e) => {
+                    setLeadFromDate(e.target.value);
+                    setLeadPage(1);
+                  }}
+                  className="w-full py-1.5 px-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700"
+                />
+              </div>
+
+              {/* To Date */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-500 font-medium shrink-0">Đến ngày:</span>
+                <input
+                  type="date"
+                  value={leadToDate}
+                  onChange={(e) => {
+                    setLeadToDate(e.target.value);
+                    setLeadPage(1);
+                  }}
+                  className="w-full py-1.5 px-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700"
+                />
+              </div>
+
+              {/* Reset & Limit */}
+              <div className="flex items-center justify-end gap-3">
+                {(leadSearchInput || leadCourseFilter !== 'ALL' || leadStatusFilter !== 'ALL' || leadAdmissionFilter !== 'ALL' || leadAffiliateFilter !== 'ALL' || leadFromDate || leadToDate) && (
+                  <button
+                    onClick={() => {
+                      setLeadSearchInput('');
+                      setLeadDebouncedSearch('');
+                      setLeadCourseFilter('ALL');
+                      setLeadStatusFilter('ALL');
+                      setLeadAdmissionFilter('ALL');
+                      setLeadAffiliateFilter('ALL');
+                      setLeadFromDate('');
+                      setLeadToDate('');
+                      setLeadPage(1);
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 rounded-xl transition-colors inline-flex items-center gap-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Xóa bộ lọc</span>
+                  </button>
+                )}
+
+                <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                  <span>Hiển thị:</span>
+                  <select
+                    value={leadLimit}
+                    onChange={(e) => {
+                      setLeadLimit(Number(e.target.value));
+                      setLeadPage(1);
+                    }}
+                    className="py-1.5 px-2 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:outline-none"
+                  >
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+              </div>
+            </div>
           </div>
+
+          {/* TABLE CONTENT */}
+          {leadsError ? (
+            <div className="p-8 text-center bg-rose-50 border border-rose-200 rounded-2xl space-y-3">
+              <AlertCircle className="w-8 h-8 text-rose-600 mx-auto" />
+              <p className="text-xs font-medium text-rose-900">{leadsError}</p>
+              <button
+                onClick={loadAdminLeads}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
+              >
+                Thử lại
+              </button>
+            </div>
+          ) : leadsLoading ? (
+            <div className="py-16 text-center space-y-3">
+              <div className="w-8 h-8 border-2 border-blue-900 border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-xs text-slate-500 font-medium">Đang tải danh sách hồ sơ...</p>
+            </div>
+          ) : leads.length === 0 ? (
+            <div className="py-16 text-center space-y-2 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
+              <Users className="w-8 h-8 text-slate-400 mx-auto" />
+              <h4 className="text-sm font-bold text-slate-900">Không tìm thấy ứng viên</h4>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                Không có hồ sơ nào khớp với điều kiện tìm kiếm hoặc bộ lọc hiện tại.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 text-slate-600 font-semibold border-y border-slate-200 uppercase tracking-wider text-[11px]">
+                  <tr>
+                    <th className="py-3 px-3 w-12 text-center">STT</th>
+                    <th className="py-3 px-4">Họ và tên</th>
+                    <th className="py-3 px-4">Số điện thoại</th>
+                    <th className="py-3 px-4">Khóa học đăng ký</th>
+                    <th className="py-3 px-4">Nguồn CTV</th>
+                    <th className="py-3 px-4">Khung giờ tiện</th>
+                    <th className="py-3 px-4">Tiến độ tư vấn</th>
+                    <th className="py-3 px-4">Đối soát</th>
+                    <th className="py-3 px-4 text-right">Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {leads.map((l: any, index: number) => {
+                    const stt = (leadPagination.page - 1) * leadPagination.limit + index + 1;
+                    return (
+                      <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 px-3 text-center font-mono text-slate-500">{stt}</td>
+                        <td className="py-3 px-4 font-semibold text-slate-900">
+                          <div>{l.full_name}</div>
+                          <div className="text-[11px] text-slate-400">{l.email || l.province || '—'}</div>
+                        </td>
+                        <td className="py-3 px-4 font-mono font-bold text-blue-900">
+                          {l.phone}
+                        </td>
+                        <td className="py-3 px-4 text-slate-700 font-medium">
+                          {l.course_title || l.courses?.title || 'Chương trình STHC'}
+                        </td>
+                        <td className="py-3 px-4">
+                          {l.affiliate_code_captured || l.affiliate_code ? (
+                            <span className="font-mono font-semibold text-amber-800 bg-amber-50 px-2 py-0.5 rounded">
+                              {l.affiliate_code_captured || l.affiliate_code}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">Tự nhiên</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-slate-600">
+                          {l.preferred_contact_time || 'Giờ hành chính'}
+                        </td>
+                        <td className="py-3 px-4">
+                          <select
+                            value={l.counseling_status}
+                            onChange={(e) => handleUpdateLeadCounseling(l.id, e.target.value)}
+                            className="p-1 border border-slate-200 rounded text-xs bg-white font-medium focus:ring-1 focus:ring-blue-900"
+                          >
+                            <option value="NEW">NEW (Mới)</option>
+                            <option value="CONTACTED">CONTACTED (Đã gọi)</option>
+                            <option value="CONSULTING">CONSULTING (Đang tư vấn)</option>
+                            <option value="UNREACHABLE">UNREACHABLE (Không gọi được)</option>
+                            <option value="LOST">LOST (Hủy)</option>
+                          </select>
+                        </td>
+                        <td className="py-3 px-4">
+                          {l.reconciliation_status === 'MATCHED_VALID' ? (
+                            <span className="text-emerald-700 font-semibold inline-flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                              Đã đối soát
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">Chưa đối soát</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={() => {
+                              window.history.pushState({}, '', `/admin/leads/${l.id}`);
+                              window.dispatchEvent(new PopStateEvent('popstate'));
+                            }}
+                            className="px-2.5 py-1 text-xs text-blue-900 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors font-semibold inline-flex items-center gap-1 shadow-sm"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>Chi tiết</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* PAGINATION FOOTER */}
+          {leadPagination.total > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100 text-xs text-slate-600">
+              <div>
+                Hiển thị{' '}
+                <strong className="text-slate-900">
+                  {Math.min((leadPagination.page - 1) * leadPagination.limit + 1, leadPagination.total)}–
+                  {Math.min(leadPagination.page * leadPagination.limit, leadPagination.total)}
+                </strong>{' '}
+                / <strong className="text-slate-900">{leadPagination.total}</strong> ứng viên
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setLeadPage((p) => Math.max(1, p - 1))}
+                  disabled={leadPagination.page <= 1}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                >
+                  Trang trước
+                </button>
+
+                <span className="px-2 font-medium text-slate-700">
+                  Trang {leadPagination.page} / {leadPagination.totalPages || 1}
+                </span>
+
+                <button
+                  onClick={() => setLeadPage((p) => Math.min(leadPagination.totalPages, p + 1))}
+                  disabled={leadPagination.page >= leadPagination.totalPages}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                >
+                  Trang sau
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

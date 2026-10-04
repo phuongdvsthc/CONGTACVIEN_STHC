@@ -19,7 +19,10 @@ import { AffiliateCourseListView } from './components/affiliate/AffiliateCourseL
 import { AffiliateCourseDetailView } from './components/affiliate/AffiliateCourseDetailView';
 import { AffiliatePendingScreen } from './components/affiliate/AffiliatePendingScreen';
 import { AffiliateRegisterModal } from './components/affiliate/AffiliateRegisterModal';
+import { AffiliateLeadsView } from './components/affiliate/AffiliateLeadsView';
+import { AffiliateLeadDetailView } from './components/affiliate/AffiliateLeadDetailView';
 import { AdminPortal } from './components/admin/AdminPortal';
+import { AdminLeadDetailView } from './components/admin/AdminLeadDetailView';
 import { AdminPlaceholderPage } from './components/admin/AdminPlaceholderPage';
 import { AdminHomepageConfigView } from './components/admin/AdminHomepageConfigView';
 import { AppLayout } from './components/common/AppLayout';
@@ -509,11 +512,16 @@ export default function App() {
             />
           )}
 
-          {currentPath.startsWith('/portal/leads') && (
-            <AffiliatePlaceholderPage
-              title="Khách hàng được giới thiệu"
-              onNavigateToOverview={() => navigate('/portal')}
+          {currentPath.match(/^\/portal\/leads\/([a-f0-9-]+)$/i) ? (
+            <AffiliateLeadDetailView
+              leadId={currentPath.replace('/portal/leads/', '')}
+              onBack={() => {
+                window.history.pushState({}, '', '/portal/leads');
+                window.dispatchEvent(new PopStateEvent('popstate'));
+              }}
             />
+          ) : currentPath.startsWith('/portal/leads') && (
+            <AffiliateLeadsView onNavigateToOverview={() => navigate('/portal')} />
           )}
 
           {/* ADMIN & STAFF PORTAL ROUTING */}
@@ -526,7 +534,16 @@ export default function App() {
             />
           )}
 
-          {(currentPath === '/admin' ||
+          {currentPath.match(/^\/admin\/leads\/([a-f0-9-]+)$/i) ? (
+            <AdminLeadDetailView
+              leadId={currentPath.replace('/admin/leads/', '')}
+              currentUser={authSession.user}
+              onBack={() => {
+                window.history.pushState({}, '', '/admin/leads');
+                window.dispatchEvent(new PopStateEvent('popstate'));
+              }}
+            />
+          ) : (currentPath === '/admin' ||
             currentPath === '/admin/' ||
             currentPath.startsWith('/admin/affiliates') ||
             currentPath === '/admin/courses' ||

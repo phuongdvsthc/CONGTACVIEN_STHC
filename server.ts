@@ -1915,23 +1915,32 @@ async function startServer() {
       }
     }
 
-    // 3. Kiểm tra chống trùng số điện thoại trong 90 ngày (Attribution Policy)
+    // 3. Kiểm tra chống trùng số điện thoại theo khóa học trong 90 ngày (Attribution Policy)
     let isDuplicate = false;
     let duplicateReason: string | null = null;
+    const targetCourseId = resolvedCourseDbId || (isUUID ? course_id : null);
+    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
 
-    const { data: existingLead } = await supabase
+    let duplicateQuery = supabase
       .from('leads')
-      .select('id, created_at, affiliate_id')
+      .select('id, created_at, affiliate_id, course_id')
       .eq('phone', cleanPhone)
+      .gte('created_at', ninetyDaysAgo);
+
+    if (targetCourseId) {
+      duplicateQuery = duplicateQuery.eq('course_id', targetCourseId);
+    }
+
+    const { data: existingLead } = await duplicateQuery
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (existingLead) {
       isDuplicate = true;
-      duplicateReason = 'Số điện thoại đã gửi thông tin đăng ký tư vấn trong vòng 90 ngày.';
+      duplicateReason = 'Số điện thoại đã gửi thông tin đăng ký tư vấn cho khóa học này trong vòng 90 ngày.';
       if (existingLead.affiliate_id) {
-        assignedAffiliateId = existingLead.affiliate_id; // Giữ nguyên nguồn CTV ban đầu
+        assignedAffiliateId = existingLead.affiliate_id; // Giữ nguyên nguồn CTV ban đầu theo Attribution Window
       }
     }
 
@@ -2372,81 +2381,315 @@ async function startServer() {
     }
   });
 
-  // GET /api/v1/affiliate/leads (BẢO MẬT: Che 4 số cuối điện thoại)
+  // GET /api/v1/affiliate/leads (BẢO MẬT: Che 4 số cuối điện thoại, hỗ trợ tìm kiếm, lọc và phân trang)
   app.get('/api/v1/affiliate/leads', requireActiveAffiliate, async (req: Request, res: Response) => {
-    const affiliateId = demoState.activeAffiliate.id;
+    try {
+      const authResult = await resolveAffiliateSession(req);
+      const affiliateId = authResult.affiliate?.id || demoState.activeAffiliate.id;
 
-    const { data: realLeads } = await supabase
-      .from('leads')
-      .select('id, full_name, phone, course_id, counseling_status, reconciliation_status, reward_status, created_at')
-      .eq('affiliate_id', affiliateId)
-      .order('created_at', { ascending: false });
+      const { search, course_id, status, admission_status, from_date, to_date, page, limit } = req.query;
+      const pageNum = Math.max(1, parseInt(String(page || '1'), 10) || 1);
+      let limitNum = parseInt(String(limit || '20'), 10) || 20;
+      if (![10, 20, 50, 100].includes(limitNum)) limitNum = 20;
 
-    // Mask phone function: 0908123456 -> 090812****
-    const maskPhone = (phone: string) => {
-      if (!phone || phone.length < 6) return '090****';
-      return phone.slice(0, -4) + '****';
-    };
+      const from = (pageNum - 1) * limitNum;
+      const to = from + limitNum - 1;
 
-    const courseMap: Record<string, string> = {
-      'CBMA-TC-01': 'Kỹ thuật Chế biến Món ăn Á - Âu',
-      'BB-TC-02': 'Nghệ thuật Bếp bánh & Bánh ngọt Âu',
-      'QTKS-TC-03': 'Quản trị Khách sạn & Khu nghỉ dưỡng',
-      'LT-SC-04': 'Quản trị Lễ tân Quốc tế',
-      'QTNH-TC-05': 'Quản trị Nhà hàng & Dịch vụ Ăn uống',
-      'PC-SC-06': 'Nghệ thuật Pha chế Đồ uống (Bartender & Barista)',
-      'HDDL-TC-07': 'Hướng dẫn Du lịch Quốc tế & Nội địa',
-      'DH-TC-08': 'Quản trị Điều hành Tour & Đại lý Du lịch',
-    };
+      let query = supabase
+        .from('leads')
+        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status)', { count: 'exact' })
+        .eq('affiliate_id', affiliateId);
 
-    const mockSeedLeads = [
-      {
-        id: 'seed-lead-01',
-        full_name: 'Nguyễn Hoàng Khang',
-        phone_masked: '090918****',
-        course_title: 'Kỹ thuật Chế biến Món ăn Á - Âu',
-        counseling_status: 'CONSULTING',
-        reconciliation_status: 'MATCHED_VALID',
-        reward_status: 'APPROVED',
-        created_at: new Date(Date.now() - 3600000 * 24 * 5).toISOString(),
-      },
-      {
-        id: 'seed-lead-02',
-        full_name: 'Trần Mỹ Linh',
-        phone_masked: '093845****',
-        course_title: 'Quản trị Khách sạn & Khu nghỉ dưỡng',
-        counseling_status: 'CONTACTED',
-        reconciliation_status: 'MATCHED_VALID',
-        reward_status: 'PENDING_APPROVAL',
-        created_at: new Date(Date.now() - 3600000 * 24 * 3).toISOString(),
-      },
-      {
-        id: 'seed-lead-03',
-        full_name: 'Phạm Đức Trọng',
-        phone_masked: '091234****',
-        course_title: 'Nghệ thuật Bếp bánh & Bánh ngọt Âu',
-        counseling_status: 'NEW',
-        reconciliation_status: 'NOT_RECONCILED',
-        reward_status: 'NONE',
-        created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
-      },
-    ];
+      const cleanSearch = typeof search === 'string' ? search.trim() : '';
+      if (cleanSearch) {
+        const safe = cleanSearch.replace(/[,()]/g, ' ').trim();
+        if (safe) {
+          query = query.or(`full_name.ilike.%${safe}%,phone.ilike.%${safe}%,id.eq.${safe}`);
+        }
+      }
 
-    const formattedRealLeads = (realLeads || []).map(l => ({
-      id: l.id,
-      full_name: l.full_name,
-      phone_masked: maskPhone(l.phone),
-      course_title: l.course_id ? (courseMap[l.course_id] || 'Chương trình tuyển sinh STHC') : 'Tư vấn chung',
-      counseling_status: l.counseling_status,
-      reconciliation_status: l.reconciliation_status,
-      reward_status: l.reward_status,
-      created_at: l.created_at,
-    }));
+      if (course_id && course_id !== 'ALL') {
+        query = query.eq('course_id', course_id);
+      }
 
-    res.json({
-      success: true,
-      data: [...formattedRealLeads, ...mockSeedLeads],
-    });
+      if (status && status !== 'ALL') {
+        query = query.eq('counseling_status', status);
+      }
+
+      if (admission_status && admission_status !== 'ALL') {
+        if (admission_status === 'ENROLLED' || admission_status === 'MATCHED_VALID') {
+          query = query.eq('reconciliation_status', 'MATCHED_VALID');
+        } else if (admission_status === 'NOT_ENROLLED' || admission_status === 'NOT_RECONCILED') {
+          query = query.neq('reconciliation_status', 'MATCHED_VALID');
+        }
+      }
+
+      if (from_date && typeof from_date === 'string') {
+        query = query.gte('created_at', `${from_date}T00:00:00.000Z`);
+      }
+      if (to_date && typeof to_date === 'string') {
+        query = query.lte('created_at', `${to_date}T23:59:59.999Z`);
+      }
+
+      query = query.order('created_at', { ascending: false }).order('id', { ascending: true }).range(from, to);
+
+      const { data: realLeads, count, error } = await query;
+      if (error) {
+        console.error('[AFFILIATE LEADS ERROR]', error);
+      }
+
+      const total = count ?? (realLeads?.length || 0);
+      const totalPages = Math.max(1, Math.ceil(total / limitNum));
+
+      // Mask phone function: 0908123456 -> 090812****
+      const maskPhone = (phone: string) => {
+        if (!phone || phone.length < 6) return '090****';
+        return phone.slice(0, -4) + '****';
+      };
+
+      const courseMap: Record<string, string> = {
+        'CBMA-TC-01': 'Kỹ thuật Chế biến Món ăn Á - Âu',
+        'BB-TC-02': 'Nghệ thuật Bếp bánh & Bánh ngọt Âu',
+        'QTKS-TC-03': 'Quản trị Khách sạn & Khu nghỉ dưỡng',
+        'LT-SC-04': 'Quản trị Lễ tân Quốc tế',
+        'QTNH-TC-05': 'Quản trị Nhà hàng & Dịch vụ Ăn uống',
+        'PC-SC-06': 'Nghệ thuật Pha chế Đồ uống (Bartender & Barista)',
+        'HDDL-TC-07': 'Hướng dẫn Du lịch Quốc tế & Nội địa',
+        'DH-TC-08': 'Quản trị Điều hành Tour & Đại lý Du lịch',
+      };
+
+      const getActiveReconciliation = (reconciliations: any) => {
+        if (!reconciliations) return null;
+        const list = Array.isArray(reconciliations) ? reconciliations : [reconciliations];
+        return list.find((r: any) => r && r.reconciliation_status === 'MATCHED_VALID') || null;
+      };
+
+      const formattedRealLeads = (realLeads || []).map((l: any) => {
+        const activeRecon = getActiveReconciliation(l.lead_reconciliations);
+        const egovCode = activeRecon?.external_admission_code || null;
+        const courseTitle = l.courses?.title || (l.course_id ? (courseMap[l.course_id] || 'Chương trình tuyển sinh STHC') : 'Tư vấn chung');
+
+        return {
+          id: l.id,
+          full_name: l.full_name,
+          phone_masked: maskPhone(l.phone),
+          email: l.email || null,
+          province: l.province || null,
+          customer_note: l.customer_note || null,
+          course_title: courseTitle,
+          counseling_status: l.counseling_status,
+          reconciliation_status: l.reconciliation_status,
+          reward_status: l.reward_status,
+          external_admission_code: egovCode,
+          created_at: l.created_at,
+          updated_at: l.updated_at,
+        };
+      });
+
+      res.json({
+        success: true,
+        data: formattedRealLeads,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi tải danh sách lead CTV.' });
+    }
+  });
+
+  // GET /api/v1/affiliate/leads/:id (BẢO MẬT: Chỉ trả về nếu lead thuộc affiliate_id của CTV, che SĐT, không lộ ghi chú nội bộ)
+  app.get('/api/v1/affiliate/leads/:id', requireActiveAffiliate, async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const authResult = await resolveAffiliateSession(req);
+    const affiliateId = authResult.affiliate?.id || demoState.activeAffiliate.id;
+
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({ success: false, error: 'Mã định danh lead không hợp lệ.' });
+    }
+
+    try {
+      const { data: lead, error } = await supabase
+        .from('leads')
+        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status)')
+        .eq('id', id)
+        .eq('affiliate_id', affiliateId)
+        .maybeSingle();
+
+      if (error || !lead) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy thông tin khách hàng.' });
+      }
+
+      const maskPhone = (phone: string) => {
+        if (!phone || phone.length < 6) return '090****';
+        return phone.slice(0, -4) + '****';
+      };
+
+      const getActiveReconciliation = (reconciliations: any) => {
+        if (!reconciliations) return null;
+        const list = Array.isArray(reconciliations) ? reconciliations : [reconciliations];
+        return list.find((r: any) => r && r.reconciliation_status === 'MATCHED_VALID') || null;
+      };
+
+      const activeRecon = getActiveReconciliation(lead.lead_reconciliations);
+      const egovCode = activeRecon?.external_admission_code || null;
+      const courseMap: Record<string, string> = {
+        'CBMA-TC-01': 'Kỹ thuật Chế biến Món ăn Á - Âu',
+        'BB-TC-02': 'Nghệ thuật Bếp bánh & Bánh ngọt Âu',
+        'QTKS-TC-03': 'Quản trị Khách sạn & Khu nghỉ dưỡng',
+        'LT-SC-04': 'Quản trị Lễ tân Quốc tế',
+        'QTNH-TC-05': 'Quản trị Nhà hàng & Dịch vụ Ăn uống',
+        'PC-SC-06': 'Nghệ thuật Pha chế Đồ uống (Bartender & Barista)',
+        'HDDL-TC-07': 'Hướng dẫn Du lịch Quốc tế & Nội địa',
+        'DH-TC-08': 'Quản trị Điều hành Tour & Đại lý Du lịch',
+      };
+      const courseTitle = (lead.courses as any)?.title || (lead.course_id ? (courseMap[lead.course_id] || 'Chương trình tuyển sinh STHC') : 'Tư vấn chung');
+
+      const safeLead = {
+        id: lead.id,
+        full_name: lead.full_name,
+        phone_masked: maskPhone(lead.phone),
+        email: lead.email || null,
+        province: lead.province || null,
+        customer_note: lead.customer_note || null,
+        course_title: courseTitle,
+        counseling_status: lead.counseling_status,
+        reconciliation_status: lead.reconciliation_status,
+        reward_status: lead.reward_status,
+        external_admission_code: egovCode,
+        created_at: lead.created_at,
+        updated_at: lead.updated_at,
+      };
+
+      return res.json({ success: true, data: safeLead });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi tải chi tiết khách hàng.' });
+    }
+  });
+
+  // GET /api/v1/affiliate/leads/:id/history (BẢO MẬT: Chỉ trả về lịch sử khách nếu thuộc affiliate_id của CTV)
+  app.get('/api/v1/affiliate/leads/:id/history', requireActiveAffiliate, async (req: Request, res: Response) => {
+    const { id: leadId } = req.params;
+    const authResult = await resolveAffiliateSession(req);
+    const affiliateId = authResult.affiliate?.id || demoState.activeAffiliate.id;
+
+    try {
+      const { data: lead, error: leadErr } = await supabase
+        .from('leads')
+        .select('id, affiliate_id, created_at, counseling_status, reconciliation_status')
+        .eq('id', leadId)
+        .eq('affiliate_id', affiliateId)
+        .maybeSingle();
+
+      if (leadErr || !lead) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy hồ sơ khách hàng hoặc bạn không có quyền xem lịch sử.' });
+      }
+
+      const { data: reconciliations } = await supabase
+        .from('lead_reconciliations')
+        .select('external_admission_code, reconciliation_status, tuition_paid_at, created_at')
+        .eq('lead_id', leadId)
+        .order('created_at', { ascending: false });
+
+      const { data: rewards } = await supabase
+        .from('rewards')
+        .select('amount, status, created_at, approved_at')
+        .eq('lead_id', leadId)
+        .order('created_at', { ascending: false });
+
+      // Lấy audit_logs để trích xuất các lần đổi trạng thái (KHÔNG lộ ghi chú nội bộ hay danh tính cán bộ)
+      const { data: dbAuditLogs } = await supabase
+        .from('audit_logs')
+        .select('id, action, new_values, created_at')
+        .eq('entity_name', 'leads')
+        .eq('entity_id', leadId)
+        .order('created_at', { ascending: false });
+
+      const memAuditLogs = demoState.auditLogs.filter(
+        (a: any) => a.entity_id === leadId && a.entity_name === 'leads'
+      );
+
+      const events: any[] = [];
+      events.push({
+        type: 'LEAD_REGISTERED',
+        title: 'Khách hàng đăng ký tư vấn',
+        time: lead.created_at,
+        details: 'Khách hàng gửi thông tin đăng ký quan tâm khóa học qua link/QR giới thiệu.',
+      });
+
+      const combinedAudits = [...(dbAuditLogs || []), ...memAuditLogs];
+      const seenStatusUpdates = new Set();
+      combinedAudits.forEach((a: any) => {
+        // Chỉ đưa vào timeline CTV các sự kiện đổi trạng thái chăm sóc thực tế
+        if (a.action === 'LEAD_COUNSELING_STATUS_CHANGED' || a.action === 'LEAD_CARE_UPDATED') {
+          const newStatus = a.new_values?.counseling_status;
+          const auditKey = `${a.created_at}-${newStatus}`;
+          if (newStatus && !seenStatusUpdates.has(auditKey)) {
+            seenStatusUpdates.add(auditKey);
+            const statusLabels: Record<string, string> = {
+              NEW: 'Mới đăng ký',
+              CONTACTED: 'Đã liên hệ tư vấn',
+              CONSULTING: 'Đang trong quá trình tư vấn',
+              UNREACHABLE: 'Chưa liên hệ được',
+              LOST: 'Không tiếp tục tham gia',
+            };
+            events.push({
+              type: 'COUNSELING_STATUS_UPDATE',
+              title: 'Cập nhật tiến độ tư vấn',
+              time: a.created_at,
+              details: `Tiến độ: ${statusLabels[newStatus] || newStatus}`,
+            });
+          }
+        }
+      });
+
+      if (reconciliations && reconciliations.length > 0) {
+        reconciliations.forEach((r) => {
+          if (r.reconciliation_status === 'MATCHED_VALID') {
+            events.push({
+              type: 'ADMISSION_CONFIRMED',
+              title: 'Xác nhận nhập học thành công',
+              time: r.tuition_paid_at || r.created_at,
+              details: `Mã hồ sơ EGOV: ${r.external_admission_code} — Đã đối soát học phí.`,
+            });
+          } else if (r.reconciliation_status === 'VOIDED') {
+            events.push({
+              type: 'RECONCILIATION_VOIDED',
+              title: 'Hủy đối soát hồ sơ',
+              time: r.created_at,
+              details: `Mã hồ sơ ${r.external_admission_code} đã bị hủy ghép.`,
+            });
+          }
+        });
+      }
+
+      if (rewards && rewards.length > 0) {
+        rewards.forEach((rew) => {
+          events.push({
+            type: 'REWARD_STATUS',
+            title: `Khoản thưởng 500.000 VNĐ (${rew.status === 'APPROVED' ? 'Đã duyệt' : rew.status === 'PENDING_APPROVAL' ? 'Đang chờ duyệt' : rew.status})`,
+            time: rew.approved_at || rew.created_at,
+            details: `Trạng thái: ${rew.status}`,
+          });
+        });
+      }
+
+      events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+      return res.json({
+        success: true,
+        data: {
+          lead_id: leadId,
+          events,
+          reconciliations: reconciliations || [],
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi tải lịch sử khách hàng.' });
+    }
   });
 
   // GET /api/v1/affiliate/rewards (Danh sách thưởng 500k của CTV)
@@ -5725,95 +5968,308 @@ async function startServer() {
     }
   });
 
-  // 3. Quản lý Leads
+  // 3. Quản lý Leads (Hỗ trợ tìm kiếm, lọc và phân trang server-side)
   app.get('/api/v1/admin/leads', requireStaffOrAdmin, async (req: Request, res: Response) => {
-    const { data: leads } = await supabase
-      .from('leads')
-      .select('*, courses(title, code), affiliate_profiles(affiliate_code)')
-      .order('created_at', { ascending: false });
+    try {
+      const { search, course_id, status, admission_status, from_date, to_date, affiliate_id, page, limit } = req.query;
+      const pageNum = Math.max(1, parseInt(String(page || '1'), 10) || 1);
+      let limitNum = parseInt(String(limit || '20'), 10) || 20;
+      if (![10, 20, 50, 100].includes(limitNum)) limitNum = 20;
 
-    const seedLeads = [
-      {
-        id: 'lead-admin-01',
-        full_name: 'Nguyễn Hoàng Khang',
-        phone: '0909182736',
-        email: 'hoangkhang.nguyen@gmail.com',
-        province: 'TP. Hồ Chí Minh',
-        course_id: 'CBMA-TC-01',
-        counseling_status: 'CONSULTING',
-        reconciliation_status: 'MATCHED_VALID',
-        reward_status: 'APPROVED',
-        affiliate_code_captured: 'STHCCTV1088',
-        preferred_contact_time: 'Buổi chiều (14h - 17h)',
-        customer_note: 'Muốn học bếp bánh và bếp Á để mở quán ăn gia đình.',
-        counselor_note: 'Đã tư vấn ca học ban ngày, thí sinh đã đến trường làm thủ tục nhập học.',
-        created_at: new Date(Date.now() - 3600000 * 24 * 5).toISOString(),
-      },
-      {
-        id: 'lead-admin-02',
-        full_name: 'Trần Mỹ Linh',
-        phone: '0938456789',
-        email: 'mylinh.tran@yahoo.com',
-        province: 'Đồng Nai',
-        course_id: 'QTKS-TC-03',
-        counseling_status: 'CONTACTED',
-        reconciliation_status: 'MATCHED_VALID',
-        reward_status: 'PENDING_APPROVAL',
-        affiliate_code_captured: 'STHCCTV1088',
-        preferred_contact_time: 'Buổi sáng (09h - 11h30)',
-        customer_note: 'Quan tâm chính sách thực tập tại Caravelle Hotel.',
-        counselor_note: 'Đã xác nhận biên lai đóng học phí kỳ 1 tại văn phòng tuyển sinh.',
-        created_at: new Date(Date.now() - 3600000 * 24 * 3).toISOString(),
-      },
-      {
-        id: 'lead-admin-03',
-        full_name: 'Phạm Đức Trọng',
-        phone: '0912345678',
-        email: 'ductrong.pham@gmail.com',
-        province: 'Bình Dương',
-        course_id: 'BB-TC-02',
-        counseling_status: 'NEW',
-        reconciliation_status: 'NOT_RECONCILED',
-        reward_status: 'NONE',
-        affiliate_code_captured: 'STHCCTV1088',
-        preferred_contact_time: 'Tối sau 18h',
-        customer_note: 'Cần tư vấn thời khóa biểu các lớp buổi tối.',
-        counselor_note: '',
-        created_at: new Date(Date.now() - 3600000 * 12).toISOString(),
-      },
-    ];
+      const from = (pageNum - 1) * limitNum;
+      const to = from + limitNum - 1;
 
-    res.json({
-      success: true,
-      data: leads && leads.length > 0 ? [...leads, ...seedLeads] : seedLeads,
-    });
+      let query = supabase
+        .from('leads')
+        .select('*, courses(title, code), affiliate_profiles(id, affiliate_code, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)), lead_reconciliations(external_admission_code, reconciliation_status)', { count: 'exact' });
+
+      const cleanSearch = typeof search === 'string' ? search.trim() : '';
+      if (cleanSearch) {
+        const safe = cleanSearch.replace(/[,()]/g, ' ').trim();
+        if (safe) {
+          query = query.or(`full_name.ilike.%${safe}%,phone.ilike.%${safe}%,id.eq.${safe}`);
+        }
+      }
+
+      if (course_id && course_id !== 'ALL') {
+        query = query.eq('course_id', course_id);
+      }
+
+      if (status && status !== 'ALL') {
+        query = query.eq('counseling_status', status);
+      }
+
+      if (admission_status && admission_status !== 'ALL') {
+        if (admission_status === 'ENROLLED' || admission_status === 'MATCHED_VALID') {
+          query = query.eq('reconciliation_status', 'MATCHED_VALID');
+        } else if (admission_status === 'NOT_ENROLLED' || admission_status === 'NOT_RECONCILED') {
+          query = query.neq('reconciliation_status', 'MATCHED_VALID');
+        }
+      }
+
+      if (affiliate_id && affiliate_id !== 'ALL') {
+        query = query.eq('affiliate_id', affiliate_id);
+      }
+
+      if (from_date && typeof from_date === 'string') {
+        query = query.gte('created_at', `${from_date}T00:00:00.000Z`);
+      }
+      if (to_date && typeof to_date === 'string') {
+        query = query.lte('created_at', `${to_date}T23:59:59.999Z`);
+      }
+
+      query = query.order('created_at', { ascending: false }).order('id', { ascending: true }).range(from, to);
+
+      const { data: leads, count, error } = await query;
+      if (error) {
+        console.error('[ADMIN LEADS ERROR]', error);
+      }
+
+      const total = count ?? (leads?.length || 0);
+      const totalPages = Math.max(1, Math.ceil(total / limitNum));
+
+      const getActiveReconciliation = (reconciliations: any) => {
+        if (!reconciliations) return null;
+        const list = Array.isArray(reconciliations) ? reconciliations : [reconciliations];
+        return list.find((r: any) => r && r.reconciliation_status === 'MATCHED_VALID') || null;
+      };
+
+      const formatted = (leads || []).map((l: any) => {
+        const activeRecon = getActiveReconciliation(l.lead_reconciliations);
+        return {
+          ...l,
+          external_admission_code: activeRecon?.external_admission_code || null,
+          course_title: l.courses?.title || 'Chương trình tuyển sinh STHC',
+          affiliate_code: l.affiliate_profiles?.affiliate_code || l.affiliate_code_captured || 'Tự nhiên',
+          affiliate_name: l.affiliate_profiles?.profile?.full_name || null,
+        };
+      });
+
+      res.json({
+        success: true,
+        data: formatted,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi tải danh sách lead admin.' });
+    }
   });
 
-  app.patch('/api/v1/admin/leads/:id/counseling-status', requireStaffOrAdmin, async (req: Request, res: Response) => {
+  // GET /api/v1/admin/leads/:id (Dành cho Admin/Staff xem chi tiết lead, lịch sử đối soát và thưởng)
+  app.get('/api/v1/admin/leads/:id', requireStaffOrAdmin, async (req: Request, res: Response) => {
     const { id } = req.params;
-    const { counseling_status, counselor_note } = req.body;
-
-    const { data, error } = await supabase
-      .from('leads')
-      .update({
-        counseling_status,
-        counselor_note,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .select()
-      .maybeSingle();
-
-    if (error) {
-      console.warn('DB lead update notice:', error.message);
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({ success: false, error: 'Mã định danh lead không hợp lệ.' });
     }
 
-    res.json({
-      success: true,
-      message: 'Cập nhật tiến độ tư vấn thành công!',
-      data: { id, counseling_status, counselor_note },
-    });
+    try {
+      const { data: lead, error } = await supabase
+        .from('leads')
+        .select('*, courses(title, code), affiliate_profiles(id, affiliate_code, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)), lead_reconciliations(*), rewards(*)')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (error || !lead) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy hồ sơ khách hàng.' });
+      }
+
+      const getActiveReconciliation = (reconciliations: any) => {
+        if (!reconciliations) return null;
+        const list = Array.isArray(reconciliations) ? reconciliations : [reconciliations];
+        return list.find((r: any) => r && r.reconciliation_status === 'MATCHED_VALID') || null;
+      };
+
+      const activeRecon = getActiveReconciliation(lead.lead_reconciliations);
+      const egovCode = activeRecon?.external_admission_code || null;
+
+      return res.json({
+        success: true,
+        data: {
+          ...lead,
+          external_admission_code: egovCode,
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi tải chi tiết lead.' });
+    }
   });
+
+  // A3.6 / A3.7 – CẬP NHẬT TRẠNG THÁI CHĂM SÓC, GHI CHÚ NỘI BỘ VÀ LỊCH SỬ THAO TÁC NGUYÊN TỬ
+  const handleLeadCareUpdate = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { counseling_status, counselor_note, note, client_updated_at, idempotency_key } = req.body;
+    const reqIdempotencyKey = String(req.headers['idempotency-key'] || idempotency_key || '').trim() || null;
+
+    // 1. Kiểm tra các trường bị cấm trong module Chăm sóc (Phân định ranh giới với module Đối chiếu & Thưởng)
+    const prohibitedFields = [
+      'reconciliation_status',
+      'external_admission_code',
+      'external_student_code',
+      'tuition_fee_collected',
+      'receipt_number',
+      'tuition_paid_at',
+      'reward_status',
+      'affiliate_id',
+      'affiliate_code_captured',
+      'course_id',
+      'customer_note',
+    ];
+
+    const foundProhibited = prohibitedFields.filter(f => req.body[f] !== undefined);
+    if (foundProhibited.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Trường dữ liệu không hợp lệ: ${foundProhibited.join(', ')}. Module Chăm sóc khách hàng không được phép sửa đổi thông tin đối chiếu, học phí, mã EGOV hoặc nguồn giới thiệu.`,
+      });
+    }
+
+    // 2. Xác định người thực hiện an toàn từ session
+    const actorId = (req as any).user?.id || (demoState.currentRole === 'admin' ? demoState.adminUser.id : demoState.staffUser.id);
+    const actorName = (req as any).user?.full_name || (demoState.currentRole === 'admin' ? demoState.adminUser.full_name : demoState.staffUser.full_name);
+    const actorEmail = (req as any).user?.email || (demoState.currentRole === 'admin' ? demoState.adminUser.email : demoState.staffUser.email);
+    const actorRole = (req as any).user?.role || (demoState.currentRole === 'admin' ? 'admin' : 'staff');
+
+    // 3. Chuẩn hóa & Validate trạng thái chăm sóc
+    const VALID_STATUSES = ['NEW', 'CONTACTED', 'CONSULTING', 'UNREACHABLE', 'LOST'];
+    let targetStatus: string | undefined = undefined;
+    if (counseling_status !== undefined) {
+      const cleanStatus = String(counseling_status).trim().toUpperCase();
+      if (!VALID_STATUSES.includes(cleanStatus)) {
+        return res.status(400).json({
+          success: false,
+          error: `Trạng thái chăm sóc không hợp lệ: "${counseling_status}". Chỉ chấp nhận: NEW, CONTACTED, CONSULTING, UNREACHABLE, LOST.`,
+        });
+      }
+      targetStatus = cleanStatus;
+    }
+
+    // 4. Chuẩn hóa & Validate ghi chú nội bộ
+    const rawNote = note !== undefined ? note : counselor_note;
+    let cleanNote: string | null = null;
+    if (rawNote !== undefined && rawNote !== null) {
+      const trimmed = String(rawNote).trim();
+      if (trimmed.length > 2000) {
+        return res.status(400).json({
+          success: false,
+          error: 'Ghi chú chăm sóc vượt quá độ dài cho phép (tối đa 2000 ký tự).',
+        });
+      }
+      if (trimmed.length > 0) {
+        cleanNote = trimmed;
+      }
+    }
+
+    // 5. Tra cứu hồ sơ lead hiện tại
+    const { data: existingLead, error: fetchErr } = await supabase
+      .from('leads')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchErr || !existingLead) {
+      return res.status(404).json({
+        success: false,
+        error: 'Không tìm thấy hồ sơ khách hàng cần cập nhật.',
+      });
+    }
+
+    // 6. Kiểm tra xung đột cập nhật đồng thời chính xác (Exact Timestamp Concurrency Control)
+    if (client_updated_at && existingLead.updated_at) {
+      if (existingLead.updated_at !== client_updated_at) {
+        return res.status(409).json({
+          success: false,
+          error: 'Xung đột cập nhật: Dữ liệu hồ sơ này đã được chỉnh sửa bởi cán bộ khác. Vui lòng tải lại trang để lấy thông tin mới nhất.',
+        });
+      }
+    }
+
+    const currentStatus = existingLead.counseling_status || 'NEW';
+    const finalStatus = targetStatus || currentStatus;
+    const isStatusChanged = targetStatus !== undefined && targetStatus !== currentStatus;
+    const isNoteAdded = cleanNote !== null;
+
+    // 7. Nếu không có thay đổi nào và không có ghi chú mới
+    if (!isStatusChanged && !isNoteAdded) {
+      return res.json({
+        success: true,
+        message: 'Không có thay đổi nào cần lưu.',
+        data: {
+          id,
+          counseling_status: currentStatus,
+          counselor_note: existingLead.counselor_note,
+          updated_at: existingLead.updated_at,
+        },
+      });
+    }
+
+    const nowIso = new Date().toISOString();
+
+    // 8. Gọi Database RPC fn_update_lead_care_and_audit
+    try {
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_update_lead_care_and_audit', {
+        p_lead_id: id,
+        p_actor_id: actorId,
+        p_counseling_status: targetStatus || null,
+        p_note: cleanNote,
+        p_expected_updated_at: client_updated_at || null,
+        p_idempotency_key: reqIdempotencyKey,
+      });
+
+      if (!rpcError && rpcResult && rpcResult.success) {
+        // Log to memory audit logs
+        if (!rpcResult.is_idempotent_replay) {
+          demoState.auditLogs.unshift({
+            id: rpcResult.audit_id || `audit-care-${Date.now()}`,
+            actor_id: actorId,
+            action: rpcResult.audit_action || 'LEAD_CARE_UPDATED',
+            entity_name: 'leads',
+            entity_id: id,
+            old_values: { counseling_status: currentStatus, counselor_note: existingLead.counselor_note },
+            new_values: { counseling_status: finalStatus, counselor_note: cleanNote || existingLead.counselor_note, added_note: cleanNote },
+            reason: cleanNote || `Thay đổi tiến độ tư vấn sang: ${finalStatus}`,
+            actor: { id: actorId, full_name: actorName, email: actorEmail, role: actorRole },
+            idempotency_key: reqIdempotencyKey,
+            created_at: nowIso,
+          });
+        }
+
+        return res.json({
+          success: true,
+          message: rpcResult.message || 'Cập nhật tiến độ chăm sóc khách hàng thành công!',
+          data: {
+            id,
+            counseling_status: rpcResult.counseling_status || finalStatus,
+            counselor_note: rpcResult.counselor_note || cleanNote || existingLead.counselor_note,
+            updated_at: rpcResult.updated_at || nowIso,
+          },
+        });
+      }
+
+      if (rpcError) {
+        if (rpcError.code === '40001') {
+          return res.status(409).json({ success: false, error: rpcError.message || 'Xung đột cập nhật đồng thời.' });
+        }
+        if (rpcError.code === '42501') {
+          return res.status(403).json({ success: false, error: rpcError.message || 'Từ chối quyền thực hiện.' });
+        }
+        return res.status(400).json({ success: false, error: rpcError.message || 'Lỗi xử lý nghiệp vụ chăm sóc.' });
+      }
+    } catch (e: any) {
+      console.error('[RPC fn_update_lead_care_and_audit ERROR]', e.message);
+      return res.status(500).json({
+        success: false,
+        error: 'Lỗi giao dịch máy chủ khi cập nhật chăm sóc khách hàng.',
+      });
+    }
+  };
+
+  app.patch('/api/v1/admin/leads/:id/care', requireStaffOrAdmin, handleLeadCareUpdate);
+  app.patch('/api/v1/admin/leads/:id/counseling-status', requireStaffOrAdmin, handleLeadCareUpdate);
 
   // 4. Đối soát thủ công Hồ sơ & Học phí (POST /api/v1/admin/leads/:id/reconcile)
   app.post('/api/v1/admin/leads/:id/reconcile', requireStaffOrAdmin, async (req: Request, res: Response) => {
@@ -6006,15 +6462,61 @@ async function startServer() {
     });
   });
 
-  // 6. Xem lịch sử đối soát và thưởng của 1 lead
+  // 6. Xem lịch sử chăm sóc, đối soát và thưởng của 1 lead (A3.6)
   app.get('/api/v1/admin/leads/:id/history', requireStaffOrAdmin, async (req: Request, res: Response) => {
     const { id: leadId } = req.params;
 
+    // 1. Lấy thông tin lead cơ bản
+    const { data: lead } = await supabase
+      .from('leads')
+      .select('id, full_name, created_at, counseling_status, counselor_note, reconciliation_status, reward_status')
+      .eq('id', leadId)
+      .maybeSingle();
+
+    // 2. Lấy danh sách audit_logs liên quan đến lead này
+    const { data: dbAuditLogs } = await supabase
+      .from('audit_logs')
+      .select('*, profiles:actor_id(id, full_name, email, role)')
+      .eq('entity_name', 'leads')
+      .eq('entity_id', leadId)
+      .order('created_at', { ascending: false });
+
+    // Kết hợp cùng memory audit logs (demoState)
+    const memAuditLogs = demoState.auditLogs.filter(
+      (a: any) => a.entity_id === leadId && a.entity_name === 'leads'
+    );
+
+    const mergedAuditMap = new Map();
+    (dbAuditLogs || []).forEach((a: any) => mergedAuditMap.set(a.id, a));
+    memAuditLogs.forEach((a: any) => {
+      if (!mergedAuditMap.has(a.id)) mergedAuditMap.set(a.id, a);
+    });
+
+    const careHistory = Array.from(mergedAuditMap.values()).map((a: any) => {
+      const actorInfo = a.actor || a.profiles || { full_name: 'Cán bộ Tuyển sinh', email: 'tuyensinh@sthc.edu.vn', role: 'staff' };
+      return {
+        id: a.id,
+        action: a.action,
+        actor: {
+          id: a.actor_id,
+          full_name: actorInfo.full_name || 'Cán bộ Tuyển sinh',
+          email: actorInfo.email || null,
+          role: actorInfo.role || 'staff',
+        },
+        old_values: a.old_values,
+        new_values: a.new_values,
+        note: a.new_values?.added_note || a.reason || null,
+        reason: a.reason,
+        created_at: a.created_at,
+      };
+    });
+
+    // 3. Lấy đối soát & thưởng
     const { data: reconciliations } = await supabase
       .from('lead_reconciliations')
-      .select('*')
+      .select('*, staff:staff_id(full_name, email)')
       .eq('lead_id', leadId)
-      .order('reconciled_at', { ascending: false });
+      .order('created_at', { ascending: false });
 
     const { data: rewards } = await supabase
       .from('rewards')
@@ -6025,6 +6527,10 @@ async function startServer() {
     res.json({
       success: true,
       data: {
+        lead_id: leadId,
+        lead_created_at: lead?.created_at,
+        current_status: lead?.counseling_status,
+        care_history: careHistory,
         reconciliations: reconciliations || [],
         rewards: rewards || [],
       },

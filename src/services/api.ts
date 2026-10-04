@@ -267,8 +267,40 @@ export const api = {
     return apiFetch(`/api/v1/affiliate/courses/${encodeURIComponent(courseId)}`);
   },
 
-  async getAffiliateLeads(): Promise<{ success: boolean; data: any[] }> {
-    return apiFetch('/api/v1/affiliate/leads');
+  async getAffiliateLeads(params?: {
+    search?: string;
+    course_id?: string;
+    status?: string;
+    admission_status?: string;
+    from_date?: string;
+    to_date?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data: any[];
+    pagination?: { page: number; limit: number; total: number; totalPages: number };
+    error?: string;
+  }> {
+    const q = new URLSearchParams();
+    if (params?.search) q.set('search', params.search);
+    if (params?.course_id && params.course_id !== 'ALL') q.set('course_id', params.course_id);
+    if (params?.status && params.status !== 'ALL') q.set('status', params.status);
+    if (params?.admission_status && params.admission_status !== 'ALL') q.set('admission_status', params.admission_status);
+    if (params?.from_date) q.set('from_date', params.from_date);
+    if (params?.to_date) q.set('to_date', params.to_date);
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return apiFetch(`/api/v1/affiliate/leads${qs ? `?${qs}` : ''}`);
+  },
+
+  async getAffiliateLeadDetail(id: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    return apiFetch(`/api/v1/affiliate/leads/${encodeURIComponent(id)}`);
+  },
+
+  async getAffiliateLeadHistory(id: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    return apiFetch(`/api/v1/affiliate/leads/${encodeURIComponent(id)}/history`);
   },
 
   async getAffiliateRewards(): Promise<{ success: boolean; data: any[] }> {
@@ -393,14 +425,56 @@ export const api = {
     });
   },
 
-  async getAdminLeads(): Promise<{ success: boolean; data: Lead[] }> {
-    return apiFetch('/api/v1/admin/leads');
+  async getAdminLeads(params?: {
+    search?: string;
+    course_id?: string;
+    status?: string;
+    admission_status?: string;
+    affiliate_id?: string;
+    from_date?: string;
+    to_date?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data: Lead[];
+    pagination?: { page: number; limit: number; total: number; totalPages: number };
+    error?: string;
+  }> {
+    const q = new URLSearchParams();
+    if (params?.search) q.set('search', params.search);
+    if (params?.course_id && params.course_id !== 'ALL') q.set('course_id', params.course_id);
+    if (params?.status && params.status !== 'ALL') q.set('status', params.status);
+    if (params?.admission_status && params.admission_status !== 'ALL') q.set('admission_status', params.admission_status);
+    if (params?.affiliate_id && params.affiliate_id !== 'ALL') q.set('affiliate_id', params.affiliate_id);
+    if (params?.from_date) q.set('from_date', params.from_date);
+    if (params?.to_date) q.set('to_date', params.to_date);
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return apiFetch(`/api/v1/admin/leads${qs ? `?${qs}` : ''}`);
   },
 
-  async updateCounselingStatus(id: string, counseling_status: string, counselor_note?: string) {
-    return apiFetch(`/api/v1/admin/leads/${id}/counseling-status`, {
+  async getAdminLeadDetail(id: string): Promise<{ success: boolean; data?: Lead; error?: string }> {
+    return apiFetch(`/api/v1/admin/leads/${encodeURIComponent(id)}`);
+  },
+
+  async updateLeadCare(id: string, payload: {
+    counseling_status?: string;
+    note?: string;
+    counselor_note?: string;
+    client_updated_at?: string;
+  }) {
+    return apiFetch(`/api/v1/admin/leads/${encodeURIComponent(id)}/care`, {
       method: 'PATCH',
-      body: JSON.stringify({ counseling_status, counselor_note }),
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateCounselingStatus(id: string, counseling_status: string, counselor_note?: string, client_updated_at?: string) {
+    return apiFetch(`/api/v1/admin/leads/${encodeURIComponent(id)}/care`, {
+      method: 'PATCH',
+      body: JSON.stringify({ counseling_status, counselor_note, client_updated_at }),
     });
   },
 

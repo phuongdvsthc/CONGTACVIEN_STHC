@@ -749,3 +749,47 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
 - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
 - `compile_applet` (`npm run build`): **Build succeeded 100%**.
 - Kiểm thử luồng: Đăng nhập Admin, nạp cấu hình, lưu bản nháp, xem trước modal, xuất bản và khôi phục phiên bản hoạt động hoàn hảo.
+
+
+### 16. Hoàn thiện Module “Khách hàng được giới thiệu” (A3.1 đến A3.5)
+1. **Kiểm kê & Đặc tả (A3.1)**:
+   - Xây dựng tài liệu đặc tả chi tiết tại `/docs/A3_1_REFERRED_CUSTOMERS_AUDIT.md`, chuẩn hóa quy tắc phân quyền Backend, nguồn ghi nhận qua link/QR và ranh giới trạng thái.
+2. **Ghi nhận từ Link / QR & Luồng Đăng ký (A3.2)**:
+   - Hoàn thiện luồng khách truy cập qua `?ref=...`, bảo toàn mã giới thiệu qua điều hướng và tải lại trang, form đăng ký gửi tới `/api/v1/public/leads` ghi nhận thành công mã CTV và khóa học.
+3. **API Đọc Dữ Liệu & Phân Quyền (A3.3)**:
+   - Hoàn thiện `GET /api/v1/admin/leads`, `GET /api/v1/admin/leads/:id`, `GET /api/v1/affiliate/leads`, `GET /api/v1/affiliate/leads/:id` với cơ chế bảo mật xác thực session, bảo mật che 4 số cuối điện thoại cho CTV và phân quyền tuyệt đối tại Backend.
+4. **Danh sách, Tìm kiếm, Bộ lọc & Phân trang (A3.4)**:
+   - Xây dựng thanh công cụ đa tiêu chí cho cả CTV (`/portal/leads`) và Admin/Staff (`/admin/leads`), hỗ trợ tìm kiếm mờ, lọc theo khóa học, trạng thái tư vấn, đối soát, nguồn CTV, khoảng ngày và phân trang phía máy chủ.
+5. **Chi tiết khách & Lịch sử (A3.5)**:
+   - Xây dựng trang chi tiết (`/portal/leads/:id` và `/admin/leads/:id`) cùng hệ thống lịch sử sự kiện thời gian thực (`/api/v1/affiliate/leads/:id/history` và `/api/v1/admin/leads/:id/history`), chuẩn hóa hiển thị mã EGOV (giữ số 0 đầu) và tình trạng nhập học (Đã nhập học / Chưa nhập học).
+6. **Kiểm tra kỹ thuật**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet` (`npm run build`): **Build succeeded 100%**.
+
+### 17. Triển khai A3.6: Cập nhật trạng thái chăm sóc, ghi chú nội bộ và lịch sử thao tác
+1. **Phân định ranh giới nghiệp vụ**:
+   - Module Chăm sóc A3.6 chỉ được sửa đổi `counseling_status` và thêm ghi chú nội bộ. Tuyệt đối không can thiệp vào các trường đối chiếu (`reconciliation_status`, `external_admission_code`, `tuition_fee_collected`, `receipt_number`, `tuition_paid_at`, `reward_status`, `affiliate_id`).
+   - Bất kỳ request nào gửi trường cấm đều bị từ chối ngay với `400 Bad Request`.
+2. **Thao tác nguyên tử & Kiểm soát xung đột**:
+   - Viết migration `20261003000002_add_lead_care_history_and_atomic_update.sql` cung cấp RPC `fn_update_lead_care_and_audit` hỗ trợ khóa bi quan (`FOR UPDATE`), kiểm soát xung đột đồng thời (`client_updated_at` / `409 Conflict`), cập nhật lead và ghi `audit_logs` trong cùng một giao dịch.
+   - Endpoint: `PATCH /api/v1/admin/leads/:id/care` và alias `PATCH /api/v1/admin/leads/:id/counseling-status`.
+3. **Phân quyền & Bảo mật lịch sử**:
+   - Admin/Staff xem toàn bộ lịch sử chăm sóc từ `audit_logs`, đối soát và thưởng.
+   - CTV chỉ xem các sự kiện công khai (đổi trạng thái tư vấn, nhập học, thưởng); tuyệt đối không lộ ghi chú nội bộ hay danh tính cán bộ thực hiện.
+4. **Giao diện người dùng**:
+   - Component `AdminLeadDetailView.tsx` bổ sung khối Chăm sóc khách hàng với dropdown trạng thái, ô nhập ghi chú (tối đa 2000 ký tự), nút lưu có hiệu ứng loading/chống bấm đúp, và dòng thời gian lịch sử chăm sóc chi tiết.
+5. **Kiểm tra kỹ thuật**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet` (`npm run build`): **Build succeeded 100%**.
+
+### 18. Nghiệm thu & Kiểm thử toàn luồng A3.7 (Module “Khách hàng được giới thiệu”)
+1. **Kiểm thử E2E & Bảo mật toàn diện**:
+   - Hoàn thành ma trận 16 ca kiểm thử toàn luồng (A3.1 – A3.6): ghi nhận link/QR, chống trùng 90 ngày theo khóa học, phân quyền CTV/Admin/Staff, che SĐT, chống lộ ghi chú nội bộ, thao tác chăm sóc nguyên tử qua RPC và xử lý xung đột đồng thời.
+2. **Nâng cấp bảo mật RPC & Idempotency**:
+   - Viết migration `20261003000003_fix_lead_care_rpc_security_and_idempotency.sql` bổ sung cột `idempotency_key` trong `audit_logs`, cố định `SET search_path = public, pg_temp;`, ràng buộc `auth.uid()` ngăn chặn CTV giả UUID Admin, thu hồi quyền từ `PUBLIC` và `anon`.
+3. **Chuẩn hóa nguồn dữ liệu đối chiếu**:
+   - Sử dụng hàm chuẩn hóa `getActiveReconciliation()` đảm bảo chỉ lấy bản ghi `MATCHED_VALID` đang có hiệu lực.
+   - Bất kỳ trạng thái nào bị hủy (`VOIDED`) hoặc không hợp lệ đều hiển thị đồng bộ là "Chưa nhập học" trên cả danh sách, chi tiết, bộ lọc và lịch sử.
+4. **Kiểm tra kỹ thuật**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet` (`npm run build`): **Build succeeded 100%**.
