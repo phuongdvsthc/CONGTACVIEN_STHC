@@ -612,63 +612,12 @@ async function startServer() {
       }
     }
 
-    if (demoState.currentRole === 'public') {
-      return res.json({
-        success: true,
-        data: {
-          role: 'public',
-          user: null,
-          affiliate: null,
-        },
-      });
-    }
-
-    if (demoState.currentUser) {
-      return res.json({
-        success: true,
-        data: {
-          role: demoState.currentRole,
-          user: demoState.currentUser,
-          affiliate: demoState.currentAffiliate,
-        },
-      });
-    }
-
-    let userProfile: any = null;
-    let affiliateProfile: any = null;
-
-    if (demoState.currentRole === 'affiliate_pending') {
-      userProfile = {
-        id: demoState.pendingAffiliate.user_id,
-        email: demoState.pendingAffiliate.email,
-        full_name: demoState.pendingAffiliate.full_name,
-        phone: demoState.pendingAffiliate.phone,
-        role: 'affiliate',
-        is_active: true,
-      };
-      affiliateProfile = demoState.pendingAffiliate;
-    } else if (demoState.currentRole === 'affiliate_active') {
-      userProfile = {
-        id: demoState.activeAffiliate.user_id,
-        email: demoState.activeAffiliate.email,
-        full_name: demoState.activeAffiliate.full_name,
-        phone: demoState.activeAffiliate.phone,
-        role: 'affiliate',
-        is_active: true,
-      };
-      affiliateProfile = demoState.activeAffiliate;
-    } else if (demoState.currentRole === 'staff') {
-      userProfile = demoState.staffUser;
-    } else if (demoState.currentRole === 'admin') {
-      userProfile = demoState.adminUser;
-    }
-
-    res.json({
+    return res.json({
       success: true,
       data: {
-        role: demoState.currentRole,
-        user: userProfile,
-        affiliate: affiliateProfile,
+        role: 'public',
+        user: null,
+        affiliate: null,
       },
     });
   });
@@ -2465,24 +2414,12 @@ async function startServer() {
         }
       }
 
-      // Nếu không có Bearer token, lấy theo phiên hệ thống hiện tại
+      // Yêu cầu bắt buộc phải có Bearer token hợp lệ của chính request đó
       if (!resolvedUserId) {
-        if (demoState.currentUser?.id) {
-          resolvedUserId = demoState.currentUser.id;
-          resolvedRole = demoState.currentRole;
-        } else if (demoState.currentRole === 'admin') {
-          resolvedUserId = demoState.adminUser.id;
-          resolvedRole = 'admin';
-        } else if (demoState.currentRole === 'staff') {
-          resolvedUserId = demoState.staffUser.id;
-          resolvedRole = 'staff';
-        } else if (demoState.currentRole === 'affiliate_active') {
-          resolvedUserId = demoState.activeAffiliate.user_id;
-          resolvedRole = 'affiliate';
-        } else if (demoState.currentRole === 'affiliate_pending') {
-          resolvedUserId = demoState.pendingAffiliate.user_id;
-          resolvedRole = 'affiliate';
-        }
+        return res.status(401).json({
+          success: false,
+          error: 'Chưa đăng nhập hoặc phiên làm việc không hợp lệ.',
+        });
       }
 
       if (!resolvedUserId || resolvedRole === 'public') {
@@ -3190,23 +3127,15 @@ async function startServer() {
       }
     }
 
-    // 2. Kiểm tra theo phiên phân quyền demo hệ thống (khi không dùng Bearer token)
-    if (demoState.currentRole === 'staff' || demoState.currentRole === 'admin') {
-      (req as any).user = demoState.currentRole === 'admin'
-        ? (demoState.currentUser || demoState.adminUser)
-        : (demoState.currentUser || demoState.staffUser);
-      return next();
-    }
-
-    return res.status(403).json({
+    return res.status(401).json({
       success: false,
-      error: `Bị từ chối: Phiên làm việc (vai trò: ${demoState.currentRole || 'Khách'}) không có quyền truy cập. Vui lòng đăng nhập với tài khoản Quản trị viên (Admin) hoặc Cán bộ Tuyển sinh (Staff).`,
-      code: 'ROLE_FORBIDDEN',
+      error: 'Chưa đăng nhập hoặc phiên làm việc đã hết hạn. Vui lòng đăng nhập với tài khoản Cán bộ Tuyển sinh hoặc Quản trị viên.',
+      code: 'UNAUTHENTICATED',
     });
   };
 
   const requireAdminOnly = async (req: Request, res: Response, next: NextFunction) => {
-    // 1. Kiểm tra Bearer token nếu có
+    // 1. Kiểm tra Bearer token
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       try {
@@ -3268,16 +3197,10 @@ async function startServer() {
       }
     }
 
-    // 2. Kiểm tra theo phiên phân quyền demo hệ thống
-    if (demoState.currentRole === 'admin') {
-      (req as any).user = demoState.currentUser || demoState.adminUser;
-      return next();
-    }
-
-    return res.status(403).json({
+    return res.status(401).json({
       success: false,
-      error: `Bị từ chối: Thao tác này chỉ dành riêng cho Quản trị viên (Admin). Phiên làm việc hiện tại có vai trò '${demoState.currentRole}'. Cán bộ Tuyển sinh (Staff) không có quyền thực hiện.`,
-      code: 'ADMIN_ONLY',
+      error: 'Chưa đăng nhập hoặc phiên làm việc đã hết hạn. Vui lòng đăng nhập với tài khoản Quản trị viên.',
+      code: 'UNAUTHENTICATED',
     });
   };
 

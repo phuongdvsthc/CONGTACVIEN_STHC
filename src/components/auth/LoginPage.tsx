@@ -13,6 +13,7 @@ import {
 import { api } from '../../services/api';
 import { AffiliateLandingConfig } from '../../types/landingConfig';
 import { defaultLandingConfig } from '../../config/defaultLandingConfig';
+import { Header } from '../common/Header';
 
 interface LoginPageProps {
   config?: AffiliateLandingConfig;
@@ -111,55 +112,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   return (
     <div className="min-h-screen bg-[#070D18] text-slate-100 flex flex-col font-sans selection:bg-amber-400 selection:text-slate-950 overflow-x-hidden">
       {/* 1. Header đồng bộ với trang /: Logo bên trái - Nút Đăng ký bên phải */}
-      <header className="sticky top-0 z-40 bg-[#0B172E]/95 backdrop-blur-md border-b border-slate-800/90 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          {/* Bên trái: Logo và tên trường */}
-          <button
-            type="button"
-            onClick={onGoHome}
-            className="flex items-center gap-3 text-left group"
-          >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-700 to-indigo-900 flex items-center justify-center text-amber-400 border border-amber-400/30 shadow-md shrink-0 group-hover:scale-105 transition-transform">
-              <GraduationCap className="w-5 h-5 sm:w-6 sm:h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm sm:text-base font-extrabold text-white tracking-tight leading-none group-hover:text-amber-300 transition-colors">
-                  {config.header.logoText}
-                </span>
-                {config.header.logoBadgeText && (
-                  <span className="hidden sm:inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-400 text-slate-950">
-                    {config.header.logoBadgeText}
-                  </span>
-                )}
-              </div>
-              <p className="text-[10px] sm:text-[11px] font-medium text-blue-200/80 tracking-wider mt-0.5">
-                {config.header.subLogoText}
-              </p>
-            </div>
-          </button>
-
-          {/* Bên phải: Nút Đăng ký và Về trang chủ */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              type="button"
-              onClick={onGoHome}
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 hover:text-white transition-colors"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Trang chủ</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onNavigateToRegister}
-              className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-bold text-xs sm:text-sm rounded-xl shadow-md transition-all active:scale-95 whitespace-nowrap"
-            >
-              {config.header.registerButtonText || 'Đăng ký'}
-            </button>
-          </div>
-        </div>
-      </header>
+      <Header
+        currentRole="public"
+        activeTab="affiliate_landing"
+        onNavigate={(tab) => {
+          if (tab === 'affiliate_landing') onGoHome();
+          else if (tab === 'public_catalog') {
+            window.location.href = '/catalog';
+          }
+        }}
+        onOpenConsultationModal={() => {}}
+        onOpenRegisterAffiliate={onNavigateToRegister}
+        onOpenLoginAffiliate={() => {}}
+      />
 
       {/* 2. Main Login Section: Nền xanh, 2 cột Desktop / 1 cột Mobile */}
       <main className="flex-1 flex items-center justify-center py-10 sm:py-16 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-[#0B1E3F] via-[#0A1628] to-[#070D18] relative overflow-hidden">
