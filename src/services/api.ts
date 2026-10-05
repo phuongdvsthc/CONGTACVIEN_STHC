@@ -94,6 +94,13 @@ export const api = {
     });
   },
 
+  async forgotPassword(email: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    return apiFetch('/api/v1/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
   async register(payload: {
     full_name: string;
     phone: string;
@@ -549,6 +556,39 @@ export const api = {
 
   async getLeadHistory(id: string) {
     return apiFetch(`/api/v1/admin/leads/${id}/history`);
+  },
+
+  async linkLeadEgov(id: string, payload: {
+    external_admission_code: string;
+    client_updated_at?: string;
+    reason?: string;
+    target_egov_link_id?: string;
+  }, idempotencyKey?: string) {
+    const headers: Record<string, string> = {};
+    if (idempotencyKey) {
+      headers['Idempotency-Key'] = idempotencyKey;
+    }
+    return apiFetch(`/api/v1/admin/leads/${id}/egov-link`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async unlinkLeadEgov(id: string, payload: {
+    target_egov_link_id: string;
+    void_reason: string;
+    client_updated_at?: string;
+  }, idempotencyKey?: string) {
+    const headers: Record<string, string> = {};
+    if (idempotencyKey) {
+      headers['Idempotency-Key'] = idempotencyKey;
+    }
+    return apiFetch(`/api/v1/admin/leads/${id}/egov-unlink`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
   },
 
   async getAdminRewards(): Promise<{ success: boolean; data: any[] }> {

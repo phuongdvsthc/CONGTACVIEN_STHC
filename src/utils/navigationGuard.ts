@@ -50,6 +50,16 @@ export const APP_ROUTES: Record<string, RouteDefinition> = {
     name: 'Trang Đăng nhập CTV',
     isPublic: true,
   },
+  '/forgot-password': {
+    path: '/forgot-password',
+    name: 'Trang Quên mật khẩu',
+    isPublic: true,
+  },
+  '/reset-password': {
+    path: '/reset-password',
+    name: 'Trang Đặt lại mật khẩu',
+    isPublic: true,
+  },
   '/catalog': {
     path: '/catalog',
     name: 'Danh mục Ngành đào tạo STHC',
@@ -178,7 +188,7 @@ export function sanitizeRedirectUrl(rawUrl: string | null | undefined): string |
   }
 
   // Chỉ chấp nhận các tiền tố route hợp lệ của hệ thống
-  const validPrefixes = ['/portal', '/dashboard', '/pending', '/status', '/admin', '/staff', '/catalog', '/policy', '/courses', '/'];
+  const validPrefixes = ['/portal', '/dashboard', '/pending', '/status', '/admin', '/staff', '/catalog', '/policy', '/courses', '/forgot-password', '/reset-password', '/'];
   const isValid = validPrefixes.some(prefix => pathOnly === prefix || pathOnly.startsWith(prefix + '/'));
   if (!isValid) {
     return null;
@@ -202,7 +212,7 @@ export function checkRouteAccess(path: string, auth: AuthSessionData | null): Ro
   const cleanPath = path.split('?')[0].split('#')[0];
 
   // 1. Các trang công khai
-  if (cleanPath === '/' || cleanPath === '/catalog' || cleanPath === '/policy' || cleanPath === '/courses') {
+  if (cleanPath === '/' || cleanPath === '/catalog' || cleanPath === '/policy' || cleanPath === '/courses' || cleanPath === '/forgot-password' || cleanPath === '/reset-password') {
     return { allowed: true };
   }
 

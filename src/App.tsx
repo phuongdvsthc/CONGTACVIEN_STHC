@@ -5,6 +5,8 @@ import { Header } from './components/common/Header';
 import { Footer } from './components/common/Footer';
 import { AffiliateLandingPage } from './components/landing/AffiliateLandingPage';
 import { LoginPage } from './components/auth/LoginPage';
+import { ForgotPasswordPage } from './components/auth/ForgotPasswordPage';
+import { ResetPasswordPage } from './components/auth/ResetPasswordPage';
 import { defaultLandingConfig } from './config/defaultLandingConfig';
 import { PublicHome } from './components/public/PublicHome';
 import { PublicCatalogView } from './components/public/PublicCatalogView';
@@ -584,7 +586,7 @@ export default function App() {
             CHỈ HIỂN THỊ HEADER CHUNG KHI Ở CÁC TRANG CÔNG KHAI (/catalog, /policy).
             Trang /, /login và /pending có giao diện độc lập riêng.
           */}
-          {currentPath !== '/login' && currentPath !== '/pending' && (
+          {currentPath !== '/login' && currentPath !== '/pending' && currentPath !== '/forgot-password' && currentPath !== '/reset-password' && (
             <Header
               currentRole={authSession.role}
               activeTab={getActiveTabForHeader()}
@@ -623,6 +625,26 @@ export default function App() {
                 successNotice={loginSuccessNotice}
                 requestedRedirect={requestedRedirectParam}
                 onLoginSuccess={handleLoginSuccess}
+                onNavigateToRegister={handleNavigateToRegister}
+                onNavigateToForgot={() => navigate('/forgot-password')}
+                onGoHome={() => navigate('/')}
+              />
+            )}
+
+            {/* ROUTE /forgot-password: TRANG QUÊN MẬT KHẨU */}
+            {currentPath === '/forgot-password' && (
+              <ForgotPasswordPage
+                onNavigateToLogin={() => navigate('/login')}
+                onNavigateToRegister={handleNavigateToRegister}
+                onGoHome={() => navigate('/')}
+              />
+            )}
+
+            {/* ROUTE /reset-password: TRANG ĐẶT LẠI MẬT KHẨU */}
+            {currentPath === '/reset-password' && (
+              <ResetPasswordPage
+                onNavigateToLogin={(email, notice) => handleOpenLogin(email, notice)}
+                onNavigateToForgot={() => navigate('/forgot-password')}
                 onNavigateToRegister={handleNavigateToRegister}
                 onGoHome={() => navigate('/')}
               />

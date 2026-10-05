@@ -1486,6 +1486,41 @@ async function startServer() {
     }
   });
 
+  // POST /api/v1/auth/forgot-password (Yêu cầu gửi email khôi phục mật khẩu)
+  app.post('/api/v1/auth/forgot-password', async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+      const cleanEmail = String(email || '').trim().toLowerCase();
+      if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        return res.status(400).json({ success: false, error: 'Địa chỉ email không hợp lệ.' });
+      }
+
+      const host = req.get('host') || 'localhost:3000';
+      const protocol = req.protocol || 'https';
+      const appUrl = process.env.APP_URL || `${protocol}://${host}`;
+      const redirectUrl = `${appUrl}/reset-password`;
+
+      const { error } = await supabaseAuth.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: redirectUrl,
+      });
+
+      if (error) {
+        console.error('[FORGOT PASSWORD SUPABASE ERROR]', error);
+      }
+
+      return res.json({
+        success: true,
+        message: 'Nếu email này đã được đăng ký, bạn sẽ nhận được hướng dẫn đặt lại mật khẩu.',
+      });
+    } catch (err: any) {
+      console.error('[FORGOT PASSWORD EXCEPTION]', err);
+      return res.json({
+        success: true,
+        message: 'Nếu email này đã được đăng ký, bạn sẽ nhận được hướng dẫn đặt lại mật khẩu.',
+      });
+    }
+  });
+
   app.post('/api/v1/auth/resend-verification', async (req: Request, res: Response) => {
     const { email } = req.body;
     if (!email || typeof email !== 'string') {
@@ -2518,7 +2553,7 @@ async function startServer() {
 
       let query = supabase
         .from('leads')
-        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status)', { count: 'exact' })
+        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status), lead_egov_links(external_admission_code, link_status)', { count: 'exact' })
         .eq('affiliate_id', affiliateId);
 
       const cleanSearch = typeof search === 'string' ? search.trim() : '';
@@ -2592,10 +2627,18 @@ async function startServer() {
         return (latest && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(latest.reconciliation_status)) ? latest : null;
       };
 
+      const getActiveEgovLink = (links: any) => {
+        if (!links) return null;
+        const list = Array.isArray(links) ? [...links] : [links];
+        const active = list.find((l: any) => l.link_status === 'ACTIVE');
+        return active || null;
+      };
+
       const formattedRealLeads = (realLeads || []).map((l: any) => {
         const activeRecon = getActiveReconciliation(l.lead_reconciliations);
+        const activeEgov = getActiveEgovLink(l.lead_egov_links);
         const reconStatus = activeRecon ? activeRecon.reconciliation_status : 'NOT_RECONCILED';
-        const egovCode = (reconStatus === 'MATCHED_VALID') ? (activeRecon?.external_admission_code || null) : null;
+        const egovCode = activeEgov?.external_admission_code || null;
         const courseTitle = l.courses?.title || (l.course_id ? (courseMap[l.course_id] || 'Chương trình tuyển sinh STHC') : 'Tư vấn chung');
 
         return {
@@ -2644,7 +2687,7 @@ async function startServer() {
     try {
       const { data: lead, error } = await supabase
         .from('leads')
-        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status, reconciled_at, created_at)')
+        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status, reconciled_at, created_at), lead_egov_links(external_admission_code, link_status)')
         .eq('id', id)
         .eq('affiliate_id', affiliateId)
         .maybeSingle();
@@ -2671,9 +2714,17 @@ async function startServer() {
         return (latest && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(latest.reconciliation_status)) ? latest : null;
       };
 
+      const getActiveEgovLink = (links: any) => {
+        if (!links) return null;
+        const list = Array.isArray(links) ? [...links] : [links];
+        const active = list.find((l: any) => l.link_status === 'ACTIVE');
+        return active || null;
+      };
+
       const activeRecon = getActiveReconciliation(lead.lead_reconciliations);
+      const activeEgov = getActiveEgovLink(lead.lead_egov_links);
       const reconStatus = activeRecon ? activeRecon.reconciliation_status : 'NOT_RECONCILED';
-      const egovCode = (reconStatus === 'MATCHED_VALID') ? (activeRecon?.external_admission_code || null) : null;
+      const egovCode = activeEgov?.external_admission_code || null;
       const courseMap: Record<string, string> = {
         'CBMA-TC-01': 'Kỹ thuật Chế biến Món ăn Á - Âu',
         'BB-TC-02': 'Nghệ thuật Bếp bánh & Bánh ngọt Âu',
@@ -6421,7 +6472,8 @@ async function startServer() {
           *,
           courses(id, title, code, tuition_fee_estimate),
           affiliate_profiles(id, affiliate_code, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)),
-          lead_reconciliations(*, courses:course_id(id, title, code))
+          lead_reconciliations(*, courses:course_id(id, title, code)),
+          lead_egov_links(*, staff:verified_by(id, full_name, email), voided_by_profile:voided_by(id, full_name, email))
         `, { count: 'exact' });
 
       const cleanSearch = typeof search === 'string' ? search.trim() : '';
@@ -6458,19 +6510,20 @@ async function startServer() {
             }
           }
 
-          // 2. Tra cứu lead_id theo mã hồ sơ EGOV trong lead_reconciliations
+          // 2. Tra cứu lead_id theo mã hồ sơ EGOV trong lead_egov_links (ACTIVE)
           let matchingLeadIdsByEgov: string[] = [];
           try {
-            const { data: matchedRecons } = await supabase
-              .from('lead_reconciliations')
+            const { data: matchedEgovs } = await supabase
+              .from('lead_egov_links')
               .select('lead_id')
+              .eq('link_status', 'ACTIVE')
               .ilike('external_admission_code', `%${safe}%`)
               .limit(50);
-            if (matchedRecons && matchedRecons.length > 0) {
-              matchingLeadIdsByEgov = matchedRecons.map((r: any) => r.lead_id);
+            if (matchedEgovs && matchedEgovs.length > 0) {
+              matchingLeadIdsByEgov = matchedEgovs.map((e: any) => e.lead_id);
             }
-          } catch (reconSearchErr) {
-            console.warn('[SEARCH EGOV NOTICE]:', reconSearchErr);
+          } catch (egovSearchErr) {
+            console.warn('[SEARCH EGOV NOTICE]:', egovSearchErr);
           }
 
           const orParts = [
@@ -6561,8 +6614,16 @@ async function startServer() {
         return (latest && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(latest.reconciliation_status)) ? latest : null;
       };
 
+      const getActiveEgovLink = (links: any) => {
+        if (!links) return null;
+        const list = Array.isArray(links) ? [...links] : [links];
+        const active = list.find((l: any) => l.link_status === 'ACTIVE');
+        return active || null;
+      };
+
       const formatted = (leads || []).map((l: any) => {
         const activeRecon = getActiveReconciliation(l.lead_reconciliations);
+        const activeEgovLink = getActiveEgovLink(l.lead_egov_links);
         const reconStatus = l.reconciliation_status || (activeRecon ? activeRecon.reconciliation_status : 'NOT_RECONCILED');
         const admStatus = activeRecon?.admission_status || l.admission_status || (reconStatus === 'MATCHED_VALID' ? 'ENROLLED' : (reconStatus === 'EXISTING_IN_SCHOOL_SYSTEM' ? 'ENROLLED' : 'NOT_ENROLLED'));
 
@@ -6577,11 +6638,12 @@ async function startServer() {
 
         return {
           ...l,
-          external_admission_code: activeRecon?.external_admission_code || null,
+          external_admission_code: activeEgovLink?.external_admission_code || activeRecon?.external_admission_code || null,
           external_student_code: activeRecon?.external_student_code || null,
           reconciliation_status: reconStatus,
           admission_status: admStatus,
           current_reconciliation: activeRecon,
+          current_egov_link: activeEgovLink,
           initial_course_title: initialCourseTitle,
           initial_course_code: initialCourseCode,
           initial_course_fee: initialCourseFee,
@@ -6629,6 +6691,7 @@ async function startServer() {
           courses(id, title, code, tuition_fee_estimate),
           affiliate_profiles(id, affiliate_code, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)),
           lead_reconciliations(*, courses:course_id(id, title, code), staff:staff_id(id, full_name, email), voided_by_profile:voided_by(id, full_name, email)),
+          lead_egov_links(*, staff:verified_by(id, full_name, email), voided_by_profile:voided_by(id, full_name, email)),
           rewards(*)
         `)
         .eq('id', id)
@@ -6651,8 +6714,16 @@ async function startServer() {
         return (latest && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(latest.reconciliation_status)) ? latest : null;
       };
 
+      const getActiveEgovLink = (links: any) => {
+        if (!links) return null;
+        const list = Array.isArray(links) ? [...links] : [links];
+        const active = list.find((l: any) => l.link_status === 'ACTIVE');
+        return active || null;
+      };
+
       const activeRecon = getActiveReconciliation(lead.lead_reconciliations);
-      const egovCode = activeRecon?.external_admission_code || null;
+      const activeEgovLink = getActiveEgovLink(lead.lead_egov_links);
+      const egovCode = activeEgovLink?.external_admission_code || activeRecon?.external_admission_code || null;
       const reconStatus = lead.reconciliation_status || (activeRecon ? activeRecon.reconciliation_status : 'NOT_RECONCILED');
       const admStatus = lead.admission_status || (reconStatus === 'MATCHED_VALID' ? 'ENROLLED' : (reconStatus === 'EXISTING_IN_SCHOOL_SYSTEM' ? 'ENROLLED' : 'NOT_ENROLLED'));
 
@@ -6674,6 +6745,8 @@ async function startServer() {
           reconciliation_status: reconStatus,
           admission_status: admStatus,
           current_reconciliation: activeRecon,
+          current_egov_link: activeEgovLink,
+          egov_links: lead.lead_egov_links || [],
           initial_course_title: initialCourseTitle,
           initial_course_code: initialCourseCode,
           initial_course_fee: initialCourseFee,
@@ -7557,6 +7630,146 @@ async function startServer() {
     });
 
     return res.json(responseData);
+  });
+
+  // EGOV Link / Update API (A4-F2 / A4-F3)
+  const egovLinkStore = new Map<string, any>();
+
+  app.post('/api/v1/admin/leads/:id/egov-link', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    const { id: leadId } = req.params;
+    const { external_admission_code, client_updated_at, reason, target_egov_link_id } = req.body;
+    const idempotencyKey = String(req.headers['idempotency-key'] || '').trim() || null;
+
+    if (!external_admission_code || typeof external_admission_code !== 'string') {
+      return res.status(400).json({ success: false, error: 'Mã hồ sơ EGOV là bắt buộc.' });
+    }
+
+    const cleanCode = external_admission_code.trim();
+    if (!/^[0-9]{7}$/.test(cleanCode)) {
+      return res.status(400).json({ success: false, error: `Mã hồ sơ EGOV không hợp lệ: "${cleanCode}". Phải gồm đúng 7 chữ số.` });
+    }
+
+    if (!client_updated_at) {
+      return res.status(400).json({ success: false, error: 'Thiếu thông tin phiên bản hồ sơ (client_updated_at).' });
+    }
+
+    const actorId = (req as any).user?.id || demoState.adminUser.id;
+    const idempotencyCompound = `${actorId}:${leadId}:egov-link:${idempotencyKey}`;
+    if (idempotencyKey && egovLinkStore.has(idempotencyCompound)) {
+      const cached = egovLinkStore.get(idempotencyCompound);
+      return res.json({ ...cached.response, is_idempotent_replay: true });
+    }
+
+    try {
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_link_or_update_lead_egov', {
+        p_lead_id: leadId,
+        p_staff_id: actorId,
+        p_external_admission_code: cleanCode,
+        p_reason: reason ? String(reason).trim() : null,
+        p_expected_updated_at: client_updated_at,
+      });
+
+      if (rpcError) {
+        const errStr = rpcError.message || '';
+        if (errStr.includes('CONCURRENT_CONFLICT')) {
+          return res.status(409).json({ success: false, error: 'Xung đột cập nhật: Dữ liệu hồ sơ này đã được chỉnh sửa bởi cán bộ khác. Vui lòng tải lại trang.' });
+        }
+        if (errStr.includes('EGOV_ALREADY_LINKED')) {
+          return res.status(409).json({ success: false, error: 'Mã hồ sơ EGOV này đã được liên kết với một hồ sơ thí sinh khác.' });
+        }
+        if (errStr.includes('ACTIVE_RECON_EXISTS')) {
+          return res.status(409).json({ success: false, error: 'Hồ sơ đang có kết quả đối soát hoạt động. Vui lòng hủy kết quả đối soát trước khi sửa mã EGOV.' });
+        }
+        if (errStr.includes('MISSING_RECONCILIATION_NOTE')) {
+          return res.status(400).json({ success: false, error: 'Bắt buộc phải nhập lý do khi sửa đổi mã EGOV đã liên kết.' });
+        }
+        return res.status(400).json({ success: false, error: errStr || 'Không thể liên kết mã EGOV.' });
+      }
+
+      if (rpcResult && rpcResult.success) {
+        const respData = {
+          success: true,
+          message: rpcResult.message || 'Liên kết mã hồ sơ EGOV thành công!',
+          data: rpcResult,
+        };
+
+        if (idempotencyKey) {
+          egovLinkStore.set(idempotencyCompound, { response: respData, created_at: new Date().toISOString() });
+        }
+
+        return res.json(respData);
+      }
+
+      return res.status(400).json({ success: false, error: 'Không thể liên kết mã EGOV.' });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi máy chủ khi liên kết EGOV.' });
+    }
+  });
+
+  // EGOV Unlink API (A4-F2 / A4-F3)
+  const egovUnlinkStore = new Map<string, any>();
+
+  app.post('/api/v1/admin/leads/:id/egov-unlink', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    const { id: leadId } = req.params;
+    const { target_egov_link_id, void_reason, client_updated_at } = req.body;
+    const idempotencyKey = String(req.headers['idempotency-key'] || '').trim() || null;
+
+    if (!target_egov_link_id || !void_reason || typeof void_reason !== 'string' || !void_reason.trim()) {
+      return res.status(400).json({ success: false, error: 'Mã định danh liên kết và lý do hủy là bắt buộc.' });
+    }
+
+    if (!client_updated_at) {
+      return res.status(400).json({ success: false, error: 'Thiếu thông tin phiên bản hồ sơ (client_updated_at).' });
+    }
+
+    const actorId = (req as any).user?.id || demoState.adminUser.id;
+    const idempotencyCompound = `${actorId}:${leadId}:egov-unlink:${idempotencyKey}`;
+    if (idempotencyKey && egovUnlinkStore.has(idempotencyCompound)) {
+      const cached = egovUnlinkStore.get(idempotencyCompound);
+      return res.json({ ...cached.response, is_idempotent_replay: true });
+    }
+
+    try {
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_unlink_lead_egov', {
+        p_lead_id: leadId,
+        p_staff_id: actorId,
+        p_target_egov_link_id: target_egov_link_id,
+        p_void_reason: void_reason.trim(),
+        p_expected_updated_at: client_updated_at,
+      });
+
+      if (rpcError) {
+        const errStr = rpcError.message || '';
+        if (errStr.includes('CONCURRENT_CONFLICT')) {
+          return res.status(409).json({ success: false, error: 'Xung đột cập nhật: Dữ liệu hồ sơ này đã được chỉnh sửa bởi cán bộ khác. Vui lòng tải lại trang.' });
+        }
+        if (errStr.includes('ACTIVE_RECON_EXISTS')) {
+          return res.status(409).json({ success: false, error: 'Hồ sơ đang có kết quả đối soát hoạt động. Vui lòng hủy kết quả đối soát trước khi hủy liên kết EGOV.' });
+        }
+        if (errStr.includes('MISSING_VOID_REASON')) {
+          return res.status(400).json({ success: false, error: 'Bắt buộc phải nhập lý do hủy liên kết EGOV.' });
+        }
+        return res.status(400).json({ success: false, error: errStr || 'Không thể hủy liên kết EGOV.' });
+      }
+
+      if (rpcResult && rpcResult.success) {
+        const respData = {
+          success: true,
+          message: rpcResult.message || 'Hủy liên kết mã hồ sơ EGOV thành công!',
+          data: rpcResult,
+        };
+
+        if (idempotencyKey) {
+          egovUnlinkStore.set(idempotencyCompound, { response: respData, created_at: new Date().toISOString() });
+        }
+
+        return res.json(respData);
+      }
+
+      return res.status(400).json({ success: false, error: 'Không thể hủy liên kết EGOV.' });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi máy chủ khi hủy liên kết EGOV.' });
+    }
   });
 
   // 6. Xem lịch sử chăm sóc, đối soát và thưởng của 1 lead (A3.6)

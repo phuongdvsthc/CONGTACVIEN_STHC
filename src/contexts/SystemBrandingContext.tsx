@@ -175,7 +175,7 @@ export const SystemBrandingProvider: React.FC<SystemBrandingProviderProps> = ({ 
       } else if (activePath === '/policy') {
         pageName = 'Chính sách thù lao tuyển sinh';
       } else if (activePath === '/login') {
-        pageName = 'Đăng nhập hệ thống';
+        pageName = 'Đăng nhập';
       } else if (activePath === '/register') {
         pageName = 'Đăng ký cộng tác viên';
       } else if (activePath.startsWith('/admin')) {

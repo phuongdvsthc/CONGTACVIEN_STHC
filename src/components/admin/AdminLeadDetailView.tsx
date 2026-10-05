@@ -25,6 +25,8 @@ import {
 } from 'lucide-react';
 import { AdminReconciliationModal } from './AdminReconciliationModal';
 import { AdminVoidReconciliationModal } from './AdminVoidReconciliationModal';
+import { AdminEgovLinkModal } from './AdminEgovLinkModal';
+import { AdminEgovUnlinkModal } from './AdminEgovUnlinkModal';
 
 interface AdminLeadDetailViewProps {
   leadId: string;
@@ -42,6 +44,8 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
   // Modals
   const [reconcileModalOpen, setReconcileModalOpen] = useState<boolean>(false);
   const [voidModalOpen, setVoidModalOpen] = useState<boolean>(false);
+  const [egovLinkModalOpen, setEgovLinkModalOpen] = useState<boolean>(false);
+  const [egovUnlinkModalOpen, setEgovUnlinkModalOpen] = useState<boolean>(false);
 
   // Care Form State (A3.6)
   const [counselingStatus, setCounselingStatus] = useState<string>('NEW');
@@ -265,6 +269,9 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
   const activeRecon = lead.current_reconciliation || reconList.find((r: any) => ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(r.reconciliation_status));
   const hasActiveRecon = Boolean(activeRecon && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(activeRecon.reconciliation_status));
 
+  const activeEgovLink = lead.current_egov_link || (lead.lead_egov_links || []).find((l: any) => l.link_status === 'ACTIVE');
+  const egovLinksList = lead.egov_links || lead.lead_egov_links || [];
+
   const hasDifferentCourse = lead.reconciled_course_title && lead.initial_course_title && lead.reconciled_course_title !== lead.initial_course_title;
 
   return (
@@ -300,8 +307,15 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
 
           {!hasActiveRecon ? (
             <button
-              onClick={() => setReconcileModalOpen(true)}
+              onClick={() => {
+                if (!activeEgovLink) {
+                  alert('Hồ sơ chưa được liên kết mã EGOV. Vui lòng cập nhật mã EGOV trước khi đối chiếu nhập học.');
+                  return;
+                }
+                setReconcileModalOpen(true);
+              }}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-blue-900 hover:bg-blue-950 transition-colors shadow-sm"
+              title={!activeEgovLink ? 'Cần cập nhật mã EGOV trước khi đối chiếu' : 'Đối chiếu hồ sơ'}
             >
               <FileCheck2 className="w-4 h-4" />
               <span>Đối chiếu hồ sơ</span>
@@ -319,7 +333,7 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* LEFT 2 COLS: PERSONAL INFO, RECONCILIATION SUMMARY, CARE FORM */}
+        {/* LEFT 2 COLS: PERSONAL INFO, EGOV LINK, RECONCILIATION SUMMARY, CARE FORM */}
         <div className="lg:col-span-2 space-y-6">
           {/* Section A: Personal Info */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
@@ -373,11 +387,100 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
             )}
           </div>
 
-          {/* Section B: Active Reconciliation & Tuition Snapshot Detail */}
+          {/* Section B: Hồ sơ đăng ký EGOV (A4-F3) */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <FileCheck2 className="w-4 h-4 text-blue-900" />
+                <span>B. Hồ sơ đăng ký EGOV</span>
+              </h3>
+              <div className="flex items-center gap-2">
+                {!activeEgovLink ? (
+                  <button
+                    onClick={() => setEgovLinkModalOpen(true)}
+                    className="px-3 py-1.5 bg-blue-900 hover:bg-blue-950 text-white rounded-xl text-xs font-bold transition-colors shadow-sm inline-flex items-center gap-1.5"
+                  >
+                    <span>Cập nhật mã EGOV</span>
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => {
+                        if (hasActiveRecon) {
+                          alert('Hồ sơ đang có kết quả đối soát hoạt động. Vui lòng hủy kết quả đối soát trước khi sửa mã EGOV.');
+                          return;
+                        }
+                        setEgovLinkModalOpen(true);
+                      }}
+                      disabled={hasActiveRecon}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-700 rounded-xl text-xs font-bold transition-colors"
+                      title={hasActiveRecon ? 'Hồ sơ đang có đối soát hoạt động. Cần hủy đối soát trước.' : 'Sửa mã EGOV'}
+                    >
+                      Sửa mã EGOV
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (hasActiveRecon) {
+                          alert('Hồ sơ đang có kết quả đối soát hoạt động. Vui lòng hủy kết quả đối soát trước khi hủy liên kết EGOV.');
+                          return;
+                        }
+                        setEgovUnlinkModalOpen(true);
+                      }}
+                      disabled={hasActiveRecon}
+                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 disabled:opacity-50 text-rose-800 rounded-xl text-xs font-bold transition-colors"
+                      title={hasActiveRecon ? 'Hồ sơ đang có đối soát hoạt động. Cần hủy đối soát trước.' : 'Hủy liên kết'}
+                    >
+                      Hủy liên kết
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 text-blue-900 text-xs flex items-start gap-2">
+              <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+              <div>
+                <strong>Hướng dẫn:</strong> Cập nhật mã sau khi kiểm tra đúng hồ sơ trên EGOV. Thao tác này chưa xác nhận nhập học và chưa ghi nhận thưởng CTV.
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <span className="text-slate-500 font-medium block">Mã hồ sơ EGOV hiện hành:</span>
+                <span className="font-mono font-bold text-blue-900 text-base">
+                  {activeEgovLink?.external_admission_code ? String(activeEgovLink.external_admission_code) : 'Chưa cập nhật mã EGOV'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 font-medium block">Trạng thái liên kết:</span>
+                <span className="mt-1 inline-block">
+                  {activeEgovLink ? (
+                    <span className="px-2.5 py-1 bg-emerald-50 text-emerald-900 font-bold rounded-lg text-xs border border-emerald-200">
+                      Đã đăng ký hồ sơ EGOV (ACTIVE)
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 bg-slate-100 text-slate-600 font-medium rounded-lg text-xs border border-slate-200">
+                      Chưa liên kết (NOT_LINKED)
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 font-medium block">Cán bộ xác minh:</span>
+                <span className="text-slate-800 font-semibold">{activeEgovLink?.staff?.full_name || '—'}</span>
+              </div>
+              <div>
+                <span className="text-slate-500 font-medium block">Thời điểm xác minh:</span>
+                <span className="text-slate-800 font-mono">{activeEgovLink?.verified_at ? formatDateVN(activeEgovLink.verified_at) : '—'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Section C: Thông tin Đối chiếu Hồ sơ & Học phí Hiện hành */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
               <ShieldCheck className="w-4 h-4 text-blue-900" />
-              <span>B. Thông tin Đối chiếu Hồ sơ & Học phí Hiện hành</span>
+              <span>C. Kết quả Nhập học & Đối chiếu Hồ sơ</span>
             </h3>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -392,9 +495,9 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
               </div>
 
               <div>
-                <span className="text-slate-500 font-medium block">Mã hồ sơ EGOV:</span>
+                <span className="text-slate-500 font-medium block">Mã hồ sơ EGOV (Sử dụng đối chiếu):</span>
                 <span className="font-mono font-bold text-blue-900 text-sm">
-                  {lead.external_admission_code ? String(lead.external_admission_code) : '—'}
+                  {activeEgovLink?.external_admission_code || activeRecon?.external_admission_code || 'Chưa liên kết EGOV'}
                 </span>
               </div>
 
@@ -454,12 +557,12 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
             )}
           </div>
 
-          {/* Section C: Chăm sóc khách hàng & Ghi chú nội bộ (A3.6) */}
+          {/* Section D: Chăm sóc khách hàng & Ghi chú nội bộ (A3.6) */}
           <div className="bg-white rounded-2xl border border-blue-200 shadow-sm p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <MessageSquare className="w-4 h-4 text-blue-900" />
-                <span>C. Chăm sóc khách hàng & Ghi chú nội bộ (A3.6)</span>
+                <span>D. Chăm sóc khách hàng & Ghi chú nội bộ (A3.6)</span>
               </h3>
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
                 <Lock className="w-3 h-3 text-amber-600" />
@@ -544,21 +647,49 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
           </div>
         </div>
 
-        {/* RIGHT COL: TIMELINES (RECONCILIATIONS & CARE HISTORY) */}
+        {/* RIGHT COL: TIMELINES (EGOV LINKS, RECONCILIATIONS, CARE HISTORY) */}
         <div className="space-y-6">
-          {/* Lịch sử Đối soát & Thưởng */}
+          {/* Lịch sử Liên kết EGOV & Đối soát */}
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-3">
               <DollarSign className="w-4 h-4 text-blue-900" />
-              <span>Lịch sử đối soát & Thưởng</span>
+              <span>Lịch sử EGOV, Đối soát & Thưởng</span>
             </h3>
 
+            {/* Lịch sử EGOV Links */}
             <div className="space-y-3">
+              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Lịch sử EGOV Links:</h4>
+              {egovLinksList.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">Chưa có liên kết EGOV nào.</p>
+              ) : (
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {egovLinksList.map((el: any, i: number) => {
+                    const isActive = el.link_status === 'ACTIVE';
+                    return (
+                      <div key={i} className={`p-3 rounded-xl border text-xs space-y-1 ${isActive ? 'bg-blue-50/50 border-blue-200' : 'bg-slate-100 border-slate-200 opacity-75'}`}>
+                        <div className="flex justify-between items-center font-mono">
+                          <strong className="text-blue-900">{el.external_admission_code}</strong>
+                          <span className={`font-bold px-2 py-0.5 rounded text-[10px] ${isActive ? 'bg-emerald-100 text-emerald-900' : 'bg-slate-200 text-slate-700'}`}>
+                            {el.link_status}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500">Xác minh: {el.staff?.full_name || 'Cán bộ'} ({formatDateVN(el.verified_at)})</div>
+                        {!isActive && el.void_reason && (
+                          <div className="text-[11px] text-rose-800 italic">Lý do hủy: "{el.void_reason}"</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3 pt-3 border-t border-slate-100">
               <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Bản ghi đối soát:</h4>
               {reconList.length === 0 ? (
                 <p className="text-xs text-slate-400 italic">Chưa có bản ghi đối soát nào.</p>
               ) : (
-                <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-1">
+                <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
                   {reconList.map((r: any, i: number) => {
                     const isVoided = r.reconciliation_status === 'VOIDED';
                     return (
@@ -668,6 +799,30 @@ export const AdminLeadDetailView: React.FC<AdminLeadDetailViewProps> = ({ leadId
         onClose={() => setVoidModalOpen(false)}
         onSuccess={() => {
           setVoidModalOpen(false);
+          loadData();
+        }}
+      />
+
+      {/* EGOV LINK MODAL */}
+      <AdminEgovLinkModal
+        lead={lead}
+        activeLink={activeEgovLink}
+        isOpen={egovLinkModalOpen}
+        onClose={() => setEgovLinkModalOpen(false)}
+        onSuccess={() => {
+          setEgovLinkModalOpen(false);
+          loadData();
+        }}
+      />
+
+      {/* EGOV UNLINK MODAL */}
+      <AdminEgovUnlinkModal
+        lead={lead}
+        activeLink={activeEgovLink}
+        isOpen={egovUnlinkModalOpen}
+        onClose={() => setEgovUnlinkModalOpen(false)}
+        onSuccess={() => {
+          setEgovUnlinkModalOpen(false);
           loadData();
         }}
       />

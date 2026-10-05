@@ -1114,6 +1114,76 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
      - *TC-A7.3-12*: Thuật toán Cấp mã CTV tự tăng: Không cắt số, giữ đúng tiền tố: **PASS**.
 5. **Kết luận A7.3**: **PASS TOÀN BỘ (100% HOÀN THÀNH)**. Dừng đúng ranh giới sau CSDL và API, sẵn sàng chuyển tiếp sang bước A7.4.
 
+---
+
+### 34. Kiểm kê Cách lưu/hiển thị Mã EGOV và Chốt Luồng Liên kết Hồ sơ Riêng (A4-F1)
+1. **Phạm vi & Mục tiêu**:
+   - Kiểm kê hiện trạng lưu trữ và hiển thị mã EGOV: phát hiện mã EGOV hiện chỉ được cập nhật qua bảng `lead_reconciliations` khi xác nhận nhập học (`MATCHED_VALID`), dẫn đến việc cán bộ không thể cập nhật mã ngay khi thí sinh đăng ký trên EGOV trước khi đóng học phí.
+   - Thiết kế và đặc tả mô hình tách biệt: Tách "Liên kết hồ sơ EGOV" độc lập với "Xác nhận nhập học & Thù lao" thông qua bảng riêng (`lead_egov_links`), cho phép cán bộ cập nhật mã EGOV đúng 7 chữ số ngay khi có, hiển thị cho CTV biết hồ sơ đã đăng ký chính thức trên EGOV mà chưa sinh thù lao.
+2. **Tài liệu bàn giao**:
+   - Tài liệu đặc tả và báo cáo kiểm kê: `/docs/A4_F1_EGOV_LINK_AUDIT_AND_SPECIFICATION.md`.
+3. **Các quyết định kỹ thuật & Nghiệp vụ đã chốt**:
+   - Sử dụng mô hình bảng riêng `public.lead_egov_links` với index duy nhất `uq_active_external_admission_code` và `uq_active_egov_per_lead` cho mã hiện hành.
+   - Định nghĩa luồng 3 giai đoạn: Chưa liên kết (`NOT_LINKED`) → Đã liên kết EGOV (`EGOV_LINKED`, hiển thị mã, không thưởng) → Xác nhận nhập học & Đối soát (`RECONCILED / ENROLLED`, áp dụng quy tắc thưởng 500k).
+   - Vị trí thao tác: Trang chi tiết khách `/admin/leads/:id` với 2 khối độc lập (*Hồ sơ đăng ký EGOV* và *Kết quả nhập học & Đối chiếu*).
+4. **Kết luận A4-F1**: **PASS** (Hoàn tất kiểm kê hiện trạng và chốt đặc tả thiết kế A4-F1).
+
+---
+
+### 35. Bổ sung Dữ liệu, API, Quyền và Lịch sử Liên kết Mã EGOV (A4-F2)
+1. **Phạm vi & Mục tiêu**:
+   - Triển khai thành công hạ tầng lưu trữ và xử lý độc lập cho liên kết mã EGOV theo thiết kế A4-F1.
+   - Tạo migration CSDL (`20261005000004_lead_egov_links_schema_and_rpc.sql`) tạo bảng `lead_egov_links`, partial unique indexes chống trùng mã và lead active, cùng 2 hàm RPC nguyên tử (`fn_link_or_update_lead_egov`, `fn_unlink_lead_egov`).
+   - Xây dựng 2 API endpoints quản trị: `POST /api/v1/admin/leads/:id/egov-link` và `POST /api/v1/admin/leads/:id/egov-unlink`, bảo vệ bởi middleware `requireStaffOrAdmin`, Idempotency-Key và kiểm soát concurrency `client_updated_at`.
+   - Điều chỉnh tầng đọc Admin và CTV (`GET /api/v1/admin/leads`, `GET /api/v1/admin/leads/:id`, `GET /api/v1/affiliate/leads`, `GET /api/v1/affiliate/leads/:id`) để lấy mã EGOV hiện hành từ bảng `lead_egov_links`.
+   - Điều chỉnh RPC đối soát và hủy đối soát để giữ nguyên liên kết EGOV ACTIVE ngay cả khi hủy kết quả đối soát.
+2. **Tài liệu bàn giao**:
+   - Tài liệu báo cáo hoàn thành: `/docs/A4_F2_EGOV_LINK_DATA_API_AUTHORIZATION_REPORT.md`.
+3. **Kiểm tra kỹ thuật**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+   - Bảo toàn 100% dữ liệu thực tế và tính độc lập tuyệt đối giữa liên kết EGOV và thù lao CTV.
+4. **Kết luận A4-F2**: **PASS** (Hoàn tất Bổ sung Dữ liệu, API, Quyền và Lịch sử Liên kết Mã EGOV). Sẵn sàng chuyển tiếp sang bước A4-F3.
+
+---
+
+### 36. Thêm Khối “Hồ sơ đăng ký EGOV” tại Chi tiết Khách, Nối từ Cả Hai Danh Sách (A4-F3)
+1. **Phạm vi & Mục tiêu**:
+   - Xây dựng thành công khối giao diện **“B. Hồ sơ đăng ký EGOV”** tại trang chi tiết ứng viên `/admin/leads/:id` (`AdminLeadDetailView.tsx`), đặt trước khối kết quả đối soát.
+   - Tích hợp 2 Modal chuyên biệt: `AdminEgovLinkModal.tsx` và `AdminEgovUnlinkModal.tsx`.
+   - Nối thông suốt từ cả 2 danh sách (`/admin/leads` A3 và `/admin/reconcile` A4.5).
+2. **Tài liệu bàn giao**:
+   - `/docs/A4_F3_EGOV_LINK_DETAIL_UI_REPORT.md`.
+3. **Kết luận A4-F3**: **PASS**.
+
+---
+
+### 37. Hiển thị Mã EGOV và Trạng thái Đăng ký trên A3, A4 và Cổng CTV (A4-F4)
+1. **Phạm vi & Mục tiêu**:
+   - Hiển thị nhất quán mã EGOV hiện hành và trạng thái đăng ký EGOV trên toàn hệ thống.
+2. **Tài liệu bàn giao**:
+   - `/docs/A4_F4_EGOV_LINK_A3_A4_AFFILIATE_DISPLAY_REPORT.md`.
+3. **Kết luận A4-F4**: **PASS**.
+
+---
+
+### 38. Kiểm thử Toàn luồng Liên kết EGOV và Nghiệm thu Bản sửa A4-F (A4-F5)
+1. **Phạm vi & Mục tiêu**:
+   - Thực hiện kiểm thử E2E toàn diện toàn bộ chuỗi nghiệp vụ A4-F (Bước A đến G) và các ca kiểm thử bổ sung (định dạng mã, chống trùng, rollback, hủy liên kết, EXISTING_IN_SCHOOL_SYSTEM, phân quyền bảo mật, concurrency & idempotency, dọn dẹp fixture).
+   - Kiểm chứng sự hoạt động trơn tru từ cơ sở dữ liệu Supabase, API admin/affiliate đến giao diện quản trị (A3, A4) và Cổng CTV.
+2. **Tài liệu bàn giao**:
+   - Tài liệu báo cáo nghiệm thu E2E chính thức: `/docs/A4_F5_EGOV_LINK_E2E_ACCEPTANCE.md`.
+3. **Kết quả kiểm thử kỹ thuật & nghiệp vụ**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+   - Toàn bộ chuỗi test E2E (Bước A–G) và ma trận ca bổ sung đạt kết quả **PASS**.
+   - Đã dọn dẹp toàn bộ dữ liệu test fixture, bảo toàn 100% dữ liệu thật của trường.
+4. **Kết luận nghiệm thu toàn bộ Module A4-F**: **PASS TOÀN BỘ (100% HOÀN THÀNH)**.
+
+
+
+
+
 
 
 

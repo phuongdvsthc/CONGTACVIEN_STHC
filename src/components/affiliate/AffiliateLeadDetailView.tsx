@@ -225,10 +225,15 @@ export const AffiliateLeadDetailView: React.FC<AffiliateLeadDetailViewProps> = (
               </div>
 
               <div className="space-y-1 sm:col-span-2 bg-blue-50/50 p-3.5 rounded-xl border border-blue-100">
-                <span className="text-blue-900/70 font-semibold block mb-0.5">Mã hồ sơ EGOV:</span>
-                <span className="font-mono font-bold text-blue-950 text-sm">
-                  {lead.external_admission_code || 'Chưa cập nhật'}
-                </span>
+                <span className="text-blue-900/70 font-semibold block mb-1">Hồ sơ đăng ký EGOV:</span>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="font-mono font-bold text-blue-950 text-sm">
+                    {lead.external_admission_code || 'Chưa cập nhật'}
+                  </span>
+                  <span className={`px-2.5 py-1 rounded-md text-xs font-semibold ${lead.external_admission_code ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-500'}`}>
+                    {lead.external_admission_code ? 'Đã đăng ký hồ sơ EGOV' : 'Chưa cập nhật mã EGOV'}
+                  </span>
+                </div>
               </div>
             </div>
           </div>

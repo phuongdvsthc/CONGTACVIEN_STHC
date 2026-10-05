@@ -825,11 +825,21 @@ export const AdminReconciliationListView: React.FC<AdminReconciliationListViewPr
                       {/* Mã hồ sơ EGOV */}
                       <td className="py-3 px-3 font-mono">
                         {l.external_admission_code ? (
-                          <span className="font-bold text-emerald-900 bg-emerald-50 px-2 py-0.5 rounded text-xs border border-emerald-200">
-                            {String(l.external_admission_code)}
-                          </span>
+                          <div>
+                            <span className="font-bold text-emerald-900 bg-emerald-50 px-2 py-0.5 rounded text-xs border border-emerald-200 inline-block">
+                              {String(l.external_admission_code)}
+                            </span>
+                            <div className="text-[11px] text-emerald-700 font-sans font-medium mt-1">
+                              Đã đăng ký hồ sơ EGOV
+                            </div>
+                          </div>
                         ) : (
-                          <span className="text-slate-400 italic">Chưa cập nhật</span>
+                          <div>
+                            <span className="text-slate-400 italic text-xs">Chưa cập nhật</span>
+                            <div className="text-[11px] text-slate-400 font-sans mt-0.5">
+                              Chưa cập nhật mã EGOV
+                            </div>
+                          </div>
                         )}
                       </td>
 

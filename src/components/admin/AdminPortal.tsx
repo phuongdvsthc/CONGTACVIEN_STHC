@@ -1122,11 +1122,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
                         </td>
                         <td className="py-3 px-4 font-mono">
                           {l.external_admission_code ? (
-                            <span className="font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
-                              {String(l.external_admission_code)}
-                            </span>
+                            <div>
+                              <span className="font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 inline-block">
+                                {String(l.external_admission_code)}
+                              </span>
+                              <div className="text-[11px] text-emerald-700 font-sans font-medium mt-1">
+                                Đã đăng ký hồ sơ EGOV
+                              </div>
+                            </div>
                           ) : (
-                            <span className="text-slate-300">—</span>
+                            <div>
+                              <span className="text-slate-400 italic text-xs">Chưa cập nhật</span>
+                              <div className="text-[11px] text-slate-400 font-sans mt-0.5">
+                                Chưa cập nhật mã EGOV
+                              </div>
+                            </div>
                           )}
                         </td>
                         <td className="py-3 px-4">

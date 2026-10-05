@@ -14,6 +14,7 @@ import { api } from '../../services/api';
 import { AffiliateLandingConfig } from '../../types/landingConfig';
 import { defaultLandingConfig } from '../../config/defaultLandingConfig';
 import { Header } from '../common/Header';
+import { useSystemBranding } from '../../contexts/SystemBrandingContext';
 
 interface LoginPageProps {
   config?: AffiliateLandingConfig;
@@ -22,6 +23,7 @@ interface LoginPageProps {
   requestedRedirect?: string | null;
   onLoginSuccess: (authData: any, requestedRedirect?: string | null) => void;
   onNavigateToRegister: () => void;
+  onNavigateToForgot: () => void;
   onGoHome: () => void;
 }
 
@@ -32,6 +34,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   requestedRedirect = null,
   onLoginSuccess,
   onNavigateToRegister,
+  onNavigateToForgot,
   onGoHome,
 }) => {
   const [email, setEmail] = useState(initialEmail);
@@ -39,6 +42,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [formErrors, setFormErrors] = useState<{ email?: string; password?: string; general?: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { branding, isLoading } = useSystemBranding();
   const [serverNotice, setServerNotice] = useState<string | null>(
     successNotice || (requestedRedirect ? 'Vui lòng đăng nhập để tiếp tục truy cập khu vực nội bộ.' : null)
   );
@@ -136,12 +140,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           {/* CỘT TRÁI (DESKTOP): HÌNH MINH HỌA & THÔNG ĐIỆP BẢO MẬT (6 Cột) */}
           <div className="hidden lg:block lg:col-span-6 space-y-6">
             <div className="space-y-3">
-              <span className="text-xs font-bold text-amber-400 tracking-wider uppercase bg-amber-400/10 px-3 py-1 rounded-full border border-amber-400/20 inline-block">
-                CỔNG CỘNG TÁC VIÊN TUYỂN SINH
+              <span className="text-xs font-bold text-amber-400 tracking-wider uppercase bg-amber-400/10 px-3 py-1 rounded-full border border-amber-400/20 inline-block whitespace-normal break-words max-w-full">
+                {isLoading ? 'ĐANG TẢI...' : (branding.system_name || 'CỔNG CỘNG TÁC VIÊN TUYỂN SINH')}
               </span>
-              <h1 className="text-3xl lg:text-4xl font-black text-white tracking-tight leading-tight">
+              <h1 className="text-3xl lg:text-4xl font-black text-white tracking-tight leading-tight break-words">
                 Chào Mừng Bạn Trở Lại Với{' '}
-                <span className="text-amber-400">Saigontourist</span>
+                <span className="text-amber-400 break-words">{isLoading ? '...' : (branding.unit_name || 'Saigontourist')}</span>
               </h1>
               <p className="text-sm text-blue-100/90 leading-relaxed">
                 Đăng nhập để theo dõi hồ sơ người học quan tâm, lấy link/mã QR giới thiệu và đối soát thù lao 500.000 VNĐ / hồ sơ nhập học hợp lệ.
@@ -267,12 +271,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
                   </div>
-                  {formErrors.password && (
-                    <p className="mt-1 text-[11px] text-rose-600 flex items-center gap-1">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                      <span>{formErrors.password}</span>
-                    </p>
-                  )}
+                  <div className="flex items-center justify-between pt-1">
+                    {formErrors.password ? (
+                      <p className="text-[11px] text-rose-600 flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        <span>{formErrors.password}</span>
+                      </p>
+                    ) : <span />}
+                    <button
+                      type="button"
+                      onClick={onNavigateToForgot}
+                      className="text-xs font-semibold text-blue-900 hover:text-blue-950 hover:underline ml-auto"
+                    >
+                      Quên mật khẩu?
+                    </button>
+                  </div>
                 </div>
 
                 {/* Nút gửi Đăng nhập: Khóa khi đang gửi để tránh bấm lặp */}
