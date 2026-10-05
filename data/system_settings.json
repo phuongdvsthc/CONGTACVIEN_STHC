@@ -1,0 +1,362 @@
+{
+  "settings": {
+    "id": 1,
+    "revision": 18,
+    "timezone": "Asia/Ho_Chi_Minh",
+    "unit_name": "Trường Trung cấp Du lịch & Khách sạn Saigontourist",
+    "updated_at": "2026-10-05T13:04:14.660965+00:00",
+    "updated_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+    "favicon_url": null,
+    "system_name": "Cổng Đại sứ & Cộng tác viên Tuyển sinh STHC (Official)",
+    "support_email": "tuyensinh@sthc.edu.vn",
+    "support_phone": "02838446480",
+    "public_base_url": "https://ctv.sthc.edu.vn",
+    "logo_backend_url": null,
+    "system_short_name": "STHC_CTV",
+    "affiliate_code_prefix": "STHCCTV",
+    "affiliate_code_min_digits": 6,
+    "registration_closed_message": null,
+    "allow_affiliate_registration": true
+  },
+  "history": [
+    {
+      "id": "hist-1791204088999",
+      "setting_group": "REGISTRATION",
+      "action_type": "UPDATE",
+      "revision": 5,
+      "previous_data": {
+        "allow_affiliate_registration": false
+      },
+      "new_data": {
+        "allow_affiliate_registration": true
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:41:28.999Z",
+      "change_reason": "Thử mở đăng ký khi chưa có quy chế"
+    },
+    {
+      "id": "rollback-1791202074697",
+      "setting_group": "OPERATION",
+      "action_type": "ROLLBACK",
+      "revision": 13,
+      "previous_data": {
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "02838446480",
+        "timezone": "Asia/Ho_Chi_Minh"
+      },
+      "new_data": {
+        "system_name": "Cổng Đại sứ & Cộng tác viên Tuyển sinh STHC",
+        "system_short_name": "STHC_CTV",
+        "unit_name": "Trường Trung cấp Du lịch & Khách sạn Saigontourist",
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "0283844648",
+        "timezone": "Asia/Ho_Chi_Minh",
+        "allow_affiliate_registration": false,
+        "registration_closed_message": "Hệ thống hiện đang tạm ngưng tiếp nhận hồ sơ cộng tác viên mới.",
+        "affiliate_code_prefix": "STHCCTV",
+        "affiliate_code_min_digits": 6
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:07:54.697Z",
+      "change_reason": "Khôi phục thử nghiệm nhóm OPERATION về revision 1",
+      "source_revision": 1
+    },
+    {
+      "id": "hist-1791202073923",
+      "setting_group": "REGISTRATION",
+      "action_type": "UPDATE",
+      "revision": 12,
+      "previous_data": {
+        "allow_affiliate_registration": true,
+        "registration_closed_message": null
+      },
+      "new_data": {
+        "allow_affiliate_registration": true,
+        "registration_closed_message": null
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:07:53.923Z",
+      "change_reason": "Mở đăng ký CTV sau khi đã có quy chế ACTIVE"
+    },
+    {
+      "id": "apply-reg-1791202073324",
+      "setting_group": "REGISTRATION",
+      "action_type": "APPLY_REGULATION",
+      "revision": 11,
+      "previous_data": {},
+      "new_data": {
+        "active_regulation_id": "8a948d08-8674-4d22-a0ac-d4b69ff20df6",
+        "version_code": "QC_1791202072801",
+        "title": "Quy chế Hoạt động Đại sứ Tuyển sinh STHC 2026"
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:07:53.324Z",
+      "change_reason": "Phê duyệt ban hành quy chế tuyển sinh chính thức"
+    },
+    {
+      "id": "hist-1791202072352",
+      "setting_group": "REGISTRATION",
+      "action_type": "UPDATE",
+      "revision": 11,
+      "previous_data": {
+        "allow_affiliate_registration": true
+      },
+      "new_data": {
+        "allow_affiliate_registration": true
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:07:52.352Z",
+      "change_reason": "Thử mở đăng ký khi chưa có quy chế"
+    },
+    {
+      "id": "hist-1791202072053",
+      "setting_group": "OPERATION",
+      "action_type": "UPDATE",
+      "revision": 10,
+      "previous_data": {
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "0283844648"
+      },
+      "new_data": {
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "02838446480"
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:07:52.053Z",
+      "change_reason": "Cập nhật thông tin vận hành chuẩn hóa"
+    },
+    {
+      "id": "rollback-1791201984950",
+      "setting_group": "OPERATION",
+      "action_type": "ROLLBACK",
+      "revision": 9,
+      "previous_data": {
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "02838446480",
+        "timezone": "Asia/Ho_Chi_Minh"
+      },
+      "new_data": {
+        "system_name": "Cổng Đại sứ & Cộng tác viên Tuyển sinh STHC",
+        "system_short_name": "STHC_CTV",
+        "unit_name": "Trường Trung cấp Du lịch & Khách sạn Saigontourist",
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "0283844648",
+        "timezone": "Asia/Ho_Chi_Minh",
+        "allow_affiliate_registration": false,
+        "registration_closed_message": "Hệ thống hiện đang tạm ngưng tiếp nhận hồ sơ cộng tác viên mới.",
+        "affiliate_code_prefix": "STHCCTV",
+        "affiliate_code_min_digits": 6
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:06:24.950Z",
+      "change_reason": "Khôi phục thử nghiệm nhóm OPERATION về revision 1",
+      "source_revision": 1
+    },
+    {
+      "id": "hist-1791201984172",
+      "setting_group": "REGISTRATION",
+      "action_type": "UPDATE",
+      "revision": 8,
+      "previous_data": {
+        "allow_affiliate_registration": true,
+        "registration_closed_message": "Hệ thống hiện đang tạm ngưng tiếp nhận hồ sơ cộng tác viên mới."
+      },
+      "new_data": {
+        "allow_affiliate_registration": true,
+        "registration_closed_message": null
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:06:24.172Z",
+      "change_reason": "Mở đăng ký CTV sau khi đã có quy chế ACTIVE"
+    },
+    {
+      "id": "apply-reg-1791201983403",
+      "setting_group": "REGISTRATION",
+      "action_type": "APPLY_REGULATION",
+      "revision": 7,
+      "previous_data": {},
+      "new_data": {
+        "active_regulation_id": "fb52ce60-51e8-49fa-a8a4-dc8434333853",
+        "version_code": "QC_1791201982949",
+        "title": "Quy chế Hoạt động Đại sứ Tuyển sinh STHC 2026"
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:06:23.403Z",
+      "change_reason": "Phê duyệt ban hành quy chế tuyển sinh chính thức"
+    },
+    {
+      "id": "hist-1791201982446",
+      "setting_group": "REGISTRATION",
+      "action_type": "UPDATE",
+      "revision": 7,
+      "previous_data": {
+        "allow_affiliate_registration": false
+      },
+      "new_data": {
+        "allow_affiliate_registration": true
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:06:22.446Z",
+      "change_reason": "Thử mở đăng ký khi chưa có quy chế"
+    },
+    {
+      "id": "hist-1791201982124",
+      "setting_group": "OPERATION",
+      "action_type": "UPDATE",
+      "revision": 6,
+      "previous_data": {
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "0283844648"
+      },
+      "new_data": {
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "02838446480"
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:06:22.124Z",
+      "change_reason": "Cập nhật thông tin vận hành chuẩn hóa"
+    },
+    {
+      "id": "rollback-1791201934264",
+      "setting_group": "OPERATION",
+      "action_type": "ROLLBACK",
+      "revision": 5,
+      "previous_data": {
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "02838446480",
+        "timezone": "Asia/Ho_Chi_Minh"
+      },
+      "new_data": {
+        "system_name": "Cổng Đại sứ & Cộng tác viên Tuyển sinh STHC",
+        "system_short_name": "STHC_CTV",
+        "unit_name": "Trường Trung cấp Du lịch & Khách sạn Saigontourist",
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "0283844648",
+        "timezone": "Asia/Ho_Chi_Minh",
+        "allow_affiliate_registration": false,
+        "registration_closed_message": "Hệ thống hiện đang tạm ngưng tiếp nhận hồ sơ cộng tác viên mới.",
+        "affiliate_code_prefix": "STHCCTV",
+        "affiliate_code_min_digits": 6
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:05:34.264Z",
+      "change_reason": "Khôi phục thử nghiệm nhóm OPERATION về revision 1",
+      "source_revision": 1
+    },
+    {
+      "id": "apply-reg-1791201933330",
+      "setting_group": "REGISTRATION",
+      "action_type": "APPLY_REGULATION",
+      "revision": 4,
+      "previous_data": {},
+      "new_data": {
+        "active_regulation_id": "a5976d42-283b-4fe5-bcd3-3e054331bcd7",
+        "version_code": "QC_1791201932905",
+        "title": "Quy chế Hoạt động Đại sứ Tuyển sinh STHC 2026"
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:05:33.330Z",
+      "change_reason": "Phê duyệt ban hành quy chế tuyển sinh chính thức"
+    },
+    {
+      "id": "hist-1791201932209",
+      "setting_group": "OPERATION",
+      "action_type": "UPDATE",
+      "revision": 4,
+      "previous_data": {
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "0283844648"
+      },
+      "new_data": {
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "02838446480"
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:05:32.209Z",
+      "change_reason": "Cập nhật thông tin vận hành chuẩn hóa"
+    },
+    {
+      "id": "rollback-1791201888633",
+      "setting_group": "OPERATION",
+      "action_type": "ROLLBACK",
+      "revision": 3,
+      "previous_data": {
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "02838446480",
+        "timezone": "Asia/Ho_Chi_Minh"
+      },
+      "new_data": {
+        "system_name": "Cổng Đại sứ & Cộng tác viên Tuyển sinh STHC",
+        "system_short_name": "STHC_CTV",
+        "unit_name": "Trường Trung cấp Du lịch & Khách sạn Saigontourist",
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "0283844648",
+        "timezone": "Asia/Ho_Chi_Minh",
+        "allow_affiliate_registration": false,
+        "registration_closed_message": "Hệ thống hiện đang tạm ngưng tiếp nhận hồ sơ cộng tác viên mới.",
+        "affiliate_code_prefix": "STHCCTV",
+        "affiliate_code_min_digits": 6
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:04:48.633Z",
+      "change_reason": "Khôi phục thử nghiệm nhóm OPERATION về revision 1",
+      "source_revision": 1
+    },
+    {
+      "id": "hist-1791201887181",
+      "setting_group": "OPERATION",
+      "action_type": "UPDATE",
+      "revision": 2,
+      "previous_data": {
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "0283844648"
+      },
+      "new_data": {
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "02838446480"
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T12:04:47.181Z",
+      "change_reason": "Cập nhật thông tin vận hành chuẩn hóa"
+    },
+    {
+      "id": "init-rev-1",
+      "setting_group": "OPERATION",
+      "action_type": "UPDATE",
+      "revision": 1,
+      "previous_data": {},
+      "new_data": {
+        "system_name": "Cổng Đại sứ & Cộng tác viên Tuyển sinh STHC",
+        "system_short_name": "STHC_CTV",
+        "unit_name": "Trường Trung cấp Du lịch & Khách sạn Saigontourist",
+        "public_base_url": "https://ctv.sthc.edu.vn",
+        "support_email": "tuyensinh@sthc.edu.vn",
+        "support_phone": "0283844648",
+        "timezone": "Asia/Ho_Chi_Minh",
+        "allow_affiliate_registration": false,
+        "registration_closed_message": "Hệ thống hiện đang tạm ngưng tiếp nhận hồ sơ cộng tác viên mới.",
+        "affiliate_code_prefix": "STHCCTV",
+        "affiliate_code_min_digits": 6
+      },
+      "changed_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "changed_at": "2026-10-05T04:20:00.000Z",
+      "change_reason": "Khởi tạo cấu hình hệ thống ban đầu A7.3"
+    }
+  ]
+}

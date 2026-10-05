@@ -1,0 +1,102 @@
+{
+  "regulations": [
+    {
+      "id": "e5628568-c8de-44ae-8ebf-8de7f6627ab6",
+      "version_code": "QC_1791205452727",
+      "title": "Quy chế Hoạt động Đại sứ Tuyển sinh STHC 2026",
+      "pdf_storage_path": "regulations/regulation_1791205452479_1217a37c.pdf",
+      "file_size_bytes": 1024,
+      "checksum_sha256": "75960bf809e54cf4bfd1efba8ad8bfa48dab96c18bd2e2f3b10b71e159e6405d",
+      "effective_date": "2026-10-05T12:04:12.727+00:00",
+      "status": "ACTIVE",
+      "created_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "created_at": "2026-10-05T13:04:12.846+00:00",
+      "published_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "published_at": "2026-10-05T13:04:13.348Z"
+    },
+    {
+      "id": "f735eb71-6095-4cf3-955b-ab2689f4888d",
+      "version_code": "QC_1791204122791",
+      "title": "Quy chế Hoạt động Đại sứ Tuyển sinh STHC 2026",
+      "pdf_storage_path": "regulations/regulation_1791204122422_a0f6d366.pdf",
+      "file_size_bytes": 1024,
+      "checksum_sha256": "75960bf809e54cf4bfd1efba8ad8bfa48dab96c18bd2e2f3b10b71e159e6405d",
+      "effective_date": "2026-10-05T11:42:02.791+00:00",
+      "status": "SUPERSEDED",
+      "created_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "created_at": "2026-10-05T12:42:02.898+00:00",
+      "published_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "published_at": "2026-10-05T12:42:03.234Z"
+    },
+    {
+      "id": "31289523-df34-49d1-a313-812284e03591",
+      "version_code": "QC_1791204089613",
+      "title": "Quy chế Hoạt động Đại sứ Tuyển sinh STHC 2026",
+      "pdf_storage_path": "regulations/regulation_1791204089375_c95c624d.pdf",
+      "file_size_bytes": 1024,
+      "checksum_sha256": "75960bf809e54cf4bfd1efba8ad8bfa48dab96c18bd2e2f3b10b71e159e6405d",
+      "effective_date": "2026-10-05T11:41:29.613+00:00",
+      "status": "SUPERSEDED",
+      "created_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "created_at": "2026-10-05T12:41:29.738+00:00",
+      "published_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "published_at": "2026-10-05T12:41:30.083Z"
+    },
+    {
+      "id": "8a948d08-8674-4d22-a0ac-d4b69ff20df6",
+      "version_code": "QC_1791202072801",
+      "title": "Quy chế Hoạt động Đại sứ Tuyển sinh STHC 2026",
+      "pdf_storage_path": "regulations/regulation_1791202072665_67ba9dec.pdf",
+      "file_size_bytes": 1024,
+      "checksum_sha256": "75960bf809e54cf4bfd1efba8ad8bfa48dab96c18bd2e2f3b10b71e159e6405d",
+      "effective_date": "2026-10-05T11:07:52.801Z",
+      "status": "SUPERSEDED",
+      "created_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "created_at": "2026-10-05T12:07:53.038Z",
+      "published_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "published_at": "2026-10-05T12:07:53.324Z"
+    },
+    {
+      "id": "fb52ce60-51e8-49fa-a8a4-dc8434333853",
+      "version_code": "QC_1791201982949",
+      "title": "Quy chế Hoạt động Đại sứ Tuyển sinh STHC 2026",
+      "pdf_storage_path": "regulations/regulation_1791201982764_b551f640.pdf",
+      "file_size_bytes": 1024,
+      "checksum_sha256": "75960bf809e54cf4bfd1efba8ad8bfa48dab96c18bd2e2f3b10b71e159e6405d",
+      "effective_date": "2026-10-05T11:06:22.949Z",
+      "status": "SUPERSEDED",
+      "created_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "created_at": "2026-10-05T12:06:23.057Z",
+      "published_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "published_at": "2026-10-05T12:06:23.403Z"
+    },
+    {
+      "id": "a5976d42-283b-4fe5-bcd3-3e054331bcd7",
+      "version_code": "QC_1791201932905",
+      "title": "Quy chế Hoạt động Đại sứ Tuyển sinh STHC 2026",
+      "pdf_storage_path": "regulations/regulation_1791201932746_03b8c834.pdf",
+      "file_size_bytes": 1024,
+      "checksum_sha256": "75960bf809e54cf4bfd1efba8ad8bfa48dab96c18bd2e2f3b10b71e159e6405d",
+      "effective_date": "2026-10-05T11:05:32.906Z",
+      "status": "SUPERSEDED",
+      "created_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "created_at": "2026-10-05T12:05:33.007Z",
+      "published_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "published_at": "2026-10-05T12:05:33.330Z"
+    },
+    {
+      "id": "894307b6-e23f-47c5-bebb-29903defb046",
+      "version_code": "QC_1791201887860",
+      "title": "Quy chế Hoạt động Đại sứ Tuyển sinh STHC 2026",
+      "pdf_storage_path": "regulations/regulation_1791201887674_a7b88972.pdf",
+      "file_size_bytes": 1024,
+      "checksum_sha256": "75960bf809e54cf4bfd1efba8ad8bfa48dab96c18bd2e2f3b10b71e159e6405d",
+      "effective_date": "2026-10-05T11:04:47.860Z",
+      "status": "DRAFT",
+      "created_by": "879a11fc-ff89-4019-b2f4-57d7843b631b",
+      "created_at": "2026-10-05T12:04:47.960Z",
+      "published_by": null,
+      "published_at": null
+    }
+  ]
+}

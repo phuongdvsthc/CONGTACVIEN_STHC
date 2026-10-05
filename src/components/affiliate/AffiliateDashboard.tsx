@@ -16,6 +16,7 @@ import {
   PauseCircle,
   AlertTriangle,
 } from 'lucide-react';
+import { useSystemConfig } from '../../contexts/SystemBrandingContext';
 
 interface AffiliateDashboardProps {
   affiliateCode?: string;
@@ -33,6 +34,7 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const { operation, formatPhone } = useSystemConfig();
 
   const loadDashboard = async () => {
     setLoading(true);
@@ -255,11 +257,23 @@ export const AffiliateDashboard: React.FC<AffiliateDashboardProps> = ({
                 : 'Tài khoản của bạn hiện đang bị tạm dừng quyền tiếp thị theo quyết định của Ban Tuyển sinh. '}
               Các chức năng lấy link tuyển sinh và tạo mã QR mới đã bị tạm dừng. Các liên kết tiếp thị cũ sẽ ngừng tiếp nhận đăng ký mới từ người học. Toàn bộ dữ liệu khách hàng và kết quả tuyển sinh trước đây của bạn vẫn được giữ nguyên vẹn.
             </p>
-            <p className="text-amber-800 font-semibold pt-1 flex items-center gap-1.5">
+            <p className="text-amber-800 font-semibold pt-1 flex flex-wrap items-center gap-1.5 text-xs">
               <span>Liên hệ hỗ trợ:</span>
-              <span className="underline">tuyensinh@sthc.edu.vn</span>
+              <a
+                href={`mailto:${operation.support_email}`}
+                className="underline hover:text-amber-950 font-medium"
+                title="Gửi email hỗ trợ tuyển sinh"
+              >
+                {operation.support_email}
+              </a>
               <span>- Hotline:</span>
-              <span className="font-mono font-bold">028 3844 2277</span>
+              <a
+                href={`tel:${operation.support_phone.replace(/[\s\.\-\(\)]/g, '')}`}
+                className="font-mono font-bold hover:underline"
+                title="Gọi hotline hỗ trợ"
+              >
+                {formatPhone(operation.support_phone)}
+              </a>
             </p>
           </div>
         </div>

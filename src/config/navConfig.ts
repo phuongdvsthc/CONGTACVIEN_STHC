@@ -8,6 +8,7 @@ import {
   Home,
   UserCheck,
   History,
+  Settings,
   LucideIcon,
 } from 'lucide-react';
 
@@ -16,6 +17,7 @@ export interface NavItem {
   title: string;
   path: string;
   icon: LucideIcon;
+  adminOnly?: boolean;
   isActiveMatch: (currentPath: string) => boolean;
 }
 
@@ -146,6 +148,17 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
     isActiveMatch: (currentPath: string) => {
       const clean = currentPath.split('?')[0].split('#')[0];
       return clean === '/admin/audit';
+    },
+  },
+  {
+    id: 'admin_system_settings',
+    title: 'Quản trị hệ thống',
+    path: '/admin/system-settings',
+    icon: Settings,
+    adminOnly: true,
+    isActiveMatch: (currentPath: string) => {
+      const clean = currentPath.split('?')[0].split('#')[0];
+      return clean === '/admin/system-settings';
     },
   },
 ];

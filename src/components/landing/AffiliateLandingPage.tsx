@@ -54,6 +54,34 @@ export const AffiliateLandingPage: React.FC<AffiliateLandingPageProps> = ({
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
 
+  // A7.6: Active regulation & registration status state
+  const [activeRegulation, setActiveRegulation] = useState<any>(null);
+  const [isRegistrationOpen, setIsRegistrationOpen] = useState(true);
+  const [closedMessage, setClosedMessage] = useState('Hệ thống hiện đang tạm ngưng tiếp nhận hồ sơ cộng tác viên mới.');
+
+  React.useEffect(() => {
+    async function loadInfo() {
+      try {
+        const [sysRes, regRes] = await Promise.all([
+          api.getPublicSystemInfo(),
+          api.getPublicActiveRegulation(),
+        ]);
+        if (sysRes.success && sysRes.data) {
+          setIsRegistrationOpen(sysRes.data.allow_affiliate_registration !== false);
+          if (sysRes.data.registration_closed_message) {
+            setClosedMessage(sysRes.data.registration_closed_message);
+          }
+        }
+        if (regRes.success && regRes.data) {
+          setActiveRegulation(regRes.data);
+        }
+      } catch (err) {
+        console.warn('[LANDING] Error loading system info or active regulation:', err);
+      }
+    }
+    loadInfo();
+  }, []);
+
   React.useEffect(() => {
     if (resendCooldown > 0) {
       const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
@@ -137,7 +165,29 @@ export const AffiliateLandingPage: React.FC<AffiliateLandingPageProps> = ({
         password: password,
         confirm_password: confirmPassword,
         terms_accepted: termsAccepted,
+        regulation_id: activeRegulation?.id,
+        accepted_regulation: termsAccepted,
       });
+
+      if (res.code === 'REGULATION_OUTDATED') {
+        if (res.active_regulation) {
+          setActiveRegulation(res.active_regulation);
+        }
+        setTermsAccepted(false);
+        setFormErrors({
+          general: res.error || 'Quy chế tuyển sinh vừa được cập nhật phiên bản mới. Vui lòng xem tài liệu và đồng ý lại.',
+        });
+        return;
+      }
+
+      if (res.code === 'REGISTRATION_CLOSED') {
+        setIsRegistrationOpen(false);
+        setClosedMessage(res.error || closedMessage);
+        setFormErrors({
+          general: res.error || closedMessage,
+        });
+        return;
+      }
 
       if (res.isTimeout) {
         setFormErrors({
@@ -613,32 +663,52 @@ export const AffiliateLandingPage: React.FC<AffiliateLandingPageProps> = ({
                         </div>
                       </div>
 
-                      {/* Checkbox Đồng ý điều khoản */}
+                      {/* Checkbox Đồng ý điều khoản & Quy chế */}
                       <div className="pt-1">
-                        <label className="flex items-start gap-2.5 cursor-pointer text-[11px] text-slate-600 select-none">
-                          <input
-                            type="checkbox"
-                            checked={termsAccepted}
-                            onChange={(e) => {
-                              setTermsAccepted(e.target.checked);
-                              if (formErrors.termsAccepted)
-                                setFormErrors((prev) => ({ ...prev, termsAccepted: '' }));
-                            }}
-                            className="mt-0.5 rounded border-slate-300 text-blue-900 focus:ring-blue-900 shrink-0 w-4 h-4"
-                          />
-                          <span>
-                            {config.form.termsCheckboxText}{' '}
-                            <span className="font-semibold text-blue-900 hover:underline">
-                              {config.form.termsLinkText}
-                            </span>
-                            .
-                          </span>
-                        </label>
-                        {formErrors.termsAccepted && (
-                          <p className="mt-1 text-[11px] text-rose-600 flex items-center gap-1 pl-6">
-                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                            <span>{formErrors.termsAccepted}</span>
-                          </p>
+                        {!isRegistrationOpen ? (
+                          <div className="p-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs font-medium space-y-1">
+                            <p className="font-bold">Đăng ký tạm ngưng</p>
+                            <p>{closedMessage}</p>
+                          </div>
+                        ) : (
+                          <>
+                            <label className="flex items-start gap-2.5 cursor-pointer text-[11px] text-slate-600 select-none">
+                              <input
+                                type="checkbox"
+                                checked={termsAccepted}
+                                onChange={(e) => {
+                                  setTermsAccepted(e.target.checked);
+                                  if (formErrors.termsAccepted)
+                                    setFormErrors((prev) => ({ ...prev, termsAccepted: '' }));
+                                }}
+                                className="mt-0.5 rounded border-slate-300 text-blue-900 focus:ring-blue-900 shrink-0 w-4 h-4"
+                              />
+                              <span>
+                                Tôi đã đọc, hiểu rõ và đồng ý với{' '}
+                                <strong className="text-slate-900">
+                                  {activeRegulation ? `${activeRegulation.title} (${activeRegulation.version_code})` : 'Quy chế tuyển sinh STHC'}
+                                </strong>{' '}
+                                {activeRegulation && (
+                                  <a
+                                    href="/api/v1/public/regulations/active/download"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-semibold text-blue-900 hover:underline inline-flex items-center gap-0.5"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    [Xem PDF quy chế]
+                                  </a>
+                                )}
+                                {' '}cùng Chính sách bảo vệ dữ liệu cá nhân của Nhà trường.
+                              </span>
+                            </label>
+                            {formErrors.termsAccepted && (
+                              <p className="mt-1 text-[11px] text-rose-600 flex items-center gap-1 pl-6">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                <span>{formErrors.termsAccepted}</span>
+                              </p>
+                            )}
+                          </>
                         )}
                       </div>
 

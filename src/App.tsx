@@ -25,9 +25,11 @@ import { AdminPortal } from './components/admin/AdminPortal';
 import { AdminLeadDetailView } from './components/admin/AdminLeadDetailView';
 import { AdminPlaceholderPage } from './components/admin/AdminPlaceholderPage';
 import { AdminHomepageConfigView } from './components/admin/AdminHomepageConfigView';
+import { AdminSystemSettingsView } from './components/admin/AdminSystemSettingsView';
 import { AppLayout } from './components/common/AppLayout';
 import { AccessNoticeScreen } from './components/common/AccessNoticeScreen';
 import { ProfileDetailView } from './components/common/ProfileDetailView';
+import { SystemBrandingProvider } from './contexts/SystemBrandingContext';
 import {
   AuthSessionData,
   checkRouteAccess,
@@ -466,7 +468,7 @@ export default function App() {
     currentPath.startsWith('/admin');
 
   return (
-    <>
+    <SystemBrandingProvider currentPath={currentPath}>
       {isInternalPortal ? (
         /* A0.4: KHU VỰC NỘI BỘ DÙNG CHUNG APPLAYOUT (HEADER + SIDEBAR + WORKSPACE) */
         <AppLayout
@@ -565,6 +567,13 @@ export default function App() {
           {currentPath === '/admin/staff-accounts' && (
             <AdminPlaceholderPage
               title="Tài khoản nhân viên"
+              onNavigateToOverview={() => navigate('/admin')}
+            />
+          )}
+
+          {currentPath === '/admin/system-settings' && (
+            <AdminSystemSettingsView
+              currentUser={authSession.user}
               onNavigateToOverview={() => navigate('/admin')}
             />
           )}
@@ -753,6 +762,6 @@ export default function App() {
           handleOpenLogin();
         }}
       />
-    </>
+    </SystemBrandingProvider>
   );
 }

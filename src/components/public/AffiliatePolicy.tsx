@@ -1,24 +1,58 @@
-import React from 'react';
-import { Award, ShieldCheck, CheckCircle2, AlertCircle, Building2, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Award, ShieldCheck, CheckCircle2, AlertCircle, Building2, ArrowRight, FileText } from 'lucide-react';
+import { api } from '../../services/api';
+import { formatDateTimeVi } from '../../utils/dateFormatter';
 
 interface AffiliatePolicyProps {
   onRegisterClick: () => void;
 }
 
 export const AffiliatePolicy: React.FC<AffiliatePolicyProps> = ({ onRegisterClick }) => {
+  const [activeReg, setActiveReg] = useState<any>(null);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await api.getPublicActiveRegulation();
+        if (res.success && res.data) {
+          setActiveReg(res.data);
+        }
+      } catch (err) {
+        console.warn('[POLICY] Error loading active regulation:', err);
+      }
+    }
+    load();
+  }, []);
+
   return (
     <div className="max-w-4xl mx-auto px-4 py-12 space-y-10 animate-fade-in text-slate-800">
       {/* Title */}
       <div className="text-center space-y-3">
         <span className="text-xs font-semibold text-blue-900 bg-blue-50 px-3 py-1 rounded-full uppercase tracking-wider">
-          Quy chế thù lao tuyển sinh 2026
+          {activeReg ? `Quy chế chính thức: ${activeReg.version_code}` : 'Quy chế thù lao tuyển sinh 2026'}
         </span>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-          Chính Sách Thù Lao & Thưởng Cộng Tác Viên
+          {activeReg ? activeReg.title : 'Chính Sách Thù Lao & Thưởng Cộng Tác Viên'}
         </h1>
         <p className="text-xs sm:text-sm text-slate-600 max-w-2xl mx-auto">
           Trường Trung cấp Du lịch & Khách sạn Saigontourist (STHC) ban hành quy chế khen thưởng và thù lao giới thiệu người học cho đội ngũ Đại sứ Tuyển sinh.
         </p>
+        {activeReg && (
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <span className="text-xs text-slate-500 font-mono">
+              Ngày hiệu lực: {formatDateTimeVi(activeReg.effective_date)}
+            </span>
+            <a
+              href="/api/v1/public/regulations/active/download"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Đọc toàn văn Quy chế (PDF)</span>
+            </a>
+          </div>
+        )}
       </div>
 
       {/* 500k Reward Highlight Box */}

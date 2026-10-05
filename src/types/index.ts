@@ -242,3 +242,97 @@ export interface CurrentUserSession {
   affiliate?: AffiliateProfile;
   activeRole: UserRole;
 }
+
+// ----------------------------------------------------------------------------
+// A7 – SYSTEM ADMINISTRATION TYPES
+// ----------------------------------------------------------------------------
+
+export interface SystemSettings {
+  id: number;
+  system_name: string;
+  system_short_name: string;
+  unit_name: string;
+  logo_backend_url?: string | null;
+  favicon_url?: string | null;
+  logo_backend_display_url?: string | null;
+  favicon_display_url?: string | null;
+  public_base_url: string;
+  support_email: string;
+  support_phone: string;
+  timezone: string;
+  allow_affiliate_registration: boolean;
+  registration_closed_message?: string | null;
+  affiliate_code_prefix: string;
+  affiliate_code_min_digits: number;
+  revision: number;
+  updated_at: string;
+  updated_by?: string | null;
+}
+
+export interface PublicSystemInfo {
+  system_name: string;
+  system_short_name: string;
+  unit_name: string;
+  logo_backend_url?: string | null;
+  favicon_url?: string | null;
+  public_base_url: string;
+  support_email: string;
+  support_phone: string;
+  timezone: string;
+  allow_affiliate_registration: boolean;
+  registration_closed_message?: string | null;
+  is_registration_open: boolean;
+}
+
+export interface SystemRegulation {
+  id: string;
+  version_code: string;
+  title: string;
+  pdf_storage_path: string;
+  file_size_bytes: number;
+  checksum_sha256?: string | null;
+  effective_date: string;
+  status: 'DRAFT' | 'ACTIVE' | 'SUPERSEDED';
+  created_by: string;
+  created_at: string;
+  published_by?: string | null;
+  published_at?: string | null;
+  creator?: {
+    id: string;
+    full_name: string;
+    email: string;
+  };
+  publisher?: {
+    id: string;
+    full_name: string;
+    email: string;
+  };
+}
+
+export interface SystemSettingsHistory {
+  id: string;
+  setting_group: 'BRANDING' | 'OPERATION' | 'REGISTRATION' | 'AFFILIATE_CODE' | 'ROLLBACK';
+  action_type: 'UPDATE' | 'ROLLBACK' | 'APPLY_REGULATION';
+  revision: number;
+  previous_data: any;
+  new_data: any;
+  changed_by: string;
+  changed_at: string;
+  change_reason?: string | null;
+  source_revision?: number | null;
+  actor?: {
+    id: string;
+    full_name: string;
+    email: string;
+  };
+}
+
+export interface CodeGeneratorStats {
+  preview_code: string;
+  expected_sequence_number: number;
+  prefix: string;
+  min_digits: number;
+  total_issued_in_registry: number;
+  sequence_active: boolean;
+}
+

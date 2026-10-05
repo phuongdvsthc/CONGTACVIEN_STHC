@@ -605,6 +605,19 @@ export const AffiliateDetailView: React.FC<AffiliateDetailViewProps> = ({
               <span className="text-slate-500 font-medium">Ngày đăng ký</span>
               <span className="font-mono text-slate-800">{formatDateVN(createdAt)}</span>
             </div>
+
+            <div className="flex items-center justify-between py-2 border-t border-slate-100">
+              <span className="text-slate-500 font-medium">Quy chế đã đồng ý</span>
+              <span className="text-slate-800 font-medium text-right">
+                {data?.regulation_consent || data?.consent ? (
+                  <span className="text-blue-900 font-bold">
+                    {data.regulation_consent?.version_code || data.consent?.version_code || 'Đã ghi nhận'}
+                  </span>
+                ) : (
+                  <span className="text-slate-400 italic">Chưa ghi nhận</span>
+                )}
+              </span>
+            </div>
           </div>
         </div>
 

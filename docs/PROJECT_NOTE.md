@@ -1053,5 +1053,69 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
    - Toàn bộ 16 ca test nghiệp vụ trong ma trận kiểm thử đạt kết quả **PASS**.
 4. **Kết luận nghiệm thu toàn bộ Module A4**: **PASS TOÀN BỘ (100% HOÀN THÀNH)**.
 
+---
+
+### 31. Kiểm kê Module Quản trị Hệ thống (A7.1)
+1. **Phạm vi & Mục tiêu**:
+   - Thực hiện kiểm kê tĩnh toàn diện mã nguồn, CSDL, Storage, API, cấu hình nhận diện backend, thông tin vận hành, quy chế & đăng ký CTV, cơ chế mã CTV, lịch sử cấu hình và điều kiện sao lưu/phục hồi dữ liệu để chuẩn bị triển khai Module A7.2.
+   - Tuân thủ nghiêm ngặt nguyên tắc: Chỉ đọc và viết tài liệu báo cáo, không sửa giao diện, API, logic nghiệp vụ, migration, dữ liệu hay Auth.
+2. **Tài liệu báo cáo hoàn thành**:
+   - `/docs/A7_1_SYSTEM_ADMINISTRATION_AUDIT.md`.
+3. **Các kết luận chính & Định hướng A7.2**:
+   - Đã xác định rõ các khoảng thiếu cần bổ sung ở A7.2: Bảng `system_settings` cho cấu hình hệ thống tập trung và nhận diện backend; Bảng `system_regulations` quản lý phiên bản quy chế PDF và ghi nhận đồng ý; Hàm PL/pgSQL cấp mã CTV nguyên tử chuẩn 6 chữ số (`STHCCTVXXXXXX`); và ranh giới rõ ràng với module A6, A2, A0.3, A4.
+4. **Kết luận A7.1**: **PASS** (Hoàn tất Kiểm kê Hệ thống và Lập báo cáo A7.1).
+
+---
+
+### 32. Chốt Đặc Tả Module Quản Trị Hệ Thống (A7.2)
+1. **Phạm vi & Mục tiêu**:
+   - Thiết kế và chốt tài liệu đặc tả toàn diện cho Module A7 (Quản trị hệ thống) tại route `/admin/system-settings`, chỉ dành riêng cho Admin (`profiles.role === 'admin'`).
+   - Đính chính và làm rõ 6 điểm kỹ thuật từ A7.1: cơ chế cấp mã PL/pgSQL vòng lặp ngẫu nhiên trong trigger hiện hữu (không phải sequence), ràng buộc duy nhất bảo đảm bởi UNIQUE constraint (không phải RLS), trạng thái CSDL production "Chưa xác minh từ hạ tầng", chặn triệt để Staff khỏi màn hình và API quản trị A7, chuẩn hóa mức độ xác minh "Xác minh từ migration", và giữ nguyên ranh giới tài khoản nhân viên A0.3 (`/admin/staff-accounts`).
+   - Tuân thủ nghiêm ngặt nguyên tắc: Chỉ thiết kế và viết tài liệu, không thay đổi mã chức năng, CSDL, Auth, Storage, hay biến môi trường.
+2. **Tài liệu đặc tả hoàn thành**:
+   - `/docs/A7_2_SYSTEM_ADMINISTRATION_SPECIFICATION.md`.
+3. **Các quyết định kỹ thuật đã chốt**:
+   - **Bố cục**: 6 nhóm chức năng (Nhận diện backend, Thông tin vận hành, Quy chế & Đăng ký CTV, Mã CTV, Lịch sử cấu hình & Khôi phục, Sao lưu & Phục hồi ghi rõ "Chưa triển khai"). Nút Lưu/Hủy riêng từng nhóm, xem trước live preview sidebar mở và thu gọn.
+   - **Tách biệt CSDL**: Tách hoàn toàn khỏi `homepage_config` và `homepage_config_history` của A6; thiết kế 5 bảng mới: `system_settings`, `system_settings_history`, `system_regulations`, `affiliate_regulation_consents`, `affiliate_code_registry`.
+   - **Quy chế & Đăng ký**: Tệp PDF quy chế tối đa 10 MB, duy nhất 1 bản `ACTIVE`, kiểm tra loại tệp an toàn; chặn mở đăng ký khi chưa có quy chế áp dụng; ghi nhận đồng ý nguyên tử gắn với version quy chế và thời điểm máy chủ.
+   - **Mã CTV**: Tiền tố mặc định `STHCCTV`, đệm số tối thiểu 6 chữ số (`STHCCTV000001`), cấp mã tự động tăng nguyên tử bằng PostgreSQL Sequence, không cắt cụt số khi vượt 6 chữ số, không tái sử dụng mã, không lùi bộ đếm.
+   - **Đồng thời & Kiểm soát xung đột**: Áp dụng Optimistic Concurrency Control qua trường `revision`, trả HTTP 409 Conflict khi xung đột.
+   - **Ma trận kiểm thử**: Xây dựng 15 ca kiểm thử chi tiết phục vụ nghiệm thu.
+   - **Phân kỳ**: Định hình rõ phạm vi A7.3–A7.8 và để lại hạ tầng phục hồi chuyên sâu cho A7.9–A7.13.
+4. **Kết luận A7.2**: **PASS** (Hoàn tất Thiết kế & Chốt Đặc tả Module A7). Dừng sau A7.2 theo yêu cầu, chưa triển khai A7.3.
+
+---
+
+### 33. Triển Khai CSDL & API Quản Trị Hệ Thống (A7.3)
+1. **Phạm vi & Giới hạn đã thực hiện**:
+   - Triển khai toàn bộ tầng CSDL, Migration, Constraints, Indexes, Sequences, PL/pgSQL RPCs, Storage bucket `system-assets` và 12 API Endpoints (3 Public, 9 Admin-only) cho Module Quản trị hệ thống (A7).
+   - Đính chính và xử lý triệt để 9 điểm kỹ thuật từ A7.2: Khởi tạo đóng đăng ký CTV khi chưa có quy chế ACTIVE; cấp mã không cắt cụt số vượt 6 chữ số (`GREATEST(min_digits, len)`); tách bạch transaction CSDL và cuộc gọi HTTP `auth.signUp()`; chấp nhận sequence có khoảng cách tự nhiên nhưng cam kết đơn điệu và duy nhất 100%; không suy đoán hạ tầng sao lưu snapshot; chuyển bucket `system-assets` sang Private và stream file qua API kiểm soát; chuẩn hóa linh hoạt số điện thoại (+84/84/0); khởi tạo sequence bằng `setval(..., is_called)` chính xác; bóc tách số mã CTV bằng regex đuôi an toàn.
+   - Tuân thủ ranh giới A7.3: Chưa can thiệp UI/Sidebar/Menu tài khoản hay form đăng ký CTV.
+2. **Tài liệu báo cáo hoàn thành**:
+   - `/docs/A7_3_SYSTEM_ADMINISTRATION_DB_API_REPORT.md`.
+3. **Các thành phần kỹ thuật cốt lõi**:
+   - **Migration SQL**: `/supabase/migrations/20261005000001_create_system_administration_schema_and_rpc.sql` tạo 5 bảng (`system_settings`, `system_settings_history`, `system_regulations`, `affiliate_regulation_consents`, `affiliate_code_registry`), Sequence `seq_affiliate_code_counter`, và 5 RPCs (`fn_save_system_settings_group`, `fn_rollback_system_settings_group`, `fn_apply_system_regulation`, `fn_generate_next_affiliate_code`, `fn_preview_next_affiliate_code`).
+   - **Kho dữ liệu đồng hành**: `data/system_settings.json`, `data/system_regulations.json`, `data/affiliate_code_registry.json`.
+   - **Storage & Bảo mật**: Bucket `system-assets`, kiểm tra Binary Magic Bytes (`%PDF-`, PNG, JPG, ICO), giới hạn dung lượng nghiêm ngặt (2MB logo, 512KB favicon, 10MB quy chế).
+   - **Backend API (`server.ts`)**: 12 Endpoints bảo vệ bởi RBAC `requireAdminOnly` (trả 403 `ADMIN_ONLY` cho Staff), kiểm soát xung đột ghi đè bằng `expected_revision` (trả 409 `CONFIG_VERSION_CONFLICT`), lọc Allowlist chặt chẽ từng nhóm (trả 400 nếu có trường lạ), hỗ trợ rollback theo nhóm bảo toàn sequence.
+4. **Kết quả kiểm thử tự động (`npm run test:system-admin`)**:
+   - **12/12 Ca kiểm thử PASS (100.0%)**:
+     - *TC-A7.3-01*: Public API trả Allowlist an toàn, bảo vệ 100% bí mật backend: **PASS**.
+     - *TC-A7.3-02*: Public Active Regulation trả 404 khi chưa có quy chế áp dụng: **PASS**.
+     - *TC-A7.3-03*: Chặn truy cập trái phép không token (401) và chặn Staff (403 ADMIN_ONLY): **PASS**.
+     - *TC-A7.3-04*: Admin đọc cấu hình và thống kê bộ cấp mã CTV: **PASS**.
+     - *TC-A7.3-05*: Từ chối trường ngoài Allowlist (HTTP 400): **PASS**.
+     - *TC-A7.3-06*: Kiểm soát xung đột ghi đè bằng Revision (HTTP 409): **PASS**.
+     - *TC-A7.3-07*: Xác thực & chuẩn hóa SĐT (+84/84/0) và Base URL: **PASS**.
+     - *TC-A7.3-08*: Chặn mở đăng ký CTV khi chưa có quy chế ACTIVE: **PASS**.
+     - *TC-A7.3-09*: Xác thực định dạng nhị phân PDF Magic Bytes (%PDF-) & Upload: **PASS**.
+     - *TC-A7.3-10*: Vòng đời Quy chế: Draft -> Apply Active -> Mở Đăng ký CTV: **PASS**.
+     - *TC-A7.3-11*: Khôi phục cấu hình theo nhóm (Rollback) & Bảo toàn Sequence: **PASS**.
+     - *TC-A7.3-12*: Thuật toán Cấp mã CTV tự tăng: Không cắt số, giữ đúng tiền tố: **PASS**.
+5. **Kết luận A7.3**: **PASS TOÀN BỘ (100% HOÀN THÀNH)**. Dừng đúng ranh giới sau CSDL và API, sẵn sàng chuyển tiếp sang bước A7.4.
+
+
+
+
 
 

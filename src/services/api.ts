@@ -101,6 +101,8 @@ export const api = {
     password?: string;
     confirm_password?: string;
     terms_accepted?: boolean;
+    regulation_id?: string;
+    accepted_regulation?: boolean;
     id_card_number?: string;
     id_card_issued_date?: string;
     occupation?: string;
@@ -622,4 +624,200 @@ export const api = {
   getExportRewardsCsvUrl() {
     return '/api/v1/admin/reports/rewards-export';
   },
+
+  // ----------------------------------------------------------------------------
+  // A7 – SYSTEM ADMINISTRATION API CLIENT METHODS
+  // ----------------------------------------------------------------------------
+
+  async getPublicSystemInfo(): Promise<{
+    success: boolean;
+    data?: import('../types').PublicSystemInfo;
+    error?: string;
+  }> {
+    return apiFetch('/api/v1/public/system-info');
+  },
+
+  async getPublicActiveRegulation(): Promise<{
+    success: boolean;
+    data?: {
+      id: string;
+      version_code: string;
+      title: string;
+      effective_date: string;
+      file_size_bytes: number;
+      download_url: string;
+    };
+    error?: string;
+  }> {
+    return apiFetch('/api/v1/public/active-regulation');
+  },
+
+  async getAdminSystemSettings(): Promise<{
+    success: boolean;
+    data?: {
+      settings: import('../types').SystemSettings;
+      code_generator_stats: import('../types').CodeGeneratorStats;
+    };
+    error?: string;
+  }> {
+    return apiFetch('/api/v1/admin/system-settings');
+  },
+
+  async updateAdminSystemSettingsGroup(
+    group: 'branding' | 'operation' | 'registration' | 'affiliate_code',
+    payload: {
+      expected_revision: number;
+      data: Record<string, any>;
+      reason?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    message?: string;
+    new_revision?: number;
+    data?: import('../types').SystemSettings;
+    error?: string;
+    code?: string;
+  }> {
+    return apiFetch(`/api/v1/admin/system-settings/${group}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async uploadAdminSystemAsset(payload: {
+    type: 'logo' | 'favicon' | 'regulation';
+    file_base64: string;
+    file_name: string;
+    mime_type: string;
+  }): Promise<{
+    success: boolean;
+    asset_path?: string;
+    file_size?: number;
+    mime_type?: string;
+    checksum_sha256?: string;
+    error?: string;
+  }> {
+    return apiFetch('/api/v1/admin/system-settings/upload-asset', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminSystemRegulations(params?: {
+    page?: number;
+    limit?: number;
+    status?: string;
+  }): Promise<{
+    success: boolean;
+    data?: import('../types').SystemRegulation[];
+    pagination?: { page: number; limit: number; total: number; totalPages: number };
+    error?: string;
+  }> {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.status) query.set('status', params.status);
+    const qs = query.toString();
+    return apiFetch(`/api/v1/admin/system-regulations${qs ? `?${qs}` : ''}`);
+  },
+
+  async createAdminSystemRegulation(payload: {
+    version_code: string;
+    title: string;
+    pdf_storage_path: string;
+    file_size_bytes: number;
+    checksum_sha256?: string;
+    effective_date: string;
+  }): Promise<{
+    success: boolean;
+    message?: string;
+    data?: import('../types').SystemRegulation;
+    error?: string;
+  }> {
+    return apiFetch('/api/v1/admin/system-regulations', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async applyAdminSystemRegulation(
+    id: string,
+    payload?: { reason?: string }
+  ): Promise<{
+    success: boolean;
+    message?: string;
+    data?: import('../types').SystemRegulation;
+    error?: string;
+  }> {
+    return apiFetch(`/api/v1/admin/system-regulations/${id}/apply`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    });
+  },
+
+  async getAdminSystemSettingsHistory(params?: {
+    page?: number;
+    limit?: number;
+    group?: string;
+  }): Promise<{
+    success: boolean;
+    data?: import('../types').SystemSettingsHistory[];
+    pagination?: { page: number; limit: number; total: number; totalPages: number };
+    error?: string;
+  }> {
+    const query = new URLSearchParams();
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+    if (params?.group) query.set('group', params.group);
+    const qs = query.toString();
+    return apiFetch(`/api/v1/admin/system-settings/history${qs ? `?${qs}` : ''}`);
+  },
+
+  async rollbackAdminSystemSettings(payload: {
+    group: 'branding' | 'operation' | 'affiliate_code';
+    source_revision: number;
+    expected_revision: number;
+    reason?: string;
+  }): Promise<{
+    success: boolean;
+    message?: string;
+    new_revision?: number;
+    data?: import('../types').SystemSettings;
+    error?: string;
+    code?: string;
+  }> {
+    return apiFetch('/api/v1/admin/system-settings/rollback', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAffiliateRegulationConsent(): Promise<{
+    success: boolean;
+    data?: any;
+    error?: string;
+  }> {
+    return apiFetch('/api/v1/affiliate/regulation-consent');
+  },
+
+  async getAdminRegulationPdfBlob(id: string): Promise<Blob> {
+    const res = await fetch(`/api/v1/admin/regulations/${id}/download`, {
+      headers: (window as any).__STHC_AUTH_HEADERS__ || {},
+    });
+    if (!res.ok) {
+      throw new Error('Không thể tải tệp PDF quy chế từ máy chủ.');
+    }
+    return res.blob();
+  },
+
+  async getAffiliateRegulationPdfBlob(id: string): Promise<Blob> {
+    const res = await fetch(`/api/v1/affiliate/regulations/${id}/download`, {
+      headers: (window as any).__STHC_AUTH_HEADERS__ || {},
+    });
+    if (!res.ok) {
+      throw new Error('Không thể tải tệp PDF quy chế từ máy chủ.');
+    }
+    return res.blob();
+  },
 };
+

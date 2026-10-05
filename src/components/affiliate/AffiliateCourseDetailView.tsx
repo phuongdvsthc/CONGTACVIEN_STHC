@@ -14,6 +14,7 @@ import {
   Users,
   Download,
   Mail,
+  RefreshCw,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { marked } from 'marked';
@@ -507,14 +508,23 @@ export const AffiliateCourseDetailView: React.FC<AffiliateCourseDetailViewProps>
                 </div>
               </>
             ) : (
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs space-y-1">
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs space-y-2">
                 <div className="flex items-center gap-2 font-bold text-amber-900">
                   <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                   <span>Chưa thể tạo liên kết & mã QR chia sẻ công khai</span>
                 </div>
                 <p className="text-amber-800 leading-relaxed pl-6">
-                  {course.referral_url_error || 'Hệ thống chưa được cấu hình biến môi trường APP_BASE_URL trên máy chủ.'}
+                  {course.referral_url_error || 'Hệ thống chưa được cấu hình URL công khai chính thức (public_base_url). Vui lòng liên hệ Quản trị viên để thiết lập.'}
                 </p>
+                <div className="pl-6 pt-1">
+                  <button
+                    onClick={fetchCourseDetail}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Thử lại</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>

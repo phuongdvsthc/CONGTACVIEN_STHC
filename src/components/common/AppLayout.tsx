@@ -12,11 +12,13 @@ import {
   ChevronRight,
   Shield,
   Info,
+  Settings,
 } from 'lucide-react';
 import { UserSessionProfile, AffiliateSessionProfile } from '../../utils/navigationGuard';
 import { AffiliateLandingConfig } from '../../types/landingConfig';
 import { ADMIN_NAV_ITEMS, AFFILIATE_NAV_ITEMS, NavItem } from '../../config/navConfig';
 import { ProfileDetailView } from './ProfileDetailView';
+import { useSystemBranding } from '../../contexts/SystemBrandingContext';
 
 interface AppLayoutProps {
   role: 'staff' | 'admin' | 'affiliate_active' | 'affiliate_pending' | string;
@@ -78,11 +80,23 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const isAdminOrStaff = role === 'admin' || role === 'staff';
-  const navItems: NavItem[] = isAdminOrStaff ? ADMIN_NAV_ITEMS : AFFILIATE_NAV_ITEMS;
+  const { branding } = useSystemBranding();
+  const [logoImgError, setLogoImgError] = useState(false);
 
-  const brandName = brandConfig?.header?.logoText || 'TRƯỜNG SAIGONTOURIST';
-  const logoBadge = brandConfig?.header?.logoBadgeText || 'STHC';
+  useEffect(() => {
+    setLogoImgError(false);
+  }, [branding.logo_backend_url]);
+
+  const isAdminOrStaff = role === 'admin' || role === 'staff';
+  const navItems: NavItem[] = (isAdminOrStaff ? ADMIN_NAV_ITEMS : AFFILIATE_NAV_ITEMS).filter((item) => {
+    if (item.adminOnly) {
+      return user?.role === 'admin' || role === 'admin';
+    }
+    return true;
+  });
+
+  const brandName = branding.unit_name || brandConfig?.header?.logoText || 'Trường Trung cấp Du lịch & Khách sạn Saigontourist';
+  const logoBadge = branding.system_short_name || brandConfig?.header?.logoBadgeText || 'STHC_CTV';
 
   // Get initials for avatar
   const getInitials = (nameOrEmail: string) => {
@@ -133,20 +147,29 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
         {/* Sidebar Header: Logo & Title */}
         <div className="p-4 border-b border-blue-900/60 flex items-center justify-between min-h-[73px]">
           <div className="flex items-center gap-3 overflow-hidden">
-            <div className="w-10 h-10 shrink-0 rounded-xl bg-blue-800 flex items-center justify-center text-amber-400 shadow-inner">
-              <GraduationCap className="w-6 h-6" />
+            <div className="w-10 h-10 shrink-0 rounded-xl bg-blue-800 flex items-center justify-center text-amber-400 overflow-hidden shadow-inner">
+              {branding.logo_backend_url && !logoImgError ? (
+                <img
+                  src={branding.logo_backend_url}
+                  alt={logoBadge}
+                  className="w-full h-full object-contain p-1"
+                  onError={() => setLogoImgError(true)}
+                />
+              ) : (
+                <GraduationCap className="w-6 h-6" />
+              )}
             </div>
             {(!isCollapsed || mobileSidebarOpen) && (
-              <div className="flex flex-col truncate">
+              <div className="flex flex-col truncate min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-black tracking-wider text-white">
+                  <span className="text-xs font-black tracking-wider text-white truncate">
                     {logoBadge}
                   </span>
-                  <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider bg-amber-400/10 px-1 py-0.2 rounded border border-amber-400/20">
-                    {isAdminOrStaff ? 'ADMIN' : 'CTV'}
+                  <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider bg-amber-400/10 px-1 py-0.2 rounded border border-amber-400/20 shrink-0">
+                    {isAdminOrStaff ? (user?.role === 'admin' || role === 'admin' ? 'ADMIN' : 'STAFF') : 'CTV'}
                   </span>
                 </div>
-                <span className="text-[11px] font-medium text-blue-200 truncate">
+                <span className="text-[11px] font-medium text-blue-200 truncate" title={brandName}>
                   {brandName}
                 </span>
               </div>
@@ -313,6 +336,18 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                       <KeyRound className="w-4 h-4 text-slate-500" />
                       <span>Đổi mật khẩu</span>
                     </button>
+                    {(user?.role === 'admin' || role === 'admin') && (
+                      <button
+                        onClick={() => {
+                          setAccountMenuOpen(false);
+                          onNavigate('/admin/system-settings');
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-blue-700 hover:bg-blue-50 flex items-center gap-2.5 transition-colors font-semibold"
+                      >
+                        <Settings className="w-4 h-4 text-blue-600" />
+                        <span>Quản trị hệ thống</span>
+                      </button>
+                    )}
                   </div>
 
                   <div className="border-t border-slate-100 pt-1">

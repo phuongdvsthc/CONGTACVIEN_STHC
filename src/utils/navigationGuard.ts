@@ -94,6 +94,12 @@ export const APP_ROUTES: Record<string, RouteDefinition> = {
     isPublic: false,
     allowedRoles: ['staff', 'admin'],
   },
+  '/admin/system-settings': {
+    path: '/admin/system-settings',
+    name: 'Quản trị hệ thống',
+    isPublic: false,
+    allowedRoles: ['admin'],
+  },
 };
 
 /**
@@ -290,7 +296,21 @@ export function checkRouteAccess(path: string, auth: AuthSessionData | null): Ro
     };
   }
 
-  // 7. Kiểm tra quyền trên route /admin (Khu vực Quản trị & Cán bộ Tuyển sinh)
+  // 7.1. Tuyến đường Admin đặc thù: /admin/system-settings chỉ dành riêng cho Admin
+  if (cleanPath === '/admin/system-settings') {
+    if (role === 'admin') {
+      return { allowed: true };
+    }
+    const defaultRoute = role === 'staff' ? '/admin' : (affiliateStatus === 'ACTIVE' ? '/portal' : '/pending');
+    return {
+      allowed: false,
+      reason: 'FORBIDDEN',
+      defaultRoute,
+      message: 'Chỉ Quản trị viên (Admin) mới có quyền truy cập module Quản trị hệ thống.',
+    };
+  }
+
+  // 7.2. Kiểm tra quyền trên route /admin (Khu vực Quản trị & Cán bộ Tuyển sinh)
   if (cleanPath === '/admin' || cleanPath.startsWith('/admin/') || cleanPath === '/staff' || cleanPath.startsWith('/staff/')) {
     if (role === 'admin' || role === 'staff') {
       return { allowed: true };
