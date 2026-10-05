@@ -802,20 +802,30 @@ export const api = {
 
   async getAdminRegulationPdfBlob(id: string): Promise<Blob> {
     const res = await fetch(`/api/v1/admin/regulations/${id}/download`, {
-      headers: (window as any).__STHC_AUTH_HEADERS__ || {},
+      headers: getAuthHeaders(),
     });
     if (!res.ok) {
-      throw new Error('Không thể tải tệp PDF quy chế từ máy chủ.');
+      let errText = 'Không thể tải tệp PDF quy chế từ máy chủ.';
+      try {
+        const json = await res.json();
+        if (json && json.error) errText = json.error;
+      } catch {}
+      throw new Error(errText);
     }
     return res.blob();
   },
 
   async getAffiliateRegulationPdfBlob(id: string): Promise<Blob> {
     const res = await fetch(`/api/v1/affiliate/regulations/${id}/download`, {
-      headers: (window as any).__STHC_AUTH_HEADERS__ || {},
+      headers: getAuthHeaders(),
     });
     if (!res.ok) {
-      throw new Error('Không thể tải tệp PDF quy chế từ máy chủ.');
+      let errText = 'Không thể tải tệp PDF quy chế từ máy chủ.';
+      try {
+        const json = await res.json();
+        if (json && json.error) errText = json.error;
+      } catch {}
+      throw new Error(errText);
     }
     return res.blob();
   },

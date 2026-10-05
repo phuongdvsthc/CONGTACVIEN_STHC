@@ -157,36 +157,42 @@ export const SystemBrandingProvider: React.FC<SystemBrandingProviderProps> = ({ 
     });
   }, []);
 
-  // Đồng bộ Favicon và Title tab trình duyệt
+  // Đồng bộ Favicon và Title tab trình duyệt áp dụng toàn hệ thống
   const syncTabIdentity = useCallback((pageTitle?: string, pathOverride?: string) => {
     const activePath = pathOverride || currentPathRef.current || window.location.pathname;
-    const isPublic =
-      activePath === '/' ||
-      activePath === '/catalog' ||
-      activePath.startsWith('/catalog/') ||
-      activePath === '/policy' ||
-      activePath === '/courses' ||
-      activePath.startsWith('/courses/') ||
-      activePath === '/login';
+    const search = typeof window !== 'undefined' ? window.location.search : '';
+    const params = new URLSearchParams(search);
+    const courseSlug = params.get('course');
 
-    // 1. Quản lý Title
-    if (isPublic) {
-      if (activePath === '/catalog' || activePath.startsWith('/catalog/')) {
-        document.title = 'Danh mục ngành đào tạo | STHC';
+    const systemName = branding.system_name || 'Cổng Đại sứ & Cộng tác viên Tuyển sinh STHC';
+
+    let pageName = pageTitle;
+    if (!pageName) {
+      if (activePath === '/' || activePath === '') {
+        pageName = courseSlug ? 'Chi tiết khóa học' : 'Cổng tuyển sinh & Giới thiệu';
+      } else if (activePath === '/catalog' || activePath.startsWith('/catalog/')) {
+        pageName = 'Danh mục ngành đào tạo';
       } else if (activePath === '/policy') {
-        document.title = 'Chính sách thù lao tuyển sinh | STHC';
+        pageName = 'Chính sách thù lao tuyển sinh';
       } else if (activePath === '/login') {
-        document.title = 'Đăng nhập Cổng tuyển sinh | STHC';
+        pageName = 'Đăng nhập hệ thống';
+      } else if (activePath === '/register') {
+        pageName = 'Đăng ký cộng tác viên';
+      } else if (activePath.startsWith('/admin')) {
+        pageName = 'Quản trị hệ thống';
+      } else if (activePath.startsWith('/portal') || activePath.startsWith('/affiliate')) {
+        pageName = 'Cổng thông tin Cộng tác viên';
+      } else if (activePath.startsWith('/pending')) {
+        pageName = 'Hồ sơ chờ phê duyệt';
       } else {
-        document.title = 'Hệ thống CTV Tuyển sinh - Trường Saigontourist';
+        pageName = 'Cổng tuyển sinh STHC';
       }
-    } else {
-      const titlePrefix = pageTitle || 'Cổng Quản trị & CTV';
-      const shortName = branding.system_short_name || 'STHC_CTV';
-      document.title = `${titlePrefix} | ${shortName}`;
     }
 
-    // 2. Quản lý Favicon
+    // 1. Tiêu đề tab áp dụng toàn hệ thống: [Tên trang] | [system_name]
+    document.title = `${pageName} | ${systemName}`;
+
+    // 2. Favicon áp dụng toàn hệ thống (cả công khai và quản trị)
     let link: HTMLLinkElement | null = document.querySelector("link[rel*='icon']");
     if (!link) {
       link = document.createElement('link');
@@ -194,22 +200,19 @@ export const SystemBrandingProvider: React.FC<SystemBrandingProviderProps> = ({ 
       document.head.appendChild(link);
     }
 
-    if (isPublic) {
-      // Khi quay lại route công khai: phục hồi favicon mặc định (không ghi đè bởi backend branding)
-      link.href = '/favicon.ico';
-    } else {
-      // Route nội bộ (/admin, /portal, /pending): Cập nhật favicon từ cấu hình backend nếu có
-      if (branding.favicon_url) {
-        link.href = branding.favicon_url;
-      } else {
-        link.href = '/favicon.ico';
-      }
-    }
-  }, [branding.favicon_url, branding.system_short_name]);
+    const faviconUrl = branding.favicon_url 
+      ? (branding.favicon_url.startsWith('http') ? branding.favicon_url : `/api/v1/public/branding/asset?path=${encodeURIComponent(branding.favicon_url)}&v=${branding.revision || 1}`)
+      : '/favicon.ico';
 
-  // Tự động đồng bộ mỗi khi currentPath hoặc branding thay đổi
+    link.href = faviconUrl;
+  }, [branding.favicon_url, branding.system_name, branding.revision]);
+
+  // Tự động đồng bộ mỗi khi currentPath, search params hoặc branding thay đổi
   useEffect(() => {
     syncTabIdentity();
+    const handleUrlChange = () => syncTabIdentity();
+    window.addEventListener('popstate', handleUrlChange);
+    return () => window.removeEventListener('popstate', handleUrlChange);
   }, [syncTabIdentity, currentPath]);
 
   // Helpers tạo link đồng bộ theo public_base_url
