@@ -8141,11 +8141,13 @@ async function startServer() {
   // 2. PUBLIC: GET /api/v1/public/active-regulation (Metadata quy chế đang áp dụng)
   app.get('/api/v1/public/active-regulation', async (req: Request, res: Response) => {
     try {
+      const requestedVersionId = req.query.version as string | undefined;
       let activeReg: any = null;
+
       try {
         const { data: dbReg } = await supabase
           .from('system_regulations')
-          .select('id, version_code, title, effective_date, file_size_bytes')
+          .select('id, version_code, title, effective_date, file_size_bytes, status')
           .eq('status', 'ACTIVE')
           .maybeSingle();
         if (dbReg) activeReg = dbReg;
@@ -8161,7 +8163,36 @@ async function startServer() {
             title: found.title,
             effective_date: found.effective_date,
             file_size_bytes: found.file_size_bytes,
+            status: found.status,
           };
+        }
+      }
+
+      if (requestedVersionId && activeReg && requestedVersionId !== activeReg.id) {
+        let reqFound: any = null;
+        try {
+          const { data: dbReq } = await supabase
+            .from('system_regulations')
+            .select('id, version_code, title, effective_date, file_size_bytes, status')
+            .eq('id', requestedVersionId)
+            .maybeSingle();
+          if (dbReq) reqFound = dbReq;
+        } catch (e) {}
+        if (!reqFound) {
+          const regData = loadSystemRegulationsData();
+          reqFound = regData.regulations.find((r: any) => r.id === requestedVersionId);
+        }
+        if (reqFound && reqFound.status !== 'ACTIVE') {
+          return res.json({
+            success: true,
+            outdated: true,
+            message: 'Quy chế bạn đang xem đã được thay thế bởi phiên bản ACTIVE mới nhất.',
+            data: {
+              ...activeReg,
+              download_url: '/api/v1/public/regulations/active/download',
+            },
+            requested_regulation: reqFound,
+          });
         }
       }
 

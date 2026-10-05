@@ -637,8 +637,10 @@ export const api = {
     return apiFetch('/api/v1/public/system-info');
   },
 
-  async getPublicActiveRegulation(): Promise<{
+  async getPublicActiveRegulation(versionId?: string): Promise<{
     success: boolean;
+    outdated?: boolean;
+    message?: string;
     data?: {
       id: string;
       version_code: string;
@@ -647,9 +649,11 @@ export const api = {
       file_size_bytes: number;
       download_url: string;
     };
+    requested_regulation?: any;
     error?: string;
   }> {
-    return apiFetch('/api/v1/public/active-regulation');
+    const url = versionId ? `/api/v1/public/active-regulation?version=${encodeURIComponent(versionId)}` : '/api/v1/public/active-regulation';
+    return apiFetch(url);
   },
 
   async getAdminSystemSettings(): Promise<{

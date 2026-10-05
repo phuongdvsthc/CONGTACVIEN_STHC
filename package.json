@@ -15,7 +15,8 @@
     "test:auth-bootstrap": "tsx scripts/verify_auth_bootstrap.ts",
     "test:reconciliation-db": "tsx scripts/verify_a4_reconciliation_db.ts",
     "test:reconciliation-api": "tsx scripts/verify_a4_4_reconciliation_api.ts",
-    "test:system-admin": "tsx scripts/verify_a7_3_system_administration.ts"
+    "test:system-admin": "tsx scripts/verify_a7_3_system_administration.ts",
+    "test:affiliate-code": "tsx scripts/verify_a7_7_affiliate_code.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

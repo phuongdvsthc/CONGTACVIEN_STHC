@@ -685,21 +685,27 @@ export const AffiliateLandingPage: React.FC<AffiliateLandingPageProps> = ({
                               />
                               <span>
                                 Tôi đã đọc, hiểu rõ và đồng ý với{' '}
-                                <strong className="text-slate-900">
-                                  {activeRegulation ? `${activeRegulation.title} (${activeRegulation.version_code})` : 'Quy chế tuyển sinh STHC'}
-                                </strong>{' '}
+                                <a
+                                  href={activeRegulation ? `/policy?version=${activeRegulation.id}` : '/policy'}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="font-bold text-blue-900 hover:underline inline-flex items-center gap-0.5"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {activeRegulation ? `${activeRegulation.title} (${activeRegulation.version_code})` : 'Quy chế Cộng tác viên Tuyển sinh & Bảo vệ dữ liệu cá nhân'}
+                                </a>
+                                {' '}cùng Chính sách bảo vệ dữ liệu cá nhân của Nhà trường.{' '}
                                 {activeRegulation && (
                                   <a
                                     href="/api/v1/public/regulations/active/download"
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="font-semibold text-blue-900 hover:underline inline-flex items-center gap-0.5"
+                                    className="font-semibold text-blue-700 hover:underline inline-flex items-center gap-0.5 text-[10px]"
                                     onClick={(e) => e.stopPropagation()}
                                   >
-                                    [Xem PDF quy chế]
+                                    [Tải/Xem PDF]
                                   </a>
                                 )}
-                                {' '}cùng Chính sách bảo vệ dữ liệu cá nhân của Nhà trường.
                               </span>
                             </label>
                             {formErrors.termsAccepted && (
