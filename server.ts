@@ -7033,28 +7033,41 @@ async function startServer() {
       });
     }
 
-    // 5. Validate Mã EGOV 7 chữ số ^[0-9]{7}$
-    let cleanEgovCode: string | null = null;
-    if (external_admission_code !== undefined && external_admission_code !== null) {
-      const trimmed = String(external_admission_code).trim();
-      if (trimmed.length > 0) {
-        if (!/^[0-9]{7}$/.test(trimmed)) {
-          return res.status(400).json({
-            success: false,
-            error: `Mã hồ sơ EGOV không hợp lệ: "${trimmed}". Phải gồm đúng 7 chữ số viết liền nhau (Ví dụ: 0012345, 1089234).`,
-            code: 'INVALID_EGOV_CODE',
-          });
-        }
-        cleanEgovCode = trimmed;
-      }
-    }
+    // 5. Validate Mã EGOV từ liên kết ACTIVE trong CSDL (Server-authoritative)
+    const { data: activeEgovRows } = await supabase
+      .from('lead_egov_links')
+      .select('external_admission_code, link_status')
+      .eq('lead_id', leadId)
+      .eq('link_status', 'ACTIVE');
 
-    if (cleanReconStatus === 'MATCHED_VALID' && !cleanEgovCode) {
-      return res.status(400).json({
-        success: false,
-        error: 'Mã hồ sơ EGOV là bắt buộc khi xác nhận hồ sơ đối soát hợp lệ (MATCHED_VALID).',
-        code: 'MISSING_EGOV_CODE',
-      });
+    const activeLink = activeEgovRows && activeEgovRows.length > 0 ? activeEgovRows[0] : null;
+    const activeEgovCode = activeLink?.external_admission_code || null;
+
+    let cleanEgovCode: string | null = activeEgovCode;
+    if (cleanReconStatus === 'MATCHED_VALID') {
+      if (!activeEgovCode) {
+        return res.status(400).json({
+          success: false,
+          error: 'Hồ sơ chưa có liên kết mã EGOV ACTIVE. Vui lòng cập nhật mã EGOV tại khối Hồ sơ đăng ký EGOV trước khi xác nhận hợp lệ.',
+          code: 'MISSING_ACTIVE_EGOV_LINK',
+        });
+      }
+      if (external_admission_code !== undefined && external_admission_code !== null && String(external_admission_code).trim() !== '' && String(external_admission_code).trim() !== activeEgovCode) {
+        return res.status(409).json({
+          success: false,
+          error: 'Mã hồ sơ EGOV đã bị thay đổi sau khi mở modal. Vui lòng tải lại trang để cập nhật mã mới nhất.',
+          code: 'EGOV_CODE_CONFLICT',
+        });
+      }
+    } else {
+      cleanEgovCode = activeEgovCode || (external_admission_code ? String(external_admission_code).trim() : null);
+      if (cleanEgovCode && !/^[0-9]{7}$/.test(cleanEgovCode)) {
+        return res.status(400).json({
+          success: false,
+          error: `Mã hồ sơ EGOV không hợp lệ: "${cleanEgovCode}". Phải gồm đúng 7 chữ số.`,
+          code: 'INVALID_EGOV_CODE',
+        });
+      }
     }
 
     // 6. Validate ghi chú/lý do bắt buộc cho EXISTING_IN_SCHOOL_SYSTEM và MISMATCH_INVALID

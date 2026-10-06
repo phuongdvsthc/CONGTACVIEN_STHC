@@ -1169,16 +1169,26 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
 
 ### 38. Kiểm thử Toàn luồng Liên kết EGOV và Nghiệm thu Bản sửa A4-F (A4-F5)
 1. **Phạm vi & Mục tiêu**:
-   - Thực hiện kiểm thử E2E toàn diện toàn bộ chuỗi nghiệp vụ A4-F (Bước A đến G) và các ca kiểm thử bổ sung (định dạng mã, chống trùng, rollback, hủy liên kết, EXISTING_IN_SCHOOL_SYSTEM, phân quyền bảo mật, concurrency & idempotency, dọn dẹp fixture).
-   - Kiểm chứng sự hoạt động trơn tru từ cơ sở dữ liệu Supabase, API admin/affiliate đến giao diện quản trị (A3, A4) và Cổng CTV.
+   - Thực hiện kiểm thử E2E toàn diện toàn bộ chuỗi nghiệp vụ A4-F.
 2. **Tài liệu bàn giao**:
-   - Tài liệu báo cáo nghiệm thu E2E chính thức: `/docs/A4_F5_EGOV_LINK_E2E_ACCEPTANCE.md`.
+   - `/docs/A4_F5_EGOV_LINK_E2E_ACCEPTANCE.md`.
+3. **Kết luận A4-F5**: **PASS**.
+
+---
+
+### 39. Sửa lỗi Form “Đối chiếu hồ sơ” chưa tải mã EGOV đã liên kết (A4-F Fix)
+1. **Phạm vi & Mục tiêu**:
+   - Khắc phục triệt để lỗi khi mở modal *"Xác nhận kết quả đối soát hồ sơ & học phí"* (`AdminReconciliationModal.tsx`) từ chi tiết ứng viên (ví dụ Lead ID `3f8f2715-0477-42a1-a475-86cdb91bef01` có mã ACTIVE `1818002`), ô mã hiển thị trống.
+   - Triển khai cơ chế tự động gọi API tải chi tiết lead mới nhất khi mở modal, prefill mã EGOV ACTIVE ở dạng chỉ đọc, kèm hướng dẫn nghiệp vụ và chặn chọn `MATCHED_VALID` nếu chưa có liên kết ACTIVE.
+   - Bổ sung xác thực server-authoritative tại endpoint `POST /api/v1/admin/leads/:id/reconcile` kiểm tra trực tiếp liên kết ACTIVE trong CSDL và báo HTTP 409 nếu mã bị thay đổi đồng thời.
+2. **Tài liệu bàn giao**:
+   - Tài liệu báo cáo: `/docs/A4_F_FIX_RECONCILIATION_MODAL_EGOV_PREFILL.md`.
 3. **Kết quả kiểm thử kỹ thuật & nghiệp vụ**:
    - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
    - `compile_applet`: **PASS (Build succeeded)**.
-   - Toàn bộ chuỗi test E2E (Bước A–G) và ma trận ca bổ sung đạt kết quả **PASS**.
-   - Đã dọn dẹp toàn bộ dữ liệu test fixture, bảo toàn 100% dữ liệu thật của trường.
-4. **Kết luận nghiệm thu toàn bộ Module A4-F**: **PASS TOÀN BỘ (100% HOÀN THÀNH)**.
+   - 9/9 Ca kiểm thử đạt kết quả **PASS**.
+4. **Kết luận**: **PASS TOÀN BỘ (100% HOÀN THÀNH)**.
+
 
 
 
