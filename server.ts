@@ -2208,6 +2208,43 @@ async function startServer() {
   // ----------------------------------------------------------------------------
   // E2 – AFFILIATE PORTAL (Bố cục Tâm Trí Lực, che SĐT 4 số cuối)
   // ----------------------------------------------------------------------------
+  // Helper: Che 4 số cuối điện thoại của khách hàng ở tầng Backend API Gateway
+  const maskPhone = (phone?: string | null) => {
+    if (!phone || phone.length < 6) return '090****';
+    return phone.slice(0, -4) + '****';
+  };
+
+  // Helper: Tạo danh sách 12 tháng liên tục (tính theo múi giờ Asia/Ho_Chi_Minh UTC+7)
+  const getVietnamMonthList = (count: number = 12) => {
+    const now = new Date();
+    // Chuyển sang giờ Việt Nam (UTC+7) dựa trên UTC millisecond
+    const vnNow = new Date(now.getTime() + (7 * 3600000));
+    const currentYear = vnNow.getUTCFullYear();
+    const currentMonth = vnNow.getUTCMonth(); // 0..11
+
+    const months: { month_key: string; month_label: string; leads_count: number; enrolled_count: number }[] = [];
+    for (let i = count - 1; i >= 0; i--) {
+      const d = new Date(Date.UTC(currentYear, currentMonth - i, 1));
+      const y = d.getUTCFullYear();
+      const m = d.getUTCMonth() + 1; // 1..12
+      const monthKey = `${y}-${String(m).padStart(2, '0')}`;
+      const monthLabel = `T${String(m).padStart(2, '0')}/${y}`;
+      months.push({ month_key: monthKey, month_label: monthLabel, leads_count: 0, enrolled_count: 0 });
+    }
+    return months;
+  };
+
+  // Helper: Lấy month_key (YYYY-MM) theo múi giờ Việt Nam từ chuỗi ISO
+  const getVietnamMonthKey = (isoDateStr?: string | null): string | null => {
+    if (!isoDateStr) return null;
+    const d = new Date(isoDateStr);
+    if (isNaN(d.getTime())) return null;
+    const vnDate = new Date(d.getTime() + (7 * 3600000));
+    const y = vnDate.getUTCFullYear();
+    const m = vnDate.getUTCMonth() + 1;
+    return `${y}-${String(m).padStart(2, '0')}`;
+  };
+
   // Middleware kiểm tra quyền CTV (xác thực thực tế theo Bearer token và fallback demoState)
   const requireActiveAffiliate = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -2220,72 +2257,489 @@ async function startServer() {
         });
       }
       (req as any).authenticatedAffiliate = authResult.affiliate;
+      (req as any).affiliateAuthStatus = authResult.status;
       next();
     } catch (err: any) {
       return res.status(500).json({ success: false, error: 'Lỗi xác thực danh tính CTV.' });
     }
   };
 
-  app.get('/api/v1/affiliate/dashboard', requireActiveAffiliate, async (req: Request, res: Response) => {
-    const authResult = await resolveAffiliateSession(req);
-    const affiliateId = authResult.affiliate?.id || demoState.activeAffiliate.id;
-    const affiliateUserId = authResult.affiliate?.user_id || demoState.activeAffiliate.user_id;
+  // Middleware riêng cho Dashboard Tổng quan CTV (C6.2): Cho phép cả CTV ACTIVE và SUSPENDED xem dữ liệu lịch sử
+  const requireAffiliateDashboardAccess = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const authResult = await resolveAffiliateSession(req);
+      if (!authResult.affiliate || authResult.status === 'UNAUTHORIZED') {
+        return res.status(401).json({
+          success: false,
+          error: 'Yêu cầu đăng nhập tài khoản Cộng tác viên để xem dữ liệu.',
+          affiliate_status: 'UNAUTHORIZED',
+        });
+      }
 
-    // Lấy số liệu leads của CTV
+      if (authResult.status !== 'ACTIVE' && authResult.status !== 'SUSPENDED') {
+        return res.status(403).json({
+          success: false,
+          error: authResult.error || 'Tài khoản Cộng tác viên chưa được kích hoạt để xem tổng quan.',
+          affiliate_status: authResult.status,
+        });
+      }
+
+      (req as any).authenticatedAffiliate = authResult.affiliate;
+      (req as any).affiliateAuthStatus = authResult.status;
+      next();
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Lỗi xác thực danh tính CTV.' });
+    }
+  };
+
+  // Service tổng hợp dữ liệu Dashboard CTV dùng chung (C6.2)
+  async function getAffiliateDashboardSummaryData(affiliate: AuthenticatedAffiliateInfo, authStatus: string) {
+    const affiliateId = affiliate.id;
+    const affiliateUserId = affiliate.user_id;
+
+    const isValidUuid = (str?: string | null): boolean => {
+      if (!str) return false;
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+    };
+
+    const validAffiliateId = isValidUuid(affiliateId) ? affiliateId : null;
+    const validUserId = isValidUuid(affiliateUserId) ? affiliateUserId : null;
+
+    // 1. Truy vấn toàn bộ leads của CTV (kèm quan hệ khóa học, đối soát và liên kết EGOV)
     let leadsQuery = supabase
       .from('leads')
-      .select('id, reconciliation_status, reward_status');
+      .select(`
+        id,
+        full_name,
+        phone,
+        course_id,
+        counseling_status,
+        admission_status,
+        reconciliation_status,
+        reward_status,
+        created_at,
+        updated_at,
+        courses(id, code, title),
+        lead_reconciliations(id, admission_status, reconciliation_status, reconciled_at),
+        lead_egov_links(id, external_admission_code, link_status)
+      `)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false });
 
-    if (affiliateId && affiliateUserId && affiliateId !== affiliateUserId) {
-      leadsQuery = leadsQuery.or(`affiliate_id.eq.${affiliateId},affiliate_id.eq.${affiliateUserId}`);
+    if (validAffiliateId && validUserId && validAffiliateId !== validUserId) {
+      leadsQuery = leadsQuery.or(`affiliate_id.eq.${validAffiliateId},affiliate_id.eq.${validUserId}`);
+    } else if (validAffiliateId) {
+      leadsQuery = leadsQuery.eq('affiliate_id', validAffiliateId);
+    } else if (validUserId) {
+      leadsQuery = leadsQuery.eq('affiliate_id', validUserId);
     } else {
-      leadsQuery = leadsQuery.eq('affiliate_id', affiliateId);
+      // Nếu không có UUID hợp lệ (ví dụ tài khoản mock), lọc rỗng an toàn
+      leadsQuery = leadsQuery.eq('affiliate_id', '00000000-0000-0000-0000-000000000000');
     }
-    const { data: leads } = await leadsQuery;
 
+    const { data: leads, error: leadsErr } = await leadsQuery;
+    if (leadsErr) {
+      console.error('[DASHBOARD SUMMARY] Leads query error:', leadsErr);
+      throw new Error('Lỗi truy vấn danh sách khách hàng từ cơ sở dữ liệu.');
+    }
+
+    const leadsList = leads || [];
+
+    // 2. Truy vấn toàn bộ bản ghi thù lao (rewards) của CTV
     let rewardsQuery = supabase
       .from('rewards')
-      .select('amount, status');
+      .select('id, lead_id, reconciliation_id, amount, status, created_at, updated_at');
 
-    if (affiliateId && affiliateUserId && affiliateId !== affiliateUserId) {
-      rewardsQuery = rewardsQuery.or(`affiliate_id.eq.${affiliateId},affiliate_id.eq.${affiliateUserId}`);
+    if (validAffiliateId && validUserId && validAffiliateId !== validUserId) {
+      rewardsQuery = rewardsQuery.or(`affiliate_id.eq.${validAffiliateId},affiliate_id.eq.${validUserId}`);
+    } else if (validAffiliateId) {
+      rewardsQuery = rewardsQuery.eq('affiliate_id', validAffiliateId);
+    } else if (validUserId) {
+      rewardsQuery = rewardsQuery.eq('affiliate_id', validUserId);
     } else {
-      rewardsQuery = rewardsQuery.eq('affiliate_id', affiliateId);
+      rewardsQuery = rewardsQuery.eq('affiliate_id', '00000000-0000-0000-0000-000000000000');
     }
-    const { data: rewards } = await rewardsQuery;
 
-    const totalReferred = (leads?.length || 0) + 3; // + mock seed
-    const enrolledValid = (leads?.filter(l => l.reconciliation_status === 'MATCHED_VALID').length || 0) + 2;
-    const pendingRewardsCount = (leads?.filter(l => l.reward_status === 'PENDING_APPROVAL').length || 0) + 1;
-    const approvedRewardsCount = (leads?.filter(l => l.reward_status === 'APPROVED').length || 0) + 1;
+    const { data: rewards, error: rewardsErr } = await rewardsQuery;
+    if (rewardsErr) {
+      console.error('[DASHBOARD SUMMARY] Rewards query error:', rewardsErr);
+      throw new Error('Lỗi truy vấn dữ liệu thù lao từ cơ sở dữ liệu.');
+    }
 
-    const pendingAmount = rewards && rewards.length > 0
-      ? rewards.filter(r => r.status === 'PENDING_APPROVAL').reduce((sum, r) => sum + (r.amount || 500000), 0)
-      : pendingRewardsCount * 500000;
+    const rewardsList = rewards || [];
 
-    const approvedAmount = rewards && rewards.length > 0
-      ? rewards.filter(r => r.status === 'APPROVED').reduce((sum, r) => sum + (r.amount || 500000), 0)
-      : approvedRewardsCount * 500000;
+    // 3. Tính toán các chỉ số khách / hồ sơ (Metrics)
+    const totalLeads = leadsList.length;
+    const enrolledLeads = leadsList.filter((l: any) => l.admission_status === 'ENROLLED').length;
+    const notEnrolledLeads = leadsList.filter((l: any) => l.admission_status !== 'ENROLLED').length;
+    const matchedValidLeads = leadsList.filter((l: any) => l.reconciliation_status === 'MATCHED_VALID').length;
 
-    const currentAff = authResult.affiliate || demoState.activeAffiliate;
+    // 4. Tính toán các khoản thù lao (Rewards)
+    // Loại trừ REJECTED và VOIDED khỏi Chờ duyệt và Đã duyệt
+    const pendingRewards = rewardsList.filter((r: any) => r.status === 'PENDING_APPROVAL');
+    const approvedRewards = rewardsList.filter((r: any) => r.status === 'APPROVED');
 
-    res.json({
-      success: true,
-      data: {
-        affiliate_code: currentAff.affiliate_code,
-        affiliate_status: currentAff.status,
-        full_name: currentAff.full_name,
-        suspension_reason: currentAff.status === 'SUSPENDED' ? currentAff.suspension_reason : undefined,
-        metrics: {
-          total_leads_referred: totalReferred,
-          enrolled_valid_leads: enrolledValid,
-          pending_reward_count: pendingRewardsCount,
-          pending_reward_amount: pendingAmount,
-          approved_reward_count: approvedRewardsCount,
-          approved_reward_amount: approvedAmount,
+    const pendingAmount = pendingRewards.reduce((sum: number, r: any) => sum + (Number(r.amount) || 0), 0);
+    const approvedAmount = approvedRewards.reduce((sum: number, r: any) => sum + (Number(r.amount) || 0), 0);
+
+    // 5. Tính toán chuỗi xu hướng 12 tháng liên tục (Monthly Trend)
+    const monthList = getVietnamMonthList(12);
+    const monthMap: Record<string, { month_key: string; month_label: string; leads_count: number; enrolled_count: number }> = {};
+    monthList.forEach(m => {
+      monthMap[m.month_key] = m;
+    });
+
+    let enrolledMissingDateCount = 0;
+
+    leadsList.forEach((lead: any) => {
+      // Đăng ký mới theo ngày tạo lead (leads.created_at)
+      const regMonth = getVietnamMonthKey(lead.created_at);
+      if (regMonth && monthMap[regMonth]) {
+        monthMap[regMonth].leads_count += 1;
+      }
+
+      // Nhập học CHỈ tính theo sự kiện xác nhận nhập học chính thức có mốc reconciled_at hợp lệ
+      if (lead.admission_status === 'ENROLLED') {
+        let enrollDate: string | null = null;
+        if (lead.lead_reconciliations && Array.isArray(lead.lead_reconciliations)) {
+          const validRecons = lead.lead_reconciliations
+            .filter((r: any) => r.admission_status === 'ENROLLED' && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM'].includes(r.reconciliation_status) && r.reconciled_at)
+            .sort((a: any, b: any) => new Date(b.reconciled_at).getTime() - new Date(a.reconciled_at).getTime());
+          if (validRecons.length > 0) {
+            enrollDate = validRecons[0].reconciled_at;
+          }
+        }
+
+        if (enrollDate) {
+          const enrollMonth = getVietnamMonthKey(enrollDate);
+          if (enrollMonth && monthMap[enrollMonth]) {
+            monthMap[enrollMonth].enrolled_count += 1;
+          }
+        } else {
+          // Hồ sơ nhập học chưa có ngày xác nhận đối chiếu chính thức -> không tự gán vào tháng bất kỳ
+          enrolledMissingDateCount += 1;
+        }
+      }
+    });
+
+    // 6. Tính toán phân bố theo khóa học (Course Breakdown - Toàn bộ thời gian)
+    const courseMap: Record<string, {
+      course_id: string;
+      course_code: string;
+      course_title: string;
+      total_leads: number;
+      enrolled_leads: number;
+    }> = {};
+
+    leadsList.forEach((lead: any) => {
+      const courseId = lead.course_id || 'UNASSIGNED';
+      if (!courseMap[courseId]) {
+        courseMap[courseId] = {
+          course_id: lead.course_id || '',
+          course_code: lead.courses?.code || 'UNASSIGNED',
+          course_title: lead.courses?.title || (lead.course_id ? 'Khóa học không còn khả dụng' : 'Chưa chọn khóa học'),
+          total_leads: 0,
+          enrolled_leads: 0,
+        };
+      }
+      courseMap[courseId].total_leads += 1;
+      if (lead.admission_status === 'ENROLLED') {
+        courseMap[courseId].enrolled_leads += 1;
+      }
+    });
+
+    const courseBreakdown = Object.values(courseMap).sort((a, b) => {
+      if (b.total_leads !== a.total_leads) return b.total_leads - a.total_leads;
+      if (b.enrolled_leads !== a.enrolled_leads) return b.enrolled_leads - a.enrolled_leads;
+      return a.course_title.localeCompare(b.course_title);
+    });
+
+    // 7. Lấy tối đa 5 lượt đăng ký mới nhất (Recent Leads) trực tiếp với limit(5) tại CSDL
+    let recentLeadsQuery = supabase
+      .from('leads')
+      .select('id, full_name, phone, course_id, counseling_status, admission_status, reconciliation_status, created_at, courses(id, code, title)')
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(5);
+
+    if (validAffiliateId && validUserId && validAffiliateId !== validUserId) {
+      recentLeadsQuery = recentLeadsQuery.or(`affiliate_id.eq.${validAffiliateId},affiliate_id.eq.${validUserId}`);
+    } else if (validAffiliateId) {
+      recentLeadsQuery = recentLeadsQuery.eq('affiliate_id', validAffiliateId);
+    } else if (validUserId) {
+      recentLeadsQuery = recentLeadsQuery.eq('affiliate_id', validUserId);
+    } else {
+      recentLeadsQuery = recentLeadsQuery.eq('affiliate_id', '00000000-0000-0000-0000-000000000000');
+    }
+
+    const { data: recentLeadsData } = await recentLeadsQuery;
+    const recentLeadsRaw = recentLeadsData || leadsList.slice(0, 5);
+
+    const recentLeads = recentLeadsRaw.map((l: any) => {
+      return {
+        id: l.id,
+        full_name: l.full_name || 'Chưa cập nhật',
+        phone_masked: maskPhone(l.phone),
+        course_id: l.course_id || null,
+        course_title: l.courses?.title || (l.course_id ? 'Khóa học không còn khả dụng' : 'Chưa chọn khóa học'),
+        created_at: l.created_at,
+        counseling_status: l.counseling_status || 'NEW',
+        admission_status: l.admission_status || 'NOT_ENROLLED',
+        reconciliation_status: l.reconciliation_status || 'NOT_RECONCILED',
+      };
+    });
+
+    // 8. Lấy lý do tạm ngưng nếu CTV đang ở trạng thái SUSPENDED
+    let suspensionReason = affiliate.status === 'SUSPENDED' ? (affiliate as any).suspension_reason : undefined;
+    if (authStatus === 'SUSPENDED' && !suspensionReason) {
+      try {
+        const { data: affProfile } = await supabase
+          .from('affiliate_profiles')
+          .select('suspension_reason')
+          .eq('id', affiliateId)
+          .maybeSingle();
+        if (affProfile?.suspension_reason) {
+          suspensionReason = affProfile.suspension_reason;
+        }
+      } catch (e) {}
+    }
+
+    return {
+      affiliate: {
+        id: affiliate.id,
+        full_name: affiliate.full_name,
+        affiliate_code: affiliate.affiliate_code,
+        status: authStatus,
+        suspension_reason: suspensionReason,
+      },
+      metrics: {
+        total_leads: totalLeads,
+        not_enrolled_leads: notEnrolledLeads,
+        enrolled_leads: enrolledLeads,
+        matched_valid_leads: matchedValidLeads,
+      },
+      rewards: {
+        pending: {
+          amount: pendingAmount,
+          count: pendingRewards.length,
+        },
+        approved: {
+          amount: approvedAmount,
+          count: approvedRewards.length,
+        },
+        paid: {
+          available: false,
+          amount: null,
+          count: null,
+          reason_code: 'PAYMENT_TRACKING_NOT_AVAILABLE',
         },
       },
+      monthly_trend: monthList,
+      course_breakdown: courseBreakdown,
+      recent_leads: recentLeads,
+      metadata: {
+        timezone: 'Asia/Ho_Chi_Minh',
+        generated_at: new Date().toISOString(),
+        data_scope: 'AFFILIATE_OWNED_DATA',
+        payment_tracking_status: 'PAYMENT_TRACKING_NOT_AVAILABLE',
+        enrolled_missing_date_count: enrolledMissingDateCount,
+      },
+    };
+  }
+
+  // Service tổng hợp Top 5 CTV nổi bật (C6.6A)
+  async function getAffiliateLeaderboardData(currentAffiliate?: AuthenticatedAffiliateInfo) {
+    // 1. Lấy tất cả các khoản thưởng APPROVED trong toàn bộ thời gian
+    const { data: approvedRewards, error: rewErr } = await supabase
+      .from('rewards')
+      .select('id, affiliate_id, amount, status')
+      .eq('status', 'APPROVED');
+
+    if (rewErr) {
+      console.error('[LEADERBOARD ERROR] Rewards query failed:', rewErr);
+      throw new Error('Lỗi truy vấn dữ liệu thù lao để xếp hạng.');
+    }
+
+    // 2. Lấy tất cả hồ sơ CTV có trạng thái ACTIVE
+    const { data: activeAffiliates, error: affErr } = await supabase
+      .from('affiliate_profiles')
+      .select('id, user_id, affiliate_code, status, profiles:user_id(id, full_name, role, is_active)')
+      .eq('status', 'ACTIVE');
+
+    if (affErr) {
+      console.error('[LEADERBOARD ERROR] Affiliates query failed:', affErr);
+      throw new Error('Lỗi truy vấn hồ sơ cộng tác viên để xếp hạng.');
+    }
+
+    const affList = activeAffiliates || [];
+    const rewardsList = approvedRewards || [];
+
+    // 3. Lọc bỏ tài khoản Admin/Staff (chỉ giữ tài khoản CTV thuần túy theo vai trò)
+    const validAffiliates = affList.filter((aff: any) => {
+      const prof = aff.profiles;
+      const role = prof?.role?.toLowerCase();
+      return role !== 'admin' && role !== 'staff' && role !== 'manager' && role !== 'superadmin';
     });
+
+    // 4. Gom nhóm thưởng APPROVED theo từng CTV ACTIVE
+    // Ánh xạ lookup theo cả affiliate_profiles.id và profiles.id (user_id)
+    const affMap: Record<string, {
+      affiliate_id: string;
+      user_id: string;
+      affiliate_code: string;
+      full_name: string;
+      approved_reward_amount: number;
+    }> = {};
+
+    const lookupToAffKey: Record<string, string> = {};
+
+    validAffiliates.forEach((aff: any) => {
+      const affId = aff.id;
+      const userId = aff.user_id;
+      const fullName = aff.profiles?.full_name || 'Cộng tác viên';
+      const affCode = aff.affiliate_code || '';
+
+      affMap[affId] = {
+        affiliate_id: affId,
+        user_id: userId,
+        affiliate_code: affCode,
+        full_name: fullName,
+        approved_reward_amount: 0,
+      };
+
+      if (affId) lookupToAffKey[affId] = affId;
+      if (userId) lookupToAffKey[userId] = affId;
+    });
+
+    // Cộng dồn thưởng APPROVED thực tế từ CSDL
+    rewardsList.forEach((rew: any) => {
+      const targetAffKey = lookupToAffKey[rew.affiliate_id];
+      if (targetAffKey && affMap[targetAffKey]) {
+        affMap[targetAffKey].approved_reward_amount += Number(rew.amount) || 0;
+      }
+    });
+
+    // 5. Chỉ đưa vào bảng CTV ACTIVE có tổng thưởng đã duyệt > 0
+    const rankedList = Object.values(affMap)
+      .filter((aff) => aff.approved_reward_amount > 0)
+      .sort((a, b) => {
+        if (b.approved_reward_amount !== a.approved_reward_amount) {
+          return b.approved_reward_amount - a.approved_reward_amount;
+        }
+        return a.affiliate_code.localeCompare(b.affiliate_code);
+      });
+
+    // 6. Lấy tối đa 5 người
+    const top5 = rankedList.slice(0, 5);
+
+    // 7. Gán thứ hạng chuẩn (đồng hạng nếu cùng số tiền)
+    let currentRank = 1;
+    const finalLeaderboard = top5.map((item, index) => {
+      if (index > 0 && item.approved_reward_amount < top5[index - 1].approved_reward_amount) {
+        currentRank = index + 1;
+      }
+
+      const currentAffId = currentAffiliate?.id;
+      const currentUserId = currentAffiliate?.user_id;
+
+      const isCurrent = Boolean(
+        (currentAffId && (item.affiliate_id === currentAffId || item.user_id === currentAffId)) ||
+        (currentUserId && (item.affiliate_id === currentUserId || item.user_id === currentUserId))
+      );
+
+      return {
+        rank: currentRank,
+        display_name: item.full_name,
+        approved_reward_amount: item.approved_reward_amount,
+        is_current_affiliate: isCurrent,
+      };
+    });
+
+    return {
+      leaderboard: finalLeaderboard,
+      metadata: {
+        time_scope: 'ALL_TIME',
+        criteria: 'TOTAL_APPROVED_REWARD_AMOUNT',
+        generated_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  // C6.6A: Endpoint bảng xếp hạng Top 5 CTV nổi bật
+  app.get('/api/v1/affiliate/leaderboard', requireAffiliateDashboardAccess, async (req: Request, res: Response) => {
+    try {
+      const authResult = await resolveAffiliateSession(req);
+      const currentAff = authResult.affiliate || (req as any).authenticatedAffiliate || demoState.activeAffiliate;
+
+      const data = await getAffiliateLeaderboardData(currentAff);
+      return res.json({
+        success: true,
+        data,
+      });
+    } catch (err: any) {
+      console.error('[API /api/v1/affiliate/leaderboard ERROR]', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Không thể tải bảng xếp hạng cộng tác viên nổi bật.',
+      });
+    }
+  });
+
+  // C6.2: Endpoint tổng hợp Dashboard CTV mới
+  app.get('/api/v1/affiliate/dashboard/summary', requireAffiliateDashboardAccess, async (req: Request, res: Response) => {
+    try {
+      const authResult = await resolveAffiliateSession(req);
+      const currentAff = authResult.affiliate || (req as any).authenticatedAffiliate || demoState.activeAffiliate;
+      const authStatus = authResult.status || (req as any).affiliateAuthStatus || 'ACTIVE';
+
+      const summary = await getAffiliateDashboardSummaryData(currentAff, authStatus);
+      return res.json({
+        success: true,
+        data: summary,
+      });
+    } catch (err: any) {
+      console.error('[API /api/v1/affiliate/dashboard/summary ERROR]', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Không thể tổng hợp dữ liệu tổng quan cộng tác viên.',
+      });
+    }
+  });
+
+  // Đồng bộ Endpoint cũ GET /api/v1/affiliate/dashboard (Loại bỏ hoàn toàn +3, +2, +1 mock seed và *500000 fallback)
+  app.get('/api/v1/affiliate/dashboard', requireAffiliateDashboardAccess, async (req: Request, res: Response) => {
+    try {
+      const authResult = await resolveAffiliateSession(req);
+      const currentAff = authResult.affiliate || (req as any).authenticatedAffiliate || demoState.activeAffiliate;
+      const authStatus = authResult.status || (req as any).affiliateAuthStatus || 'ACTIVE';
+
+      const summary = await getAffiliateDashboardSummaryData(currentAff, authStatus);
+
+      return res.json({
+        success: true,
+        data: {
+          ...summary,
+          affiliate_code: summary.affiliate.affiliate_code,
+          affiliate_status: summary.affiliate.status,
+          full_name: summary.affiliate.full_name,
+          suspension_reason: summary.affiliate.suspension_reason,
+          metrics: {
+            total_leads_referred: summary.metrics.total_leads,
+            enrolled_valid_leads: summary.metrics.matched_valid_leads,
+            pending_reward_count: summary.rewards.pending.count,
+            pending_reward_amount: summary.rewards.pending.amount,
+            approved_reward_count: summary.rewards.approved.count,
+            approved_reward_amount: summary.rewards.approved.amount,
+          },
+        },
+      });
+    } catch (err: any) {
+      console.error('[API /api/v1/affiliate/dashboard ERROR]', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Không thể tải dữ liệu tổng quan cộng tác viên.',
+      });
+    }
   });
 
   // Hàm phân giải Domain cho link giới thiệu và mã QR chuẩn A7.5

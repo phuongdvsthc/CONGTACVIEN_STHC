@@ -2,7 +2,7 @@
  * Client API Service for STHC Affiliate & Admission Management System
  */
 
-import { Course, AffiliateProfile, UserProfile, Lead, Reward, AuditLog } from '../types';
+import { Course, AffiliateProfile, UserProfile, Lead, Reward, AuditLog, AffiliateDashboardSummaryData } from '../types';
 
 export function getAuthHeaders(): Record<string, string> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('sthc_auth_token') : null;
@@ -266,6 +266,14 @@ export const api = {
   // --------------------------------------------------------------------------
   async getAffiliateDashboard() {
     return apiFetch('/api/v1/affiliate/dashboard');
+  },
+
+  async getAffiliateDashboardSummary(): Promise<{ success: boolean; data?: AffiliateDashboardSummaryData; error?: string }> {
+    return apiFetch('/api/v1/affiliate/dashboard/summary');
+  },
+
+  async getAffiliateLeaderboard(): Promise<{ success: boolean; data?: import('../types').AffiliateLeaderboardData; error?: string }> {
+    return apiFetch('/api/v1/affiliate/leaderboard');
   },
 
   async getAffiliateCourses(): Promise<{ success: boolean; data: any[] }> {

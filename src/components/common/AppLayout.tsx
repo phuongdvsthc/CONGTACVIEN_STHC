@@ -19,6 +19,7 @@ import { AffiliateLandingConfig } from '../../types/landingConfig';
 import { ADMIN_NAV_ITEMS, AFFILIATE_NAV_ITEMS, NavItem } from '../../config/navConfig';
 import { ProfileDetailView } from './ProfileDetailView';
 import { useSystemBranding } from '../../contexts/SystemBrandingContext';
+import { usePortalHeader } from '../../contexts/PortalHeaderContext';
 
 interface AppLayoutProps {
   role: 'staff' | 'admin' | 'affiliate_active' | 'affiliate_pending' | string;
@@ -118,6 +119,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
     setMobileSidebarOpen(false);
     onNavigate(path);
   };
+
+  const { headerMeta } = usePortalHeader();
 
   return (
     <div className="min-h-screen flex bg-slate-100 font-sans text-slate-955 antialiased selection:bg-amber-400 selection:text-slate-950">
@@ -235,19 +238,33 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
       {/* MAIN WRAPPER (Header + Workspace) */}
       <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${isCollapsed ? 'lg:pl-20' : 'lg:pl-64'}`}>
         {/* HEADER */}
-        <header className="sticky top-0 z-30 bg-white border-b border-slate-200 h-18 px-4 sm:px-8 flex items-center justify-between shadow-xs">
-          {/* Header Left: Mobile Toggle & Page Title */}
-          <div className="flex items-center gap-3">
+        <header className="sticky top-0 z-30 bg-white border-b border-slate-200 min-h-[64px] sm:min-h-[68px] px-4 sm:px-8 py-2.5 flex items-center justify-between shadow-xs gap-3">
+          {/* Header Left: Mobile Toggle & Page Title with dynamic Badge & Subtitle */}
+          <div className="flex items-center gap-3 min-w-0 flex-1 mr-2">
             <button
               onClick={() => setMobileSidebarOpen(true)}
               aria-label="Mở menu"
-              className="lg:hidden p-2 rounded-xl text-slate-700 hover:bg-slate-100 transition-colors"
+              className="lg:hidden p-2 rounded-xl text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
             >
               <Menu className="w-6 h-6" />
             </button>
-            <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight truncate">
-              {pageTitle}
-            </h1>
+            <div className="flex flex-col min-w-0">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-tight">
+                  {headerMeta?.title || pageTitle}
+                </h1>
+                {headerMeta?.badge && (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-900 border border-blue-100 shrink-0">
+                    {headerMeta.badge}
+                  </span>
+                )}
+              </div>
+              {headerMeta?.subtitle && (
+                <p className="text-xs text-slate-500 line-clamp-1 sm:truncate mt-0.5 leading-snug">
+                  {headerMeta.subtitle}
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Header Right: Notifications & Account Menu */}

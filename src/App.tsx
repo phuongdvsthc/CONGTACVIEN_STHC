@@ -32,6 +32,7 @@ import { AppLayout } from './components/common/AppLayout';
 import { AccessNoticeScreen } from './components/common/AccessNoticeScreen';
 import { ProfileDetailView } from './components/common/ProfileDetailView';
 import { SystemBrandingProvider } from './contexts/SystemBrandingContext';
+import { PortalHeaderProvider } from './contexts/PortalHeaderContext';
 import {
   AuthSessionData,
   checkRouteAccess,
@@ -471,117 +472,118 @@ export default function App() {
 
   return (
     <SystemBrandingProvider currentPath={currentPath}>
-      {isInternalPortal ? (
-        /* A0.4: KHU VỰC NỘI BỘ DÙNG CHUNG APPLAYOUT (HEADER + SIDEBAR + WORKSPACE) */
-        <AppLayout
-          role={authSession.role}
-          user={authSession.user}
-          affiliate={authSession.affiliate}
-          currentPath={currentPath}
-          onNavigate={(targetPath) => navigate(targetPath)}
-          onLogout={handleLogout}
-          brandConfig={defaultLandingConfig}
-        >
-          {/* AFFILIATE PORTAL ROUTING */}
-          {(currentPath === '/portal' ||
-            currentPath === '/portal/' ||
-            currentPath === '/portal/dashboard' ||
-            currentPath === '/portal/overview') && (
-            <AffiliateDashboard
-              key={authSession.affiliate?.id || authSession.affiliate?.affiliate_code || 'active_affiliate'}
-              affiliateCode={authSession.affiliate?.affiliate_code || 'STHCCTV1088'}
-              fullName={authSession.affiliate?.full_name || authSession.user?.full_name || 'Trần Thị Thu Thảo'}
-              onNavigate={(path) => navigate(path)}
-            />
-          )}
+      <PortalHeaderProvider>
+        {isInternalPortal ? (
+          /* A0.4: KHU VỰC NỘI BỘ DÙNG CHUNG APPLAYOUT (HEADER + SIDEBAR + WORKSPACE) */
+          <AppLayout
+            role={authSession.role}
+            user={authSession.user}
+            affiliate={authSession.affiliate}
+            currentPath={currentPath}
+            onNavigate={(targetPath) => navigate(targetPath)}
+            onLogout={handleLogout}
+            brandConfig={defaultLandingConfig}
+          >
+            {/* AFFILIATE PORTAL ROUTING */}
+            {(currentPath === '/portal' ||
+              currentPath === '/portal/' ||
+              currentPath === '/portal/dashboard' ||
+              currentPath === '/portal/overview') && (
+              <AffiliateDashboard
+                key={authSession.affiliate?.id || authSession.affiliate?.affiliate_code || 'active_affiliate'}
+                affiliateCode={authSession.affiliate?.affiliate_code || 'STHCCTV1088'}
+                fullName={authSession.affiliate?.full_name || authSession.user?.full_name || 'Trần Thị Thu Thảo'}
+                onNavigate={(path) => navigate(path)}
+              />
+            )}
 
-          {currentPath === '/portal/profile' && (
-            <ProfileDetailView
-              currentUser={authSession.user}
-              currentRole={authSession.role}
-              onBack={() => navigate('/portal')}
-              onAvatarUpdated={loadSession}
-            />
-          )}
+            {currentPath === '/portal/profile' && (
+              <ProfileDetailView
+                currentUser={authSession.user}
+                currentRole={authSession.role}
+                onBack={() => navigate('/portal')}
+                onAvatarUpdated={loadSession}
+              />
+            )}
 
-          {currentPath.match(/^\/portal\/courses\/.+/) ? (
-            <AffiliateCourseDetailView
-              courseId={currentPath.replace('/portal/courses/', '')}
-              onBack={() => navigate('/portal/courses')}
-            />
-          ) : currentPath.startsWith('/portal/courses') && (
-            <AffiliateCourseListView
-              onNavigateToOverview={() => navigate('/portal')}
-              onSelectCourse={(courseSlug) => navigate(`/portal/courses/${courseSlug}`)}
-            />
-          )}
+            {currentPath.match(/^\/portal\/courses\/.+/) ? (
+              <AffiliateCourseDetailView
+                courseId={currentPath.replace('/portal/courses/', '')}
+                onBack={() => navigate('/portal/courses')}
+              />
+            ) : currentPath.startsWith('/portal/courses') && (
+              <AffiliateCourseListView
+                onNavigateToOverview={() => navigate('/portal')}
+                onSelectCourse={(courseSlug) => navigate(`/portal/courses/${courseSlug}`)}
+              />
+            )}
 
-          {currentPath.match(/^\/portal\/leads\/([a-f0-9-]+)$/i) ? (
-            <AffiliateLeadDetailView
-              leadId={currentPath.replace('/portal/leads/', '')}
-              onBack={() => {
-                window.history.pushState({}, '', '/portal/leads');
-                window.dispatchEvent(new PopStateEvent('popstate'));
-              }}
-            />
-          ) : currentPath.startsWith('/portal/leads') && (
-            <AffiliateLeadsView onNavigateToOverview={() => navigate('/portal')} />
-          )}
-
-          {/* ADMIN & STAFF PORTAL ROUTING */}
-          {currentPath === '/admin/profile' && (
-            <ProfileDetailView
-              currentUser={authSession.user}
-              currentRole={authSession.role}
-              onBack={() => navigate('/admin')}
-              onAvatarUpdated={loadSession}
-            />
-          )}
-
-          {currentPath.match(/^\/admin\/leads\/([a-f0-9-]+)$/i) ? (
-            <AdminLeadDetailView
-              leadId={currentPath.replace('/admin/leads/', '')}
-              currentUser={authSession.user}
-              onBack={() => {
-                if (window.history.length > 1) {
-                  window.history.back();
-                } else {
-                  window.history.pushState({}, '', '/admin/reconcile');
+            {currentPath.match(/^\/portal\/leads\/([a-f0-9-]+)$/i) ? (
+              <AffiliateLeadDetailView
+                leadId={currentPath.replace('/portal/leads/', '')}
+                onBack={() => {
+                  window.history.pushState({}, '', '/portal/leads');
                   window.dispatchEvent(new PopStateEvent('popstate'));
-                }
-              }}
-            />
-          ) : (currentPath === '/admin' ||
-            currentPath === '/admin/' ||
-            currentPath.startsWith('/admin/affiliates') ||
-            currentPath === '/admin/courses' ||
-            currentPath === '/admin/leads' ||
-            currentPath === '/admin/reconcile' ||
-            currentPath === '/admin/rewards' ||
-            currentPath === '/admin/audit') && (
-            <AdminPortal currentUser={authSession.user} currentPath={currentPath} />
-          )}
+                }}
+              />
+            ) : currentPath.startsWith('/portal/leads') && (
+              <AffiliateLeadsView onNavigateToOverview={() => navigate('/portal')} />
+            )}
 
-          {currentPath === '/admin/homepage' && (
-            <AdminHomepageConfigView currentUser={authSession.user} />
-          )}
+            {/* ADMIN & STAFF PORTAL ROUTING */}
+            {currentPath === '/admin/profile' && (
+              <ProfileDetailView
+                currentUser={authSession.user}
+                currentRole={authSession.role}
+                onBack={() => navigate('/admin')}
+                onAvatarUpdated={loadSession}
+              />
+            )}
 
-          {currentPath === '/admin/staff-accounts' && (
-            <AdminPlaceholderPage
-              title="Tài khoản nhân viên"
-              onNavigateToOverview={() => navigate('/admin')}
-            />
-          )}
+            {currentPath.match(/^\/admin\/leads\/([a-f0-9-]+)$/i) ? (
+              <AdminLeadDetailView
+                leadId={currentPath.replace('/admin/leads/', '')}
+                currentUser={authSession.user}
+                onBack={() => {
+                  if (window.history.length > 1) {
+                    window.history.back();
+                  } else {
+                    window.history.pushState({}, '', '/admin/reconcile');
+                    window.dispatchEvent(new PopStateEvent('popstate'));
+                  }
+                }}
+              />
+            ) : (currentPath === '/admin' ||
+              currentPath === '/admin/' ||
+              currentPath.startsWith('/admin/affiliates') ||
+              currentPath === '/admin/courses' ||
+              currentPath === '/admin/leads' ||
+              currentPath === '/admin/reconcile' ||
+              currentPath === '/admin/rewards' ||
+              currentPath === '/admin/audit') && (
+              <AdminPortal currentUser={authSession.user} currentPath={currentPath} />
+            )}
 
-          {currentPath === '/admin/system-settings' && (
-            <AdminSystemSettingsView
-              currentUser={authSession.user}
-              onNavigateToOverview={() => navigate('/admin')}
-            />
-          )}
-        </AppLayout>
-      ) : (
-        <div className="bg-[#070D18] font-sans text-slate-100 antialiased selection:bg-amber-400 selection:text-slate-950">
+            {currentPath === '/admin/homepage' && (
+              <AdminHomepageConfigView currentUser={authSession.user} />
+            )}
+
+            {currentPath === '/admin/staff-accounts' && (
+              <AdminPlaceholderPage
+                title="Tài khoản nhân viên"
+                onNavigateToOverview={() => navigate('/admin')}
+              />
+            )}
+
+            {currentPath === '/admin/system-settings' && (
+              <AdminSystemSettingsView
+                currentUser={authSession.user}
+                onNavigateToOverview={() => navigate('/admin')}
+              />
+            )}
+          </AppLayout>
+        ) : (
+          <div className="bg-[#070D18] font-sans text-slate-100 antialiased selection:bg-amber-400 selection:text-slate-950">
           {/* 
             CHỈ HIỂN THỊ HEADER CHUNG KHI Ở CÁC TRANG CÔNG KHAI (/catalog, /policy).
             Trang /, /login và /pending có giao diện độc lập riêng.
@@ -784,6 +786,7 @@ export default function App() {
           handleOpenLogin();
         }}
       />
+      </PortalHeaderProvider>
     </SystemBrandingProvider>
   );
 }

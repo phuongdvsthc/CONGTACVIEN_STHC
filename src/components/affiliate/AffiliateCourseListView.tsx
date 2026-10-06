@@ -18,6 +18,7 @@ import { api } from '../../services/api';
 import { Course } from '../../types';
 import { QRModal } from '../common/QRModal';
 import { useSystemConfig } from '../../contexts/SystemBrandingContext';
+import { usePortalHeader } from '../../contexts/PortalHeaderContext';
 
 export const CAREER_GROUP_OPTIONS = [
   'Làm bánh',
@@ -67,6 +68,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
     courseCode?: string;
   } | null>(null);
 
+  const { setHeaderMeta } = usePortalHeader();
   const { buildCatalogUrl } = useSystemConfig();
   const currentAffiliateCode = courses[0]?.affiliate_code || '';
   const catalogResolution = useMemo(
@@ -100,6 +102,19 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
   useEffect(() => {
     fetchCourses();
   }, [fetchCourses]);
+
+  // Sync header title, badge and subtitle to Portal Header
+  useEffect(() => {
+    setHeaderMeta({
+      title: 'Khóa học',
+      badge: `${courses.length} khóa học`,
+      subtitle: 'Xem thông tin khóa học, lấy link giới thiệu và mã QR tiếp thị tuyển sinh của bạn.',
+    });
+
+    return () => {
+      setHeaderMeta(null);
+    };
+  }, [courses.length, setHeaderMeta]);
 
   // Extract unique career groups and degree levels for filters
   const careerGroupOptions = useMemo(() => {
@@ -223,34 +238,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-5 sm:space-y-6 animate-fade-in">
-      {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 pb-4 sm:pb-5 border-b border-slate-200">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Khóa học</h1>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-900 border border-blue-100">
-              {filteredCourses.length} khóa học
-            </span>
-          </div>
-          <p className="text-sm text-slate-600 mt-1">
-            Xem thông tin khóa học, lấy link giới thiệu và mã QR tiếp thị tuyển sinh của bạn.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3 self-start md:self-auto">
-          <button
-            onClick={fetchCourses}
-            disabled={loading}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold shadow-xs transition-colors disabled:opacity-50"
-            title="Tải lại danh sách khóa học"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
-            <span>Tải lại</span>
-          </button>
-        </div>
-      </div>
-
+    <div className="max-w-7xl mx-auto space-y-4 sm:space-y-5 animate-fade-in">
       {/* Catalog Referral Link Banner (A7.5) */}
       {currentAffiliateCode && (
         <div className="bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -328,9 +316,9 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
 
       {/* Filters & Search Toolbar */}
       <div className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-xs space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-center">
           {/* Search input */}
-          <div className="md:col-span-5 relative">
+          <div className="sm:col-span-2 lg:col-span-4 relative">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
@@ -350,7 +338,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
           </div>
 
           {/* Career Group Filter (Thay thế Khoa đào tạo) */}
-          <div className="md:col-span-3">
+          <div className="lg:col-span-3">
             <select
               value={selectedCareerGroup}
               onChange={(e) => {
@@ -368,7 +356,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
           </div>
 
           {/* Degree Level Filter */}
-          <div className="md:col-span-2">
+          <div className="lg:col-span-2">
             <select
               value={selectedDegree}
               onChange={(e) => {
@@ -385,7 +373,7 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
           </div>
 
           {/* Sort By */}
-          <div className="md:col-span-2">
+          <div className="lg:col-span-2">
             <select
               value={sortBy}
               onChange={(e) => {
@@ -398,6 +386,19 @@ export const AffiliateCourseListView: React.FC<AffiliateCourseListViewProps> = (
               <option value="az">Tên: A — Z</option>
               <option value="za">Tên: Z — A</option>
             </select>
+          </div>
+
+          {/* Reload Button */}
+          <div className="sm:col-span-2 lg:col-span-1">
+            <button
+              onClick={fetchCourses}
+              disabled={loading}
+              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-semibold shadow-xs transition-colors disabled:opacity-50"
+              title="Tải lại danh sách khóa học"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-slate-500 shrink-0 ${loading ? 'animate-spin' : ''}`} />
+              <span className="whitespace-nowrap">Tải lại</span>
+            </button>
           </div>
         </div>
 

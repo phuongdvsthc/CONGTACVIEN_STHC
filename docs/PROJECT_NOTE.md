@@ -1203,7 +1203,213 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
 3. **Kết quả kiểm tra**:
    - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
    - `compile_applet`: **PASS (Build succeeded)**.
-4. **Kết luận**: **ĐÃ HOÀN TẤT VÀ KHẮC PHỤC TRIỆT ĐỂ**.
+### 41. Tinh chỉnh bố cục trang “Khóa học” tại Cổng CTV (/portal/courses)
+1. **Yêu cầu & Mục tiêu**:
+   - Xóa bỏ tiêu đề “Khóa học” lớn bị trùng lặp trong phần nội dung chính.
+   - Đưa thông tin số lượng khóa học (badge động, không code cứng) và mô tả nghiệp vụ lên Header dùng chung của Cổng CTV thông qua cơ chế `PortalHeaderContext` (`usePortalHeader`).
+   - Dòng 1 Header: Tiêu đề “Khóa học” kèm badge dynamic `[số lượng] khóa học`.
+   - Dòng 2 Header: “Xem thông tin khóa học, lấy link giới thiệu và mã QR tiếp thị tuyển sinh của bạn.”
+   - Chuyển nút “Tải lại” xuống khối bộ lọc tìm kiếm (sau ô sắp xếp ở góc bên phải).
+   - Bảo toàn chuông thông báo và menu tài khoản ở góc phải Header.
+2. **Kết quả kiểm tra**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+3. **Kết luận**: **ĐÃ HOÀN TẤT VÀ KIỂM TRA THÀNH CÔNG**.
+
+---
+
+### 42. Kiểm kê và chốt đặc tả Dashboard “Tổng quan” của CTV (C6.1)
+1. **Phạm vi & Mục tiêu**:
+   - Rà soát toàn diện hiện trạng mã nguồn, API, CSDL và các thành phần dữ liệu của màn hình Tổng quan CTV tại `/portal` (`AffiliateDashboard.tsx`).
+   - Phân định rõ ràng:
+     - **Dữ liệu thật**: Thông tin định danh CTV (`affiliate_profiles`), trạng thái hoạt động/tạm ngưng, lý do tạm ngưng, danh sách 5 khách hàng gần đây kết nối từ `leads`.
+     - **Dữ liệu giả/hardcode**: Endpoint `GET /api/v1/affiliate/dashboard` hiện đang cộng bù mock `+3`, `+2`, `+1` và tự nhân `* 500000` khi chưa có bản ghi `rewards`.
+     - **Chưa triển khai**: 2 Biểu đồ xu hướng 12 tháng và phân bố khóa học; Module thanh toán thù lao (`payouts` / `PAID` status) chưa có trong CSDL (Giai đoạn 1 chi trả ngoại tuyến).
+   - Thiết lập bảng ánh xạ nguồn dữ liệu (Data Source Mapping) và công thức tính toán chuẩn xác cho 4 Card kết quả và 3 Card thù lao.
+   - Đề xuất hợp đồng API chuẩn `GET /api/v1/affiliate/dashboard/summary` phục vụ bước C6.2.
+2. **Tài liệu bàn giao**:
+   - `docs/CTV_C6_1_DASHBOARD_AUDIT_AND_SPEC.md`.
+3. **Kết luận bước C6.1**: **HOÀN THÀNH KIỂM KÊ VÀ ĐẶC TẢ** (Dừng tại C6.1 theo yêu cầu, chưa can thiệp mã nguồn / CSDL; chưa đánh dấu hoàn thành toàn bộ C6 hay các bước tiếp theo).
+
+---
+
+### 43. Triển khai API Tổng hợp Dashboard và Phân quyền riêng của CTV (C6.2)
+1. **Quy tắc thương hiệu áp dụng từ bước này trở đi (Branding Rule)**:
+   - Tuyệt đối không ghi cứng tên trường hoặc tên viết tắt trường trong các màn hình, thông báo hay nội dung hiển thị mới.
+   - Khi cần hiển thị tên nhận diện hệ thống, bắt buộc lấy từ cấu hình Admin: trường *“Tên viết tắt hệ thống”* (`system_settings.system_short_name` / `SystemBrandingContext`).
+   - Tái sử dụng nguồn cấu hình hiện có; không tạo key hay bảng trùng.
+   - Không dùng tên viết tắt hay tên trường làm fallback; nếu cấu hình trống, sử dụng câu chung không chứa tên riêng.
+   - Không sửa mã CTV, dữ liệu lịch sử hoặc định danh kỹ thuật.
+2. **Nội dung kỹ thuật C6.2 đã triển khai**:
+   - Xây dựng endpoint mới `GET /api/v1/affiliate/dashboard/summary` trả về toàn bộ dữ liệu tổng hợp:
+     - `affiliate`: họ tên, mã CTV, trạng thái, lý do tạm ngưng nếu có.
+     - `metrics`: tổng lượt đăng ký (`total_leads`), chưa nhập học (`not_enrolled_leads`), đã nhập học (`enrolled_leads`), hồ sơ đối chiếu hợp lệ (`matched_valid_leads`).
+     - `rewards`: chờ duyệt (`pending`), đã duyệt (`approved`), trạng thái theo dõi thanh toán (`paid: { available: false, amount: null, count: null, reason_code: "PAYMENT_TRACKING_NOT_AVAILABLE" }`).
+     - `monthly_trend`: mảng 12 tháng liên tục chuẩn tiếng Việt kết thúc ở tháng hiện tại theo múi giờ `Asia/Ho_Chi_Minh`.
+     - `course_breakdown`: thống kê phân bố theo từng khóa học toàn bộ thời gian, sắp xếp giảm dần theo lượt đăng ký.
+     - `recent_leads`: danh sách 5 lượt đăng ký mới nhất (SĐT che 4 số cuối tại server, mã EGOV từ `lead_egov_links` active).
+     - `metadata`: múi giờ, thời điểm sinh dữ liệu, phạm vi dữ liệu.
+   - Đồng bộ endpoint cũ `GET /api/v1/affiliate/dashboard` dùng chung service dữ liệu, loại bỏ hoàn toàn các số liệu mẫu `+3`, `+2`, `+1` và fallback nhân `500.000 đ`.
+   - Bổ sung middleware `requireAffiliateDashboardAccess`: CTV `ACTIVE` và `SUSPENDED` được xem dữ liệu của chính mình; `PENDING_REVIEW`/`REJECTED` bị chặn HTTP 403; chưa đăng nhập bị chặn HTTP 401.
+   - Bổ sung cơ chế `isValidUuid` bảo vệ truy vấn CSDL chống lỗi `22P02`.
+3. **Tài liệu bàn giao**:
+   - `docs/CTV_C6_2_DASHBOARD_API_REPORT.md`.
+4. **Kết quả kiểm thử**:
+   - 9/9 Ca kiểm thử API, phân quyền, cách ly dữ liệu, múi giờ và tính toàn vẹn đạt **PASS**.
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+5. **Kết luận bước C6.2**: **HOÀN THÀNH 100% BACKEND & API C6.2** (Dừng tại C6.2 theo yêu cầu, chưa triển khai giao diện C6.3–C6.6 và chưa đánh dấu hoàn thành toàn bộ C6).
+
+---
+
+### 44. Triển khai Banner, Bố cục và Card Kết quả Dashboard CTV (C6.3)
+1. **Phạm vi & Nội dung triển khai**:
+   - Tích hợp endpoint chuẩn `GET /api/v1/affiliate/dashboard/summary` vào component `AffiliateDashboard.tsx`.
+   - Xây dựng Banner chào mừng thời gian thực:
+     - Nền gradient xanh đậm chuyển tiếp mượt mà.
+     - Badge trạng thái tài khoản (`ACTIVE` / `SUSPENDED`).
+     - Lời chào cá nhân hóa theo họ tên thật của CTV.
+     - Mã CTV và nút *“Sao chép mã”* với cơ chế clipboard an toàn.
+     - Khối QR tiếp thị toàn bộ danh mục khóa học (`/catalog?ref=[Mã_CTV]`), vẽ trực tiếp trên thẻ Canvas, hỗ trợ xem phóng to (`QRModal`) và tải file PNG `QR-CATALOG-[Mã_CTV].png`.
+     - 2 Nút thao tác nhanh: *“Xem khóa học”* (`/portal/courses`) và *“Xem khách hàng”* (`/portal/leads`).
+     - Tự động ẩn QR và hiển thị thông điệp cảnh báo + hotline/email khi tài khoản bị `SUSPENDED`.
+   - Triển khai 4 Card kết quả tuyển sinh:
+     - **“Lượt đăng ký được ghi nhận”** (`metrics.total_leads`) — Chú thích: *Tổng lượt đăng ký thuộc bạn*.
+     - **“Chưa nhập học”** (`metrics.not_enrolled_leads`) — Chú thích: *Lượt đăng ký chưa được xác nhận nhập học*.
+     - **“Đã nhập học”** (`metrics.enrolled_leads`) — Chú thích: *Được xác nhận qua đối chiếu hồ sơ*.
+     - **“Hồ sơ đối chiếu hợp lệ”** (`metrics.matched_valid_leads`) — Chú thích: *Nguồn giới thiệu được xác nhận hợp lệ*.
+   - Tiêu đề nhóm: *“Kết quả tuyển sinh”* kèm badge *“Kết quả toàn bộ thời gian”*.
+   - Hoàn thiện Skeleton loader cho trạng thái đang tải và thông báo lỗi có nút thử lại.
+   - Tuân thủ quy tắc thương hiệu không ghi cứng: dùng `system_short_name` cho dòng nhận diện hệ thống.
+   - Ghi nhận đề xuất **C6.6A (Top 5 CTV xuất sắc)** cho giai đoạn sau, chưa triển khai tại C6.3.
+2. **Tài liệu bàn giao**:
+   - `docs/CTV_C6_3_DASHBOARD_UI_REPORT.md`.
+3. **Kết quả kiểm tra**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+4. **Kết luận bước C6.3**: **HOÀN THÀNH GIAO DIỆN C6.3** (Dừng tại C6.3 theo yêu cầu, chưa triển khai C6.4–C6.6 và chưa đánh dấu hoàn thành toàn bộ C6).
+
+---
+
+### 45. Triển khai Card Tổng hợp Thưởng trên Dashboard CTV (C6.4)
+1. **Phạm vi & Nội dung triển khai**:
+   - Bố trí khối giao diện *“Tổng hợp thưởng”* ngay bên dưới 4 card kết quả tuyển sinh tại `/portal` (`AffiliateDashboard.tsx`).
+   - Lấy dữ liệu trực tiếp từ đối tượng `rewards` trong API `GET /api/v1/affiliate/dashboard/summary`.
+   - Triển khai 3 Card Thưởng chuẩn xác:
+     - **Card 1 — “Thưởng chờ duyệt”**: `rewards.pending.amount` (định dạng `vi-VN`), `rewards.pending.count` khoản, icon `Clock` (Hổ phách).
+     - **Card 2 — “Thưởng đã duyệt”**: `rewards.approved.amount` (định dạng `vi-VN`), `rewards.approved.count` khoản, icon `CheckCircle2` (Indigo/Tím lam).
+     - **Card 3 — “Thưởng đã thanh toán”**: Phân biệt rạch ròi giữa có dữ liệu và chưa theo dõi. Khi `available = false` -> Hiển thị chữ **“Chưa có dữ liệu”** (`text-slate-500`) kèm chú thích *“Hệ thống chưa theo dõi tình trạng chi trả”*, tuyệt đối không biến thành 0đ hay 0 khoản giả lập.
+   - Thêm dòng phụ chú nghiệp vụ: `* Thưởng đã duyệt không đồng nghĩa với đã thanh toán.`
+   - Tiêu đề nhóm: *“Tổng hợp thưởng”* kèm badge *“Toàn bộ thời gian”*.
+   - Đáp ứng đầy đủ quy tắc không hardcode tên trường / thương hiệu.
+2. **Tài liệu bàn giao**:
+   - `docs/CTV_C6_4_DASHBOARD_REWARDS_UI_REPORT.md`.
+3. **Kết quả kiểm tra**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+4. **Kết luận bước C6.4**: **HOÀN THÀNH GIAO DIỆN C6.4** (Dừng tại C6.4 theo yêu cầu, chưa triển khai C6.5–C6.6 và chưa đánh dấu hoàn thành toàn bộ C6).
+
+---
+
+### 46. Triển khai Biểu đồ theo thời gian và theo khóa học trên Dashboard CTV (C6.5)
+1. **Phạm vi & Nội dung triển khai**:
+   - Bố trí 2 khối biểu đồ ngay bên dưới khối *“Tổng hợp thưởng”* và phía trên danh sách *“Đăng ký gần đây”* tại `/portal` (`AffiliateDashboard.tsx`).
+   - Tái sử dụng dữ liệu từ endpoint hiện có `GET /api/v1/affiliate/dashboard/summary`:
+     - **Biểu đồ 1 — “Đăng ký và nhập học” (12 tháng gần nhất)**:
+       - Sử dụng `data.monthly_trend`.
+       - Biểu đồ cột đôi chuẩn SVG Vector: Lượt đăng ký (`leads_count` - Xanh dương) và Đã nhập học (`enrolled_count` - Xanh ngọc).
+       - Đúng 12 tháng liên tục tính theo múi giờ `Asia/Ho_Chi_Minh` (UTC+7), trục Y bắt đầu từ 0 và chỉ hiển thị số nguyên.
+       - Tooltip cảm ứng/di chuột chi tiết; Bảng *“Xem số liệu”* thu gọn/mở rộng hỗ trợ khả năng tiếp cận.
+       - Phụ chú: *“Đăng ký tính theo ngày ghi nhận; nhập học tính theo ngày xác nhận.”* Hai chuỗi độc lập, không gán ràng buộc sai lệch.
+     - **Biểu đồ 2 — “Kết quả theo khóa học” (Toàn bộ thời gian)**:
+       - Sử dụng `data.course_breakdown`.
+       - Biểu đồ thanh ngang nhóm: Lượt đăng ký (`total_leads` - Xanh dương) và Đã nhập học (`enrolled_leads` - Xanh ngọc).
+       - Hiển thị đầy đủ tất cả các khóa có dữ liệu từ API theo thứ tự sắp xếp giảm dần, hỗ trợ cuộn dọc mượt mà trong card khi có nhiều khóa.
+       - Bảng *“Xem số liệu”* thu gọn đối soát mã khóa, tên khóa và tổng cộng khớp 100% với Card Metrics kết quả.
+   - Chuẩn hóa backend `server.ts` trong việc tính toán ranh giới tháng Việt Nam và xác định ngày nhập học chính thức từ `lead_reconciliations` (tránh đếm lặp khi tái đối chiếu).
+   - Bảo toàn Banner chào mừng, QR, 4 Card kết quả và 3 Card thưởng.
+   - Đáp ứng quy tắc thương hiệu không ghi cứng tên trường.
+2. **Tài liệu bàn giao**:
+   - `docs/CTV_C6_5_DASHBOARD_CHARTS_REPORT.md`.
+3. **Kết quả kiểm tra**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+   - Script nghiệm thu `scripts/verify_c6_5_dashboard_charts.ts`: **PASS (Tất cả các tiêu chí)**.
+4. **Kết luận bước C6.5**: **HOÀN THÀNH GIAO DIỆN VÀ BIỂU ĐỒ C6.5** (Dừng tại C6.5 theo yêu cầu, chưa triển khai C6.6 và chưa đánh dấu hoàn thành toàn bộ C6).
+
+---
+
+### 47. Triển khai Danh sách Khách đăng ký gần đây trên Dashboard CTV (C6.6)
+1. **Phạm vi & Nội dung triển khai**:
+   - Hoàn thiện khối *“Khách đăng ký gần đây”* bên dưới 2 biểu đồ tại `/portal` (`AffiliateDashboard.tsx`).
+   - Tái sử dụng dữ liệu `data.recent_leads` từ endpoint `GET /api/v1/affiliate/dashboard/summary`.
+   - Backend đảm bảo trả tối đa 5 bản ghi thuộc CTV đăng nhập, sắp xếp nghiêm ngặt theo `created_at DESC, id DESC`.
+   - Các cột hiển thị chuẩn:
+     - **Họ và tên**: `full_name` (fallback *“Chưa cập nhật”*).
+     - **Số điện thoại**: `phone_masked` được che 4 số cuối từ tầng Backend.
+     - **Khóa học đăng ký**: Tên khóa học kèm tooltip.
+     - **Ngày đăng ký**: Định dạng `DD/MM/YYYY` theo múi giờ `Asia/Ho_Chi_Minh` (UTC+7).
+     - **Tình trạng nhập học**: Badge độc lập (`Đã nhập học`, `Chưa nhập học`, `Đã rút hồ sơ`).
+     - **Đối chiếu hồ sơ**: Badge độc lập (`Hợp lệ`, `Đã có tại trường`, `Không hợp lệ`, `Chưa đối chiếu`, `Đã hủy đối soát`).
+     - **Nút “Xem chi tiết”**: Điều hướng tới `/portal/leads/:id`, hỗ trợ phím `Enter`/`Space`.
+   - Giao diện đáp ứng: Bảng chi tiết trên Desktop/Tablet và dạng Thẻ (Cards) trên Mobile, chống tràn ngang.
+   - Trạng thái rỗng: Hiển thị thông điệp *“Bạn chưa có lượt đăng ký nào.”* kèm nút *“Xem danh sách khóa học”* cho CTV `ACTIVE`.
+   - Không chứa mã EGOV, thông tin tài chính hay ghi chú nội bộ trong khối này.
+2. **Khắc phục chuẩn hóa ngày nhập học C6.5**:
+   - Loại bỏ hoàn toàn fallback gán `updated_at || created_at` thay cho ngày xác nhận nhập học chính thức.
+   - Lead `ENROLLED` thiếu ngày đối chiếu chính thức sẽ không bị gán vào tháng bất kỳ, nhưng vẫn tính đủ 100% vào Card kết quả và khóa học.
+   - Bổ sung `enrolled_missing_date_count` trong metadata phản hồi từ Backend và hiển thị chú thích nghiệp vụ rõ ràng trong biểu đồ 12 tháng.
+3. **Tài liệu bàn giao**:
+   - `docs/CTV_C6_6_RECENT_LEADS_UI_REPORT.md`.
+4. **Kết quả kiểm tra**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+   - Script nghiệm thu `scripts/verify_c6_6_recent_leads.ts`: **PASS (Tất cả các tiêu chí)**.
+5. **Kết luận bước C6.6**: **HOÀN THÀNH GIAO DIỆN C6.6 & KHẮC PHỤC CHUẨN HÓA C6.5** (Dừng tại C6.6 theo yêu cầu, chưa triển khai Top 5 CTV hay bước tiếp theo).
+
+---
+
+### 48. Triển khai Khối Top 5 CTV nổi bật trên Dashboard CTV (C6.6A)
+1. **Phạm vi & Nội dung triển khai**:
+   - Bổ sung khối *“Top 5 CTV nổi bật”* đặt bên dưới 2 biểu đồ và phía trên danh sách *“Khách đăng ký gần đây”* tại `/portal` (`AffiliateDashboard.tsx`).
+   - Xây dựng endpoint bảo mật riêng `GET /api/v1/affiliate/leaderboard` phục vụ dữ liệu vinh danh.
+   - Tiêu chí xếp hạng: Tổng tiền thưởng đã được phê duyệt trong toàn bộ thời gian: `SUM(rewards.amount)` với `status = 'APPROVED'`.
+   - Loại trừ nghiêm ngặt các khoản `PENDING_APPROVAL`, `REJECTED`, `VOIDED`.
+   - Điều kiện tham gia: CTV `ACTIVE`, có tổng thưởng đã duyệt $> 0$, không phải tài khoản `admin`/`staff`.
+   - Quy tắc xếp hạng: Sắp xếp giảm dần theo tổng thưởng đã duyệt, đồng hạng nhận cùng thứ hạng (Standard Competition Ranking), giới hạn tối đa 5 người (không bổ sung dữ liệu mẫu nếu $< 5$).
+   - Bảo mật riêng tư (Privacy-by-Design): Chỉ trả `rank`, `display_name`, `approved_reward_amount`, `is_current_affiliate` (tính tại server). Không rò rỉ SĐT, Email, CCCD, Bank hay Lead ID.
+   - Giao diện: Huy chương vàng/bạc/đồng cho Top 1–3, badge **“Bạn”** và highlight nổi bật cho tài khoản đang đăng nhập, xử lý đầy đủ skeleton loader, empty state và error state.
+   - Phụ chú: `* Thưởng đã duyệt không đồng nghĩa với đã thanh toán.`
+2. **Tài liệu bàn giao**:
+   - `docs/CTV_C6_6A_LEADERBOARD_REPORT.md`.
+3. **Kết quả kiểm tra**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+   - Script nghiệm thu `scripts/verify_c6_6a_leaderboard.ts`: **PASS (Tất cả các tiêu chí)**.
+4. **Kết luận bước C6.6A**: **HOÀN THÀNH GIAO DIỆN & API C6.6A** (Dừng tại C6.6A theo yêu cầu, chưa triển khai module Xếp hạng đầy đủ hoặc C6.7).
+
+---
+
+### 49. Kiểm thử toàn diện và Nghiệm thu E2E Dashboard “Tổng quan” CTV (C6.7)
+1. **Phạm vi & Phương pháp nghiệm thu**:
+   - Rà soát độc lập toàn diện trang `/portal` theo chuỗi đặc tả C6.1 – C6.6A.
+   - Nguyên tắc an toàn dữ liệu: 100% truy vấn CSDL là CHỈ ĐỌC, không tạo/sửa dữ liệu thật trên Production; sử dụng fixture độc lập để kiểm thử ranh giới múi giờ, tái đối chiếu và đồng hạng thưởng.
+   - Tinh chỉnh kiến trúc: Tách riêng truy vấn `recentLeadsQuery` với `.limit(5)` ở tầng Database để đảm bảo luôn lấy đúng 5 khách mới nhất không phụ thuộc vào giới hạn phân trang mặc định.
+2. **Tổng hợp kết quả kiểm tra**:
+   - **Phân quyền & Guards (TC-C6.7-AUTH-01..03)**: **PASS** — Chặn 401 khi chưa đăng nhập; chặn 403 cho tài khoản chưa kích hoạt; bảo mật PII trên Leaderboard.
+   - **Toàn vẹn số liệu (TC-C6.7-DATA-01..04)**: **PASS** — Tổng theo khóa học khớp 100% với Card kết quả; phân loại trạng thái không chồng lấn; loại bỏ 100% dữ liệu mẫu mock data.
+   - **Thù lao & Chi trả (TC-C6.7-REW-01..02)**: **PASS** — Lọc đúng `APPROVED` (kể cả khoản khác 500k), loại trừ `REJECTED`/`VOIDED`; trạng thái theo dõi chi trả hiển thị rõ ràng *“Chưa có dữ liệu”* (không hiển thị 0đ giả lập).
+   - **Biểu đồ 12 tháng (TC-C6.7-CHART-01..03)**: **PASS** — Đúng 12 tháng theo múi giờ `Asia/Ho_Chi_Minh` (UTC+7); chọn mốc đối chiếu hợp lệ mới nhất không đếm lặp; lead thiếu ngày đối chiếu được tính vào `enrolled_missing_date_count` kèm chú thích minh bạch.
+   - **Top 5 CTV nổi bật (TC-C6.7-LEAD-01)**: **PASS** — Xếp hạng giảm dần, đồng hạng chính xác (1, 2, 2, 4), loại trừ Admin/Staff/Suspended/0đ, badge *“Bạn”* đúng phiên.
+   - **Danh sách gần đây (TC-C6.7-REC-01)**: **PASS** — SĐT che 4 số cuối từ Backend (`090123****`), ngày `DD/MM/YYYY`, badge độc lập, điều hướng an toàn `/portal/leads/:id`.
+   - **Thương hiệu & Mã nguồn (TC-C6.7-BRAND-01, CODE-01)**: **PASS** — 100% nhãn nhận diện lấy từ `system_short_name`, không hardcode tên trường; `tsc --noEmit` và `vite build` 0 lỗi.
+3. **Tài liệu bàn giao**:
+   - `docs/CTV_C6_7_DASHBOARD_ACCEPTANCE_REPORT.md`.
+4. **Kết luận nghiệm thu phân hệ C6**: **CHÍNH THỨC NGHIỆM THU ĐẠT CHUẨN (PASS) TOÀN BỘ PHÂN HỆ C6 (DASHBOARD TỔNG QUAN CTV)**.
+
+
+
+
 
 
 

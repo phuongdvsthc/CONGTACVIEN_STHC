@@ -233,8 +233,96 @@ export interface AffiliateDashboardMetrics {
   total_leads_referred: number;
   enrolled_valid_leads: number;
   pending_reward_count: number;
+  pending_reward_amount?: number;
   approved_reward_count: number;
   approved_reward_amount: number;
+}
+
+export interface MonthlyTrendItem {
+  month_key: string;
+  month_label: string;
+  leads_count: number;
+  enrolled_count: number;
+}
+
+export interface CourseBreakdownItem {
+  course_id: string;
+  course_code: string;
+  course_title: string;
+  total_leads: number;
+  enrolled_leads: number;
+}
+
+export interface RecentLeadItem {
+  id: string;
+  full_name: string;
+  phone_masked: string;
+  course_id: string;
+  course_title: string;
+  created_at: string;
+  counseling_status: string;
+  admission_status: AdmissionStatus;
+  reconciliation_status: ReconciliationStatus;
+  has_egov_link: boolean;
+  external_admission_code?: string | null;
+}
+
+export interface AffiliateDashboardSummaryData {
+  affiliate: {
+    id: string;
+    full_name: string;
+    affiliate_code: string;
+    status: AffiliateStatus;
+    suspension_reason?: string;
+  };
+  metrics: {
+    total_leads: number;
+    not_enrolled_leads: number;
+    enrolled_leads: number;
+    matched_valid_leads: number;
+  };
+  rewards: {
+    pending: {
+      amount: number;
+      count: number;
+    };
+    approved: {
+      amount: number;
+      count: number;
+    };
+    paid: {
+      available: boolean;
+      amount: number | null;
+      count: number | null;
+      reason_code: string;
+    };
+  };
+  monthly_trend: MonthlyTrendItem[];
+  course_breakdown: CourseBreakdownItem[];
+  recent_leads: RecentLeadItem[];
+  metadata: {
+    timezone: string;
+    generated_at: string;
+    data_scope: string;
+    payment_tracking_status: string;
+    enrolled_missing_date_count?: number;
+  };
+}
+
+export interface AffiliateLeaderboardItem {
+  rank: number;
+  display_name: string;
+  approved_reward_amount: number;
+  is_current_affiliate: boolean;
+}
+
+export interface AffiliateLeaderboardData {
+  leaderboard: AffiliateLeaderboardItem[];
+  metadata: {
+    time_scope: string;
+    criteria: string;
+    generated_at: string;
+  };
 }
 
 export interface CurrentUserSession {
