@@ -2208,38 +2208,51 @@ async function startServer() {
   // ----------------------------------------------------------------------------
   // E2 – AFFILIATE PORTAL (Bố cục Tâm Trí Lực, che SĐT 4 số cuối)
   // ----------------------------------------------------------------------------
-  // Middleware kiểm tra quyền CTV
-  const requireActiveAffiliate = (req: Request, res: Response, next: NextFunction) => {
-    if (demoState.currentRole === 'affiliate_pending') {
-      return res.status(403).json({
-        success: false,
-        error: 'Tài khoản Cộng tác viên của bạn đang ở trạng thái CHỜ DUYỆT (PENDING_REVIEW). Vui lòng đợi Ban Tuyển sinh phê duyệt hồ sơ trước khi truy cập link tiếp thị và dữ liệu.',
-        affiliate_status: 'PENDING_REVIEW',
-      });
+  // Middleware kiểm tra quyền CTV (xác thực thực tế theo Bearer token và fallback demoState)
+  const requireActiveAffiliate = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const authResult = await resolveAffiliateSession(req);
+      if (!authResult.affiliate || authResult.status !== 'ACTIVE') {
+        return res.status(authResult.status === 'UNAUTHORIZED' ? 401 : 403).json({
+          success: false,
+          error: authResult.error || 'Yêu cầu đăng nhập tài khoản Cộng tác viên hoạt động (ACTIVE).',
+          affiliate_status: authResult.status,
+        });
+      }
+      (req as any).authenticatedAffiliate = authResult.affiliate;
+      next();
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Lỗi xác thực danh tính CTV.' });
     }
-
-    if (demoState.currentRole !== 'affiliate_active' && demoState.currentRole !== 'admin') {
-      return res.status(403).json({
-        success: false,
-        error: 'Yêu cầu đăng nhập tài khoản Cộng tác viên hoạt động (ACTIVE).',
-      });
-    }
-    next();
   };
 
   app.get('/api/v1/affiliate/dashboard', requireActiveAffiliate, async (req: Request, res: Response) => {
-    const affiliateId = demoState.activeAffiliate.id;
+    const authResult = await resolveAffiliateSession(req);
+    const affiliateId = authResult.affiliate?.id || demoState.activeAffiliate.id;
+    const affiliateUserId = authResult.affiliate?.user_id || demoState.activeAffiliate.user_id;
 
     // Lấy số liệu leads của CTV
-    const { data: leads } = await supabase
+    let leadsQuery = supabase
       .from('leads')
-      .select('id, reconciliation_status, reward_status')
-      .eq('affiliate_id', affiliateId);
+      .select('id, reconciliation_status, reward_status');
 
-    const { data: rewards } = await supabase
+    if (affiliateId && affiliateUserId && affiliateId !== affiliateUserId) {
+      leadsQuery = leadsQuery.or(`affiliate_id.eq.${affiliateId},affiliate_id.eq.${affiliateUserId}`);
+    } else {
+      leadsQuery = leadsQuery.eq('affiliate_id', affiliateId);
+    }
+    const { data: leads } = await leadsQuery;
+
+    let rewardsQuery = supabase
       .from('rewards')
-      .select('amount, status')
-      .eq('affiliate_id', affiliateId);
+      .select('amount, status');
+
+    if (affiliateId && affiliateUserId && affiliateId !== affiliateUserId) {
+      rewardsQuery = rewardsQuery.or(`affiliate_id.eq.${affiliateId},affiliate_id.eq.${affiliateUserId}`);
+    } else {
+      rewardsQuery = rewardsQuery.eq('affiliate_id', affiliateId);
+    }
+    const { data: rewards } = await rewardsQuery;
 
     const totalReferred = (leads?.length || 0) + 3; // + mock seed
     const enrolledValid = (leads?.filter(l => l.reconciliation_status === 'MATCHED_VALID').length || 0) + 2;
@@ -2254,7 +2267,7 @@ async function startServer() {
       ? rewards.filter(r => r.status === 'APPROVED').reduce((sum, r) => sum + (r.amount || 500000), 0)
       : approvedRewardsCount * 500000;
 
-    const currentAff = demoState.activeAffiliate;
+    const currentAff = authResult.affiliate || demoState.activeAffiliate;
 
     res.json({
       success: true,
@@ -2338,6 +2351,7 @@ async function startServer() {
     affiliate_code: string;
     status: string;
     full_name: string;
+    suspension_reason?: string;
   }
 
   // Hàm xác thực danh tính CTV thực tế từ CSDL hoặc phiên làm việc hợp lệ (C1.4)
@@ -2346,24 +2360,46 @@ async function startServer() {
     status: 'ACTIVE' | 'PENDING_REVIEW' | 'SUSPENDED' | 'REJECTED' | 'UNAUTHORIZED';
     error?: string;
   }> {
-    // 1. Kiểm tra Bearer token nếu có (phiên đăng nhập thật từ Supabase Auth)
+    // 1. Kiểm tra Bearer token nếu có (phiên đăng nhập thật từ Supabase Auth hoặc demo session token)
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       try {
-        const token = authHeader.replace('Bearer ', '');
-        const { data: { user }, error: authErr } = await supabaseAuth.auth.getUser(token);
-        if (!authErr && user) {
-          const { data: dbAff, error: affErr } = await supabase
+        const token = authHeader.replace('Bearer ', '').trim();
+        let userId: string | null = null;
+
+        if (token.startsWith('demo-session-token-')) {
+          userId = token.replace('demo-session-token-', '').trim();
+        } else {
+          const { data: { user }, error: authErr } = await supabaseAuth.auth.getUser(token);
+          if (!authErr && user) {
+            userId = user.id;
+          }
+        }
+
+        if (userId) {
+          // Kiểm tra nếu là tài khoản demo đặc thù
+          if (userId === demoState.activeAffiliate.user_id || userId === demoState.activeAffiliate.id) {
+            return { affiliate: demoState.activeAffiliate as any, status: 'ACTIVE' };
+          }
+          if (userId === demoState.pendingAffiliate.user_id || userId === demoState.pendingAffiliate.id) {
+            return {
+              affiliate: demoState.pendingAffiliate as any,
+              status: 'PENDING_REVIEW',
+              error: 'Tài khoản Cộng tác viên của bạn đang ở trạng thái CHỜ DUYỆT (PENDING_REVIEW). Vui lòng đợi Ban Tuyển sinh phê duyệt hồ sơ trước khi truy cập link tiếp thị và dữ liệu.',
+            };
+          }
+
+          let { data: dbAff, error: affErr } = await supabase
             .from('affiliate_profiles')
             .select('id, user_id, affiliate_code, status')
-            .eq('user_id', user.id)
+            .or(`user_id.eq.${userId},id.eq.${userId}`)
             .maybeSingle();
 
           if (dbAff && !affErr) {
             const { data: prof } = await supabase
               .from('profiles')
               .select('full_name')
-              .eq('id', user.id)
+              .eq('id', dbAff.user_id || userId)
               .maybeSingle();
 
             const info: AuthenticatedAffiliateInfo = {
@@ -2542,6 +2578,7 @@ async function startServer() {
     try {
       const authResult = await resolveAffiliateSession(req);
       const affiliateId = authResult.affiliate?.id || demoState.activeAffiliate.id;
+      const affiliateUserId = authResult.affiliate?.user_id || demoState.activeAffiliate.user_id;
 
       const { search, course_id, status, admission_status, from_date, to_date, page, limit } = req.query;
       const pageNum = Math.max(1, parseInt(String(page || '1'), 10) || 1);
@@ -2553,8 +2590,13 @@ async function startServer() {
 
       let query = supabase
         .from('leads')
-        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status), lead_egov_links(external_admission_code, link_status)', { count: 'exact' })
-        .eq('affiliate_id', affiliateId);
+        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status, reconciled_at), lead_egov_links(external_admission_code, link_status)', { count: 'exact' });
+
+      if (affiliateId && affiliateUserId && affiliateId !== affiliateUserId) {
+        query = query.or(`affiliate_id.eq.${affiliateId},affiliate_id.eq.${affiliateUserId}`);
+      } else {
+        query = query.eq('affiliate_id', affiliateId);
+      }
 
       const cleanSearch = typeof search === 'string' ? search.trim() : '';
       if (cleanSearch) {
@@ -2679,18 +2721,25 @@ async function startServer() {
     const { id } = req.params;
     const authResult = await resolveAffiliateSession(req);
     const affiliateId = authResult.affiliate?.id || demoState.activeAffiliate.id;
+    const affiliateUserId = authResult.affiliate?.user_id || demoState.activeAffiliate.user_id;
 
     if (!id || typeof id !== 'string') {
       return res.status(400).json({ success: false, error: 'Mã định danh lead không hợp lệ.' });
     }
 
     try {
-      const { data: lead, error } = await supabase
+      let leadQuery = supabase
         .from('leads')
-        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status, reconciled_at, created_at), lead_egov_links(external_admission_code, link_status)')
-        .eq('id', id)
-        .eq('affiliate_id', affiliateId)
-        .maybeSingle();
+        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status, reconciled_at), lead_egov_links(external_admission_code, link_status)')
+        .eq('id', id);
+
+      if (affiliateId && affiliateUserId && affiliateId !== affiliateUserId) {
+        leadQuery = leadQuery.or(`affiliate_id.eq.${affiliateId},affiliate_id.eq.${affiliateUserId}`);
+      } else {
+        leadQuery = leadQuery.eq('affiliate_id', affiliateId);
+      }
+
+      const { data: lead, error } = await leadQuery.maybeSingle();
 
       if (error || !lead) {
         return res.status(404).json({ success: false, error: 'Không tìm thấy thông tin khách hàng.' });
@@ -2765,14 +2814,21 @@ async function startServer() {
     const { id: leadId } = req.params;
     const authResult = await resolveAffiliateSession(req);
     const affiliateId = authResult.affiliate?.id || demoState.activeAffiliate.id;
+    const affiliateUserId = authResult.affiliate?.user_id || demoState.activeAffiliate.user_id;
 
     try {
-      const { data: lead, error: leadErr } = await supabase
+      let leadQuery = supabase
         .from('leads')
         .select('id, affiliate_id, created_at, counseling_status, reconciliation_status')
-        .eq('id', leadId)
-        .eq('affiliate_id', affiliateId)
-        .maybeSingle();
+        .eq('id', leadId);
+
+      if (affiliateId && affiliateUserId && affiliateId !== affiliateUserId) {
+        leadQuery = leadQuery.or(`affiliate_id.eq.${affiliateId},affiliate_id.eq.${affiliateUserId}`);
+      } else {
+        leadQuery = leadQuery.eq('affiliate_id', affiliateId);
+      }
+
+      const { data: lead, error: leadErr } = await leadQuery.maybeSingle();
 
       if (leadErr || !lead) {
         return res.status(404).json({ success: false, error: 'Không tìm thấy hồ sơ khách hàng hoặc bạn không có quyền xem lịch sử.' });
@@ -2780,9 +2836,9 @@ async function startServer() {
 
       const { data: reconciliations } = await supabase
         .from('lead_reconciliations')
-        .select('external_admission_code, reconciliation_status, tuition_paid_at, created_at')
+        .select('external_admission_code, reconciliation_status, tuition_paid_at, reconciled_at')
         .eq('lead_id', leadId)
-        .order('created_at', { ascending: false });
+        .order('reconciled_at', { ascending: false });
 
       const { data: rewards } = await supabase
         .from('rewards')
@@ -2842,14 +2898,14 @@ async function startServer() {
             events.push({
               type: 'ADMISSION_CONFIRMED',
               title: 'Xác nhận nhập học thành công',
-              time: r.tuition_paid_at || r.created_at,
+              time: r.tuition_paid_at || r.reconciled_at,
               details: `Mã hồ sơ EGOV: ${r.external_admission_code} — Đã đối soát học phí.`,
             });
           } else if (r.reconciliation_status === 'VOIDED') {
             events.push({
               type: 'RECONCILIATION_VOIDED',
               title: 'Hủy đối soát hồ sơ',
-              time: r.created_at,
+              time: r.reconciled_at,
               details: `Mã hồ sơ ${r.external_admission_code} đã bị hủy ghép.`,
             });
           }
@@ -2873,7 +2929,8 @@ async function startServer() {
         external_admission_code: r.external_admission_code,
         reconciliation_status: r.reconciliation_status,
         tuition_paid_at: r.tuition_paid_at || null,
-        created_at: r.created_at,
+        created_at: r.reconciled_at,
+        reconciled_at: r.reconciled_at,
       }));
 
       return res.json({
@@ -2891,13 +2948,21 @@ async function startServer() {
 
   // GET /api/v1/affiliate/rewards (Danh sách thưởng 500k của CTV)
   app.get('/api/v1/affiliate/rewards', requireActiveAffiliate, async (req: Request, res: Response) => {
-    const affiliateId = demoState.activeAffiliate.id;
+    const authResult = await resolveAffiliateSession(req);
+    const affiliateId = authResult.affiliate?.id || demoState.activeAffiliate.id;
+    const affiliateUserId = authResult.affiliate?.user_id || demoState.activeAffiliate.user_id;
 
-    const { data: realRewards } = await supabase
+    let rewardsQuery = supabase
       .from('rewards')
-      .select('id, amount, status, approved_at, rejection_reason, void_reason, created_at, lead_id')
-      .eq('affiliate_id', affiliateId)
-      .order('created_at', { ascending: false });
+      .select('id, amount, status, approved_at, rejection_reason, void_reason, created_at, lead_id');
+
+    if (affiliateId && affiliateUserId && affiliateId !== affiliateUserId) {
+      rewardsQuery = rewardsQuery.or(`affiliate_id.eq.${affiliateId},affiliate_id.eq.${affiliateUserId}`);
+    } else {
+      rewardsQuery = rewardsQuery.eq('affiliate_id', affiliateId);
+    }
+
+    const { data: realRewards } = await rewardsQuery.order('created_at', { ascending: false });
 
     const mockSeedRewards = [
       {

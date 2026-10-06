@@ -1189,6 +1189,22 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
    - 9/9 Ca kiểm thử đạt kết quả **PASS**.
 4. **Kết luận**: **PASS TOÀN BỘ (100% HOÀN THÀNH)**.
 
+---
+
+### 40. Khắc phục lỗi CTV không xem được chi tiết khách hàng do mình giới thiệu
+1. **Nguyên nhân gốc rễ**:
+   - **Lỗi truy vấn cột không tồn tại**: Tại endpoint `GET /api/v1/affiliate/leads/:id` và `GET /api/v1/affiliate/leads/:id/history`, câu lệnh select Supabase truy vấn trường `created_at` trên bảng `lead_reconciliations` (bảng này trong CSDL thực tế chỉ có cột `reconciled_at`, không có cột `created_at`). Khi gọi API chi tiết, PostgREST trả lỗi `42703 (column lead_reconciliations.created_at does not exist)` dẫn đến việc endpoint trả về `404 Không tìm thấy thông tin khách hàng.`.
+   - **Xác thực phiên CTV (Session resolution)**: Hàm `resolveAffiliateSession` và middleware `requireActiveAffiliate` trước đây chưa xử lý đầy đủ các token dạng session demo/thực tế và chưa khớp nối linh hoạt giữa `affiliate_profiles.id` và `affiliate_profiles.user_id` khi kiểm tra quyền sở hữu lead.
+2. **Các chỉnh sửa đã thực hiện**:
+   - **Loại bỏ cột `created_at` trên `lead_reconciliations`**: Sửa các câu truy vấn select và order trong `GET /api/v1/affiliate/leads/:id` và `GET /api/v1/affiliate/leads/:id/history` sang dùng `reconciled_at`.
+   - **Chuẩn hóa xác thực quyền sở hữu lead**: Cập nhật truy vấn lead theo `affiliate_id` kết hợp linh hoạt `authResult.affiliate.id` và `authResult.affiliate.user_id`.
+   - **Chuẩn hóa Middleware `requireActiveAffiliate`**: Biến đổi thành middleware async gọi `resolveAffiliateSession(req)`, bảo đảm CTV hợp lệ có thể truy cập đúng dữ liệu lead của mình.
+   - **Đồng bộ hóa bảo mật**: Giữ nguyên nguyên tắc che 4 số cuối điện thoại của khách hàng và không để lộ thông tin nội bộ/cán bộ tuyển sinh.
+3. **Kết quả kiểm tra**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+4. **Kết luận**: **ĐÃ HOÀN TẤT VÀ KHẮC PHỤC TRIỆT ĐỂ**.
+
 
 
 
