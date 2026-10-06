@@ -1407,6 +1407,65 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
    - `docs/CTV_C6_7_DASHBOARD_ACCEPTANCE_REPORT.md`.
 4. **Kết luận nghiệm thu phân hệ C6**: **CHÍNH THỨC NGHIỆM THU ĐẠT CHUẨN (PASS) TOÀN BỘ PHÂN HỆ C6 (DASHBOARD TỔNG QUAN CTV)**.
 
+---
+
+### 50. Tinh chỉnh Bố cục Màn hình Khách hàng Giới thiệu (/portal/leads)
+1. **Phạm vi & Nội dung thực hiện**:
+   - **Xóa khối tiêu đề trong vùng nội dung**: Bỏ card tiêu đề cũ, dòng nhãn *“Mạng lưới tuyển sinh STHC”*, tiêu đề lớn *“Khách Hàng Được Giới Thiệu”* và khoảng trống trắng thừa.
+   - **Đồng bộ mô tả lên Header chung**:
+     - Sử dụng hook `usePortalHeader` để truyền phụ đề: *“Theo dõi tiến độ tư vấn, tình trạng nhập học của học viên do bạn giới thiệu.”*
+     - Tiêu đề header giữ nguyên: *“Khách hàng được giới thiệu”*.
+     - Bố cục header phản hồi mượt mà (`line-clamp-2 sm:line-clamp-1`), không đè lên chuông thông báo và menu tài khoản bên phải.
+   - **Chuyển nút “Tải lại dữ liệu” vào khối bộ lọc**:
+     - Đặt nút ở phía bên phải khối tìm kiếm/lọc hiện có.
+     - Tự động co giãn theo hàng trên Desktop và xuống dòng gọn gàng trên Mobile, không tràn ngang.
+     - Giữ nguyên toàn bộ logic tìm kiếm từ khóa, lọc trạng thái chăm sóc, tình trạng nhập học và khoảng ngày đăng ký khi tải lại.
+2. **Kết quả kiểm tra**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+
+---
+
+### 51. Khắc phục Footer Chi tiết Khóa học và Favicon Toàn hệ thống
+1. **Phạm vi & Nội dung thực hiện**:
+   - **Đồng bộ Footer dùng chung**:
+     - Gỡ bỏ hoàn toàn thẻ footer tĩnh hardcode bên trong component `PublicCourseDetailPage.tsx`.
+     - Điều chỉnh layout `App.tsx` render component `<Footer />` dùng chung cho toàn bộ các trang công khai (Home, `/catalog`, `/policy`, và trang chi tiết khóa học `/?ref=...&course=...`).
+     - Tích hợp `sanitizeHtml` trong `<Footer />` và `<PublicFooter />` để làm sạch nội dung HTML an toàn, nạp trực tiếp `footer_text` đã xuất bản từ API `GET /api/v1/public/homepage-config` (A6).
+   - **Đồng bộ Favicon toàn hệ thống (A7)**:
+     - Sửa lỗi lồng URL proxy trong `SystemBrandingContext.tsx` qua hàm `resolveFaviconUrl`: phân biệt chính xác URL proxy có sẵn, URL HTTPS, đường dẫn storage thô và fallback `/favicon.ico`.
+     - Quản lý thống nhất toàn bộ các thẻ `<link rel="icon">` trên `<head>` cho tất cả các route (Home, `/login`, `/catalog?ref=...`, `/?ref=...&course=...`, `/portal`, `/admin`).
+     - Khai báo thẻ `<link rel="icon" href="/favicon.ico" />` tại `index.html`.
+2. **Tài liệu bàn giao**:
+   - `docs/PUBLIC_FOOTER_GLOBAL_FAVICON_FIX_REPORT.md`.
+3. **Kết quả kiểm tra**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+   - Script nghiệm thu `scripts/verify_public_footer_global_favicon.ts`: **11/11 PASS (100%)**.
+
+---
+
+### 52. Tinh chỉnh Bố cục 5 Màn hình Quản trị Hệ thống
+1. **Phạm vi 5 route thực hiện**:
+   - `/admin/affiliates` (Quản lý Cộng tác viên)
+   - `/admin/leads` (Khách hàng được giới thiệu / Leads)
+   - `/admin/reconcile` (Đối chiếu hồ sơ & học phí)
+   - `/admin/rewards` (Thù lao / Phê duyệt thưởng CTV)
+   - `/admin/audit` (Nhật ký kiểm toán hệ thống)
+2. **Nội dung điều chỉnh**:
+   - **Bỏ hoàn toàn khối banner tối màu lớn** ở đầu vùng nội dung ("CỔNG QUẢN TRỊ HỆ THỐNG STHC", "Quản trị hệ thống CTV", "Tài khoản đang đăng nhập: ...").
+   - **Xóa khoảng cách thừa**: Đẩy nội dung chính lên ngay dưới header chung của hệ thống với khoảng cách gọn gàng thống nhất (24px trên Desktop, 16px trên Mobile) do thẻ `<main>` quản lý.
+   - **Bảo toàn và tối ưu thanh thao tác**:
+     - Bổ sung nút *“Làm mới”* (RotateCcw) đồng bộ trên thanh tiêu đề của từng tab (Quản lý CTV, Leads, Phê duyệt thưởng, Nhật ký kiểm toán).
+     - Giữ nguyên nút *“Xuất Bảng Kê Cho Kế Toán (CSV)”* trên màn hình Thù lao CTV `/admin/rewards`.
+     - Chuyển `apiFeedback` thành thông báo toast/alert tinh gọn, tự động đóng hoặc bấm tắt thủ công khi có thao tác duyệt/từ chối.
+   - **Bảo toàn phạm vi**: Không làm ảnh hưởng đến `/admin` (dashboard tổng quan), `/admin/courses` (Quản lý khóa học), `/admin/homepage` (Cấu hình trang chủ), `/admin/system-settings` hay các trang chi tiết.
+3. **Kết quả kiểm tra**:
+   - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
+   - `compile_applet`: **PASS (Build succeeded)**.
+
+
+
 
 
 

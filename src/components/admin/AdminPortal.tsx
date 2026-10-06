@@ -500,55 +500,56 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-fade-in">
-      {/* Top Admin Identity & Clean Notice */}
-      <div className="bg-slate-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-800 space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full bg-amber-400 text-slate-950 font-bold text-xs uppercase tracking-wider">
-                Cổng Quản Trị Hệ Thống STHC
-              </span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              Quản trị hệ thống CTV
-            </h1>
-            <p className="text-xs text-slate-300">
-              Tài khoản đang đăng nhập: <strong className="text-amber-400 font-mono">{userEmail}</strong>
-            </p>
-          </div>
-        </div>
-
-        {/* API Feedback Banner */}
-        {apiFeedback && (
-          <div
-            className={`p-3.5 rounded-xl text-xs flex items-center gap-2 animate-fade-in ${
-              apiFeedback.type === 'success'
-                ? 'bg-emerald-900/60 border border-emerald-500 text-emerald-200'
-                : 'bg-rose-900/60 border border-rose-500 text-rose-200'
-            }`}
-          >
+    <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
+      {/* API Feedback Notification */}
+      {apiFeedback && (
+        <div
+          className={`p-3.5 rounded-xl text-xs flex items-center justify-between gap-2 animate-fade-in shadow-xs ${
+            apiFeedback.type === 'success'
+              ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
+              : 'bg-rose-50 border border-rose-200 text-rose-900'
+          }`}
+        >
+          <div className="flex items-center gap-2">
             {apiFeedback.type === 'success' ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             ) : (
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             )}
-            <span className="font-medium">{apiFeedback.message}</span>
+            <span className="font-semibold">{apiFeedback.message}</span>
           </div>
-        )}
-      </div>
+          <button
+            type="button"
+            onClick={() => setApiFeedback(null)}
+            className="text-slate-400 hover:text-slate-600 p-0.5 rounded transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* ---------------------------------------------------------------------- */}
       {/* TAB 1: QUẢN LÝ CỘNG TÁC VIÊN (A1.1) */}
       {/* ---------------------------------------------------------------------- */}
       {activeTab === 'affiliates' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-bold text-slate-900">Quản Lý Cộng Tác Viên Tuyển Sinh</h3>
               <p className="text-xs text-slate-500 mt-0.5">
                 Danh sách đại sứ và cộng tác viên tuyển sinh chính thức của trường
               </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={loadAffiliates}
+                disabled={affiliatesLoading}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors inline-flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${affiliatesLoading ? 'animate-spin' : ''}`} />
+                <span>Làm mới</span>
+              </button>
             </div>
           </div>
 
@@ -777,13 +778,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
       {/* TAB 3: TIẾP NHẬN & CẬP NHẬT LEAD (A3.4) */}
       {/* ---------------------------------------------------------------------- */}
       {activeTab === 'leads' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-bold text-slate-900">Danh Sách Ứng Viên Đăng Ký Tư Vấn (Leads)</h3>
               <p className="text-xs text-slate-500 mt-0.5">
                 Cán bộ tuyển sinh xem đầy đủ số điện thoại gốc, lọc theo khóa học, CTV, trạng thái tư vấn và đối soát hồ sơ.
               </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={loadAdminLeads}
+                disabled={leadsLoading}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors inline-flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${leadsLoading ? 'animate-spin' : ''}`} />
+                <span>Làm mới</span>
+              </button>
             </div>
           </div>
 
@@ -1227,7 +1239,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
       {/* TAB 5: DUYỆT THƯỞNG 500K & XUẤT BÁO CÁO */}
       {/* ---------------------------------------------------------------------- */}
       {activeTab === 'rewards' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-bold text-slate-900">Phê Duyệt Khoản Thưởng Tuyển Sinh (500.000 VNĐ)</h3>
@@ -1236,14 +1248,25 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
               </p>
             </div>
 
-            <a
-              href={api.getExportRewardsCsvUrl()}
-              download="Bang_Ke_Thuong_CTV_STHC_Ketoan.csv"
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-sm transition-colors flex items-center gap-1.5"
-            >
-              <Download className="w-4 h-4" />
-              <span>Xuất Bảng Kê Cho Kế Toán (CSV)</span>
-            </a>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={loadAllData}
+                disabled={loading}
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors inline-flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <span>Làm mới</span>
+              </button>
+              <a
+                href={api.getExportRewardsCsvUrl()}
+                download="Bang_Ke_Thuong_CTV_STHC_Ketoan.csv"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
+              >
+                <Download className="w-4 h-4" />
+                <span>Xuất Bảng Kê Cho Kế Toán (CSV)</span>
+              </a>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -1326,13 +1349,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
       {/* TAB 6: NHẬT KÝ KIỂM TOÁN (AUDIT LOGS) */}
       {/* ---------------------------------------------------------------------- */}
       {activeTab === 'audit' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <div className="flex items-center justify-between">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="text-base font-bold text-slate-900">Nhật Ký Kiểm Toán Toàn Vẹn Hệ Thống (Audit Trail)</h3>
               <p className="text-xs text-slate-500 mt-0.5">
                 Ghi nhận tự động mọi thao tác nâng quyền, đối soát, hủy ghép và duyệt thưởng
               </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={loadAllData}
+                disabled={loading}
+                className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors inline-flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <span>Làm mới</span>
+              </button>
             </div>
           </div>
 

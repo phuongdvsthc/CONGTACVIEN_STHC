@@ -259,9 +259,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                   </span>
                 )}
               </div>
-              {headerMeta?.subtitle && (
-                <p className="text-xs text-slate-500 line-clamp-1 sm:truncate mt-0.5 leading-snug">
-                  {headerMeta.subtitle}
+              {(headerMeta?.subtitle || headerMeta?.description) && (
+                <p className="text-xs text-slate-500 line-clamp-2 sm:line-clamp-1 mt-0.5 leading-snug">
+                  {headerMeta.subtitle || headerMeta.description}
                 </p>
               )}
             </div>

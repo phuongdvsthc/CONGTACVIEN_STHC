@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { api } from '../../services/api';
 import { Users, Search, Filter, Calendar, CheckCircle2, Clock, Eye, FileText, AlertCircle, RefreshCw } from 'lucide-react';
+import { usePortalHeader } from '../../contexts/PortalHeaderContext';
 
 interface AffiliateLeadsViewProps {
   onNavigateToOverview: () => void;
@@ -10,6 +11,19 @@ export const AffiliateLeadsView: React.FC<AffiliateLeadsViewProps> = ({ onNaviga
   const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Sync header meta to Portal Header
+  const { setHeaderMeta } = usePortalHeader();
+  useEffect(() => {
+    setHeaderMeta({
+      title: 'Khách hàng được giới thiệu',
+      subtitle: 'Theo dõi tiến độ tư vấn, tình trạng nhập học của học viên do bạn giới thiệu.',
+    });
+
+    return () => {
+      setHeaderMeta(null);
+    };
+  }, [setHeaderMeta]);
 
   // Search & Filters
   const [searchTerm, setSearchTerm] = useState<string>('');
@@ -113,33 +127,11 @@ export const AffiliateLeadsView: React.FC<AffiliateLeadsViewProps> = ({ onNaviga
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 animate-fade-in">
-      {/* HEADER */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-        <div>
-          <div className="flex items-center gap-2 text-blue-900 font-bold text-xs uppercase tracking-wider mb-1">
-            <Users className="w-4 h-4 text-amber-500" />
-            <span>Mạng lưới tuyển sinh STHC</span>
-          </div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Khách Hàng Được Giới Thiệu</h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Theo dõi tiến độ tư vấn, tình trạng nhập học và mã hồ sơ EGOV của học viên do bạn giới thiệu qua link/QR.
-          </p>
-        </div>
-
-        <button
-          onClick={loadLeads}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-100 transition-colors self-start md:self-auto border border-blue-200/60 shadow-sm"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          <span>Tải lại dữ liệu</span>
-        </button>
-      </div>
-
-      {/* SEARCH & FILTERS */}
+    <div className="max-w-7xl mx-auto space-y-5 animate-fade-in">
+      {/* SEARCH & FILTERS BLOCK */}
       <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3">
-        <div className="flex flex-col lg:flex-row gap-3 items-center justify-between">
-          <div className="relative w-full lg:w-96">
+        <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
+          <div className="relative w-full lg:w-96 shrink-0">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
@@ -150,77 +142,94 @@ export const AffiliateLeadsView: React.FC<AffiliateLeadsViewProps> = ({ onNaviga
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
-            <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium">
-              <Filter className="w-3.5 h-3.5 text-slate-400" />
-              <span>Bộ lọc:</span>
+          <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto justify-between lg:justify-end">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium">
+                <Filter className="w-3.5 h-3.5 text-slate-400" />
+                <span>Bộ lọc:</span>
+              </div>
+
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none focus:border-blue-900"
+              >
+                <option value="ALL">Tất cả trạng thái chăm sóc</option>
+                <option value="NEW">Mới đăng ký</option>
+                <option value="CONTACTED">Đã liên hệ</option>
+                <option value="CONSULTING">Đang tư vấn</option>
+                <option value="UNREACHABLE">Chưa liên hệ được</option>
+                <option value="LOST">Không tiếp tục</option>
+              </select>
+
+              <select
+                value={admissionFilter}
+                onChange={(e) => {
+                  setAdmissionFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none focus:border-blue-900"
+              >
+                <option value="ALL">Tất cả tình trạng nhập học</option>
+                <option value="NOT_ENROLLED">Chưa nhập học</option>
+                <option value="ENROLLED">Đã nhập học</option>
+              </select>
+
+              {(searchTerm || statusFilter !== 'ALL' || admissionFilter !== 'ALL' || fromDate || toDate) && (
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors"
+                >
+                  Xóa bộ lọc
+                </button>
+              )}
             </div>
 
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none focus:border-blue-900"
+            {/* Nút Tải lại dữ liệu */}
+            <button
+              type="button"
+              onClick={loadLeads}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-blue-900 bg-blue-50 hover:bg-blue-100 transition-colors border border-blue-200/60 shadow-xs shrink-0 disabled:opacity-50"
+              title="Tải lại dữ liệu"
             >
-              <option value="ALL">Tất cả trạng thái chăm sóc</option>
-              <option value="NEW">Mới đăng ký</option>
-              <option value="CONTACTED">Đã liên hệ</option>
-              <option value="CONSULTING">Đang tư vấn</option>
-              <option value="UNREACHABLE">Chưa liên hệ được</option>
-              <option value="LOST">Không tiếp tục</option>
-            </select>
-
-            <select
-              value={admissionFilter}
-              onChange={(e) => {
-                setAdmissionFilter(e.target.value);
-                setPage(1);
-              }}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none focus:border-blue-900"
-            >
-              <option value="ALL">Tất cả tình trạng nhập học</option>
-              <option value="NOT_ENROLLED">Chưa nhập học</option>
-              <option value="ENROLLED">Đã nhập học</option>
-            </select>
-
-            {(searchTerm || statusFilter !== 'ALL' || admissionFilter !== 'ALL' || fromDate || toDate) && (
-              <button
-                onClick={handleResetFilters}
-                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors"
-              >
-                Xóa bộ lọc
-              </button>
-            )}
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <span>Tải lại dữ liệu</span>
+            </button>
           </div>
         </div>
 
         {/* DATE RANGE FILTER */}
-        <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-100 text-xs">
-          <span className="text-slate-500 font-medium flex items-center gap-1">
-            <Calendar className="w-3.5 h-3.5" />
-            <span>Khoảng ngày đăng ký:</span>
-          </span>
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(e) => {
-              setFromDate(e.target.value);
-              setPage(1);
-            }}
-            className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
-          />
-          <span className="text-slate-400">đến</span>
-          <input
-            type="date"
-            value={toDate}
-            onChange={(e) => {
-              setToDate(e.target.value);
-              setPage(1);
-            }}
-            className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
-          />
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 text-xs">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-slate-500 font-medium flex items-center gap-1">
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Khoảng ngày đăng ký:</span>
+            </span>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => {
+                setFromDate(e.target.value);
+                setPage(1);
+              }}
+              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
+            />
+            <span className="text-slate-400">đến</span>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => {
+                setToDate(e.target.value);
+                setPage(1);
+              }}
+              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-700"
+            />
+          </div>
         </div>
       </div>
 

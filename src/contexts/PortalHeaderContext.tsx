@@ -4,6 +4,7 @@ export interface HeaderMeta {
   title?: string;
   badge?: string | ReactNode;
   subtitle?: string | ReactNode;
+  description?: string | ReactNode;
 }
 
 interface PortalHeaderContextType {

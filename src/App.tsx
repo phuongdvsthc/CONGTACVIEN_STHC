@@ -749,8 +749,8 @@ export default function App() {
             )}
           </main>
 
-          {/* Footer chỉ hiển thị ở các trang public (trang chi tiết khóa học đã có footer chuẩn STHC độc lập) */}
-          {currentPath !== '/pending' && !(currentPath === '/' && courseSlugParam) && <Footer />}
+          {/* Footer dùng chung hiển thị ở tất cả các trang public (Home, /catalog, /policy, /?ref=...&course=...) */}
+          {currentPath !== '/pending' && <Footer />}
         </div>
       )}
 

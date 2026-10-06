@@ -47,6 +47,20 @@ export const DEFAULT_BRANDING: SystemBrandingState = {
   revision: 1,
 };
 
+export const resolveFaviconUrl = (rawUrl?: string | null, rev: number = 1): string => {
+  if (!rawUrl || !rawUrl.trim()) {
+    return '/favicon.ico';
+  }
+  const clean = rawUrl.trim();
+  if (clean.startsWith('http://') || clean.startsWith('https://') || clean.startsWith('/api/')) {
+    return clean;
+  }
+  if (clean.startsWith('branding/')) {
+    return `/api/v1/public/branding/asset?path=${encodeURIComponent(clean)}&v=${rev}`;
+  }
+  return clean;
+};
+
 export interface SystemBrandingContextValue {
   branding: SystemBrandingState;
   operation: SystemOperationState;
@@ -192,19 +206,24 @@ export const SystemBrandingProvider: React.FC<SystemBrandingProviderProps> = ({ 
     // 1. Tiêu đề tab áp dụng toàn hệ thống: [Tên trang] | [system_name]
     document.title = `${pageName} | ${systemName}`;
 
-    // 2. Favicon áp dụng toàn hệ thống (cả công khai và quản trị)
-    let link: HTMLLinkElement | null = document.querySelector("link[rel*='icon']");
-    if (!link) {
-      link = document.createElement('link');
-      link.rel = 'icon';
-      document.head.appendChild(link);
+    // 2. Favicon áp dụng toàn hệ thống (Home, /login, /catalog, /?ref=...&course=..., /portal, /admin)
+    const resolvedFavicon = resolveFaviconUrl(branding.favicon_url, branding.revision);
+
+    let iconLink = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+    if (!iconLink) {
+      iconLink = document.createElement('link');
+      iconLink.rel = 'icon';
+      document.head.appendChild(iconLink);
     }
+    iconLink.href = resolvedFavicon;
 
-    const faviconUrl = branding.favicon_url 
-      ? (branding.favicon_url.startsWith('http') ? branding.favicon_url : `/api/v1/public/branding/asset?path=${encodeURIComponent(branding.favicon_url)}&v=${branding.revision || 1}`)
-      : '/favicon.ico';
-
-    link.href = faviconUrl;
+    // Cập nhật tất cả các link icon khác nếu có để tránh xung đột
+    const allIconLinks = document.querySelectorAll<HTMLLinkElement>("link[rel*='icon']");
+    allIconLinks.forEach((l) => {
+      if (l !== iconLink) {
+        l.href = resolvedFavicon;
+      }
+    });
   }, [branding.favicon_url, branding.system_name, branding.revision]);
 
   // Tự động đồng bộ mỗi khi currentPath, search params hoặc branding thay đổi

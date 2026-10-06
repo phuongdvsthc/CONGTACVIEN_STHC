@@ -545,13 +545,6 @@ export const PublicCourseDetailPage: React.FC<PublicCourseDetailPageProps> = ({
           </div>
         </div>
       )}
-
-      {/* 4. FOOTER: Rút gọn chỉ giữ dòng bản quyền (Yêu cầu 6) */}
-      <footer className="mt-16 bg-slate-900 text-slate-400 text-xs border-t border-slate-800 py-4">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-[11px] text-slate-500">
-          <span>© 2026 STHC - Saigontourist Group. Tất cả quyền được bảo lưu.</span>
-        </div>
-      </footer>
     </div>
   );
 };
