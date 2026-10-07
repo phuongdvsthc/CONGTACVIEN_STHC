@@ -9,6 +9,7 @@ import {
   UserCheck,
   History,
   Settings,
+  Shield,
   LucideIcon,
 } from 'lucide-react';
 
@@ -148,6 +149,17 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
     isActiveMatch: (currentPath: string) => {
       const clean = currentPath.split('?')[0].split('#')[0];
       return clean === '/admin/audit';
+    },
+  },
+  {
+    id: 'admin_permissions',
+    title: 'Quản lý phân quyền',
+    path: '/admin/permissions',
+    icon: Shield,
+    adminOnly: true,
+    isActiveMatch: (currentPath: string) => {
+      const clean = currentPath.split('?')[0].split('#')[0];
+      return clean === '/admin/permissions';
     },
   },
   {

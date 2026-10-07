@@ -28,6 +28,7 @@ import { AdminLeadDetailView } from './components/admin/AdminLeadDetailView';
 import { AdminPlaceholderPage } from './components/admin/AdminPlaceholderPage';
 import { AdminHomepageConfigView } from './components/admin/AdminHomepageConfigView';
 import { AdminSystemSettingsView } from './components/admin/AdminSystemSettingsView';
+import { AdminPermissionsView } from './components/admin/AdminPermissionsView';
 import { AppLayout } from './components/common/AppLayout';
 import { AccessNoticeScreen } from './components/common/AccessNoticeScreen';
 import { ProfileDetailView } from './components/common/ProfileDetailView';
@@ -580,6 +581,10 @@ export default function App() {
                 currentUser={authSession.user}
                 onNavigateToOverview={() => navigate('/admin')}
               />
+            )}
+
+            {currentPath === '/admin/permissions' && (
+              <AdminPermissionsView currentUser={authSession.user} />
             )}
           </AppLayout>
         ) : (

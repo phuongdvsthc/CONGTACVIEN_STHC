@@ -110,6 +110,12 @@ export const APP_ROUTES: Record<string, RouteDefinition> = {
     isPublic: false,
     allowedRoles: ['admin'],
   },
+  '/admin/permissions': {
+    path: '/admin/permissions',
+    name: 'Quản lý Phân quyền & Nhóm quyền A5',
+    isPublic: false,
+    allowedRoles: ['admin'],
+  },
 };
 
 /**

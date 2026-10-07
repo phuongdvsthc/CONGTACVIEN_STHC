@@ -599,8 +599,103 @@ export const api = {
     });
   },
 
-  async getAdminRewards(): Promise<{ success: boolean; data: any[] }> {
-    return apiFetch('/api/v1/admin/rewards');
+  async getMyPermissions(): Promise<{ success: boolean; data?: { permissions: string[] }; error?: string }> {
+    return apiFetch('/api/v1/auth/permissions');
+  },
+
+  async getAdminRewards(params?: {
+    page?: number;
+    page_size?: number;
+    q?: string;
+    status?: string;
+    affiliate_id?: string;
+    course_id?: string;
+    created_from?: string;
+    created_to?: string;
+    sort_by?: string;
+    sort_order?: string;
+  }): Promise<{ success: boolean; data: any[]; pagination?: { page: number; page_size: number; total_items: number; total_pages: number }; error?: string }> {
+    const q = new URLSearchParams();
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.page_size) q.set('page_size', String(params.page_size));
+    if (params?.q) q.set('q', params.q);
+    if (params?.status) q.set('status', params.status);
+    if (params?.affiliate_id && params.affiliate_id !== 'ALL') q.set('affiliate_id', params.affiliate_id);
+    if (params?.course_id && params.course_id !== 'ALL') q.set('course_id', params.course_id);
+    if (params?.created_from) q.set('created_from', params.created_from);
+    if (params?.created_to) q.set('created_to', params.created_to);
+    if (params?.sort_by) q.set('sort_by', params.sort_by);
+    if (params?.sort_order) q.set('sort_order', params.sort_order);
+    const qs = q.toString();
+    return apiFetch(`/api/v1/admin/rewards${qs ? `?${qs}` : ''}`);
+  },
+
+  async getAdminRewardsSummary(params?: {
+    page?: number;
+    page_size?: number;
+    q?: string;
+    status?: string;
+    affiliate_id?: string;
+    course_id?: string;
+    date_type?: string;
+    from_date?: string;
+    to_date?: string;
+    sort_by?: string;
+    sort_order?: string;
+  }): Promise<{ success: boolean; data?: any[]; summary_totals?: any; pagination?: any; error?: string }> {
+    const q = new URLSearchParams();
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.page_size) q.set('page_size', String(params.page_size));
+    if (params?.q) q.set('q', params.q);
+    if (params?.status) q.set('status', params.status);
+    if (params?.affiliate_id && params.affiliate_id !== 'ALL') q.set('affiliate_id', params.affiliate_id);
+    if (params?.course_id && params.course_id !== 'ALL') q.set('course_id', params.course_id);
+    if (params?.date_type) q.set('date_type', params.date_type);
+    if (params?.from_date) q.set('from_date', params.from_date);
+    if (params?.to_date) q.set('to_date', params.to_date);
+    if (params?.sort_by) q.set('sort_by', params.sort_by);
+    if (params?.sort_order) q.set('sort_order', params.sort_order);
+    const qs = q.toString();
+    return apiFetch(`/api/v1/admin/rewards/summary${qs ? `?${qs}` : ''}`);
+  },
+
+  async getAdminRewardsExportBlob(params?: {
+    q?: string;
+    status?: string;
+    affiliate_id?: string;
+    course_id?: string;
+    date_type?: string;
+    from_date?: string;
+    to_date?: string;
+  }): Promise<Blob> {
+    const q = new URLSearchParams();
+    if (params?.q) q.set('q', params.q);
+    if (params?.status) q.set('status', params.status);
+    if (params?.affiliate_id && params.affiliate_id !== 'ALL') q.set('affiliate_id', params.affiliate_id);
+    if (params?.course_id && params.course_id !== 'ALL') q.set('course_id', params.course_id);
+    if (params?.date_type) q.set('date_type', params.date_type);
+    if (params?.from_date) q.set('from_date', params.from_date);
+    if (params?.to_date) q.set('to_date', params.to_date);
+    const qs = q.toString();
+    const token = localStorage.getItem('sthc_token');
+    const res = await fetch(`/api/v1/admin/reports/rewards-export${qs ? `?${qs}` : ''}`, {
+      headers: {
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      }
+    });
+    if (!res.ok) {
+      let errText = 'Lỗi xuất Excel';
+      try {
+        const json = await res.json();
+        errText = json.error || errText;
+      } catch {}
+      throw new Error(errText);
+    }
+    return res.blob();
+  },
+
+  async getAdminRewardDetail(id: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    return apiFetch(`/api/v1/admin/rewards/${encodeURIComponent(id)}`);
   },
 
   async approveReward(id: string) {
@@ -613,6 +708,13 @@ export const api = {
     return apiFetch(`/api/v1/admin/rewards/${id}/reject`, {
       method: 'POST',
       body: JSON.stringify({ rejection_reason }),
+    });
+  },
+
+  async voidReward(id: string, void_reason: string) {
+    return apiFetch(`/api/v1/admin/rewards/${id}/void`, {
+      method: 'POST',
+      body: JSON.stringify({ void_reason }),
     });
   },
 
@@ -880,6 +982,46 @@ export const api = {
       throw new Error(errText);
     }
     return res.blob();
+  },
+
+  async getPermissionCatalog() {
+    return apiFetch('/api/v1/admin/permissions/catalog');
+  },
+  async getPermissionGroups() {
+    return apiFetch('/api/v1/admin/permission-groups');
+  },
+  async createPermissionGroup(payload: any) {
+    return apiFetch('/api/v1/admin/permission-groups', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  async updatePermissionGroup(code: string, payload: any) {
+    return apiFetch(`/api/v1/admin/permission-groups/${code}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
+  async updateGroupPermissions(code: string, payload: any) {
+    return apiFetch(`/api/v1/admin/permission-groups/${code}/permissions`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+  async getStaffPermissionsList() {
+    return apiFetch('/api/v1/admin/staff-permissions');
+  },
+  async assignStaffPermissionGroup(payload: any) {
+    return apiFetch('/api/v1/admin/staff-permissions/assign', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  async revokeStaffPermissionGroup(payload: any) {
+    return apiFetch('/api/v1/admin/staff-permissions/revoke', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 };
 

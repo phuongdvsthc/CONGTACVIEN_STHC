@@ -20,11 +20,14 @@ import {
   Check,
   X,
   ChevronDown,
+  AlertTriangle,
 } from 'lucide-react';
 
 import { AffiliateDetailView } from './AffiliateDetailView';
 import { CourseListView } from './CourseListView';
 import { AdminReconciliationListView } from './AdminReconciliationListView';
+import { AdminRewardDetailView } from './AdminRewardDetailView';
+import { AdminRewardsSummaryView } from './AdminRewardsSummaryView';
 
 interface AdminPortalProps {
   currentUser?: any;
@@ -32,6 +35,12 @@ interface AdminPortalProps {
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPath = '/admin' }) => {
+  const [userPermissions, setUserPermissions] = useState<string[]>([]);
+  const hasPermission = (perm: string) => {
+    if (currentUser?.role === 'admin') return true;
+    return userPermissions.includes(perm);
+  };
+
   const [activeTab, setActiveTab] = useState<'affiliates' | 'courses' | 'leads' | 'reconcile' | 'rewards' | 'audit'>('affiliates');
   const [affiliates, setAffiliates] = useState<AffiliateProfile[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -63,6 +72,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
   const [rejectRewardId, setRejectRewardId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
 
+  // Void reward modal state (A5.3B)
+  const [voidRewardId, setVoidRewardId] = useState<string | null>(null);
+  const [voidRewardReason, setVoidRewardReason] = useState('');
+
   // Affiliates list state & pagination
   const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 1 });
   const [searchInput, setSearchInput] = useState('');
@@ -72,6 +85,107 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
   const [page, setPage] = useState(1);
   const [affiliatesLoading, setAffiliatesLoading] = useState(false);
   const [affiliatesError, setAffiliatesError] = useState<string | null>(null);
+
+  // Rewards list state & permissions (A5.1A-A5.1B)
+  const [rewardsLoading, setRewardsLoading] = useState(false);
+  const [rewardsError, setRewardsError] = useState<string | null>(null);
+  const [rewardsPagination, setRewardsPagination] = useState({ page: 1, page_size: 20, total_items: 0, total_pages: 1 });
+  const [rewardsSearchInput, setRewardsSearchInput] = useState('');
+  const [rewardsDebouncedSearch, setRewardsDebouncedSearch] = useState('');
+  const [rewardsStatusFilter, setRewardsStatusFilter] = useState('ACTIVE');
+  const [rewardsAffiliateFilter, setRewardsAffiliateFilter] = useState('ALL');
+  const [rewardsCourseFilter, setRewardsCourseFilter] = useState('ALL');
+  const [rewardsFromDate, setRewardsFromDate] = useState('');
+  const [rewardsToDate, setRewardsToDate] = useState('');
+  const [rewardsPage, setRewardsPage] = useState(1);
+  const [rewardsPageSize, setRewardsPageSize] = useState(20);
+  const [rewardsSubTab, setRewardsSubTab] = useState<'list' | 'summary'>('list');
+  const [exportingExcel, setExportingExcel] = useState(false);
+
+  const handleExportExcelFromPortal = async () => {
+    if (!hasPermission('rewards.export')) {
+      showFeedback('error', 'Bạn không có quyền xuất báo cáo Excel (rewards.export).');
+      return;
+    }
+    setExportingExcel(true);
+    try {
+      const blob = await api.getAdminRewardsExportBlob({
+        q: rewardsDebouncedSearch,
+        status: rewardsStatusFilter,
+        affiliate_id: rewardsAffiliateFilter !== 'ALL' ? rewardsAffiliateFilter : undefined,
+        course_id: rewardsCourseFilter !== 'ALL' ? rewardsCourseFilter : undefined,
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const timestampSlug = new Date().toISOString().replace(/[-:]/g, '').split('.')[0];
+      a.download = `Bao_cao_thu_lao_CTV_${timestampSlug}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+      showFeedback('success', 'Xuất báo cáo Excel thành công!');
+    } catch (err: any) {
+      showFeedback('error', err.message || 'Lỗi xuất báo cáo Excel.');
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
+  useEffect(() => {
+    api.getMyPermissions().then(res => {
+      if (res.success && res.data?.permissions) {
+        setUserPermissions(res.data.permissions);
+      }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setRewardsDebouncedSearch(rewardsSearchInput);
+      setRewardsPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [rewardsSearchInput]);
+
+  useEffect(() => {
+    if (activeTab === 'rewards') {
+      loadAdminRewards();
+    }
+  }, [rewardsDebouncedSearch, rewardsStatusFilter, rewardsAffiliateFilter, rewardsCourseFilter, rewardsFromDate, rewardsToDate, rewardsPage, rewardsPageSize, activeTab]);
+
+  const loadAdminRewards = async () => {
+    if (!hasPermission('rewards.view')) {
+      setRewardsError('Bạn không có quyền xem danh sách thù lao (rewards.view).');
+      return;
+    }
+    setRewardsLoading(true);
+    setRewardsError(null);
+    try {
+      const res = await api.getAdminRewards({
+        q: rewardsDebouncedSearch,
+        status: rewardsStatusFilter,
+        affiliate_id: rewardsAffiliateFilter,
+        course_id: rewardsCourseFilter,
+        created_from: rewardsFromDate || undefined,
+        created_to: rewardsToDate || undefined,
+        page: rewardsPage,
+        page_size: rewardsPageSize,
+      });
+      if (res.success && res.data) {
+        setRewards(res.data);
+        if (res.pagination) {
+          setRewardsPagination(res.pagination);
+        }
+      } else {
+        setRewardsError(res.error || 'Lỗi tải danh sách thù lao.');
+      }
+    } catch (err: any) {
+      setRewardsError(err.message || 'Lỗi kết nối máy chủ.');
+    } finally {
+      setRewardsLoading(false);
+    }
+  };
 
   // Leads list state & pagination (A3.4)
   const [leadSearchInput, setLeadSearchInput] = useState('');
@@ -475,6 +589,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
     }
   };
 
+  const handleSubmitVoidReward = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!voidRewardId || !voidRewardReason.trim()) {
+      showFeedback('error', 'Bắt buộc phải nhập lý do hủy khoản thù lao.');
+      return;
+    }
+
+    try {
+      const res = await api.voidReward(voidRewardId, voidRewardReason.trim());
+      if (res.success) {
+        showFeedback('success', res.message || 'Hủy khoản thù lao thành công!');
+        setVoidRewardId(null);
+        setVoidRewardReason('');
+        loadAllData();
+      } else {
+        showFeedback('error', res.error || 'Lỗi xử lý');
+      }
+    } catch (err: any) {
+      showFeedback('error', err.message);
+    }
+  };
+
   const userEmail = currentUser?.email || 'admin@sthc.edu.vn';
 
   const cleanPath = currentPath.split('?')[0].split('#')[0];
@@ -494,6 +630,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
         }}
         onStatusUpdated={() => {
           loadAffiliates();
+        }}
+      />
+    );
+  }
+
+  const rewardDetailMatch = currentPath.match(/^\/admin\/rewards\/([a-f0-9-]+)$/i);
+  if (rewardDetailMatch) {
+    return (
+      <AdminRewardDetailView
+        rewardId={rewardDetailMatch[1]}
+        currentUser={currentUser}
+        onBack={() => {
+          window.history.pushState({}, '', '/admin/rewards');
+          window.dispatchEvent(new PopStateEvent('popstate'));
         }}
       />
     );
@@ -1238,112 +1388,313 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
       {/* ---------------------------------------------------------------------- */}
       {/* TAB 5: DUYỆT THƯỞNG 500K & XUẤT BÁO CÁO */}
       {/* ---------------------------------------------------------------------- */}
+      {/* ---------------------------------------------------------------------- */}
+      {/* TAB 5: THÙ LAO CTV (A5.1B) */}
+      {/* ---------------------------------------------------------------------- */}
       {activeTab === 'rewards' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h3 className="text-base font-bold text-slate-900">Phê Duyệt Khoản Thưởng Tuyển Sinh (500.000 VNĐ)</h3>
+              <h3 className="text-base font-bold text-slate-900">Thù lao CTV</h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Trưởng bộ phận Tuyển sinh / Admin thẩm định chứng từ phiếu thu và duyệt chi trả
+                Theo dõi các khoản thù lao phát sinh từ hồ sơ giới thiệu đủ điều kiện.
               </p>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={loadAllData}
-                disabled={loading}
+                onClick={loadAdminRewards}
+                disabled={rewardsLoading}
                 className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors inline-flex items-center gap-1.5 shadow-xs disabled:opacity-50"
               >
-                <RotateCcw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+                <RotateCcw className={`w-3.5 h-3.5 ${rewardsLoading ? 'animate-spin' : ''}`} />
                 <span>Làm mới</span>
               </button>
-              <a
-                href={api.getExportRewardsCsvUrl()}
-                download="Bang_Ke_Thuong_CTV_STHC_Ketoan.csv"
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center gap-1.5"
-              >
-                <Download className="w-4 h-4" />
-                <span>Xuất Bảng Kê Cho Kế Toán (CSV)</span>
-              </a>
+              {hasPermission('rewards.export') && (
+                <button
+                  type="button"
+                  disabled={exportingExcel}
+                  onClick={handleExportExcelFromPortal}
+                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-xs transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>{exportingExcel ? 'Đang xuất Excel...' : 'Xuất Excel (.xlsx)'}</span>
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 text-slate-600 font-semibold border-y border-slate-200 uppercase tracking-wider text-[11px]">
-                <tr>
-                  <th className="py-3 px-4">Mã hồ sơ trường</th>
-                  <th className="py-3 px-4">Cộng tác viên thụ hưởng</th>
-                  <th className="py-3 px-4">Số CCCD</th>
-                  <th className="py-3 px-4">Mức thưởng</th>
-                  <th className="py-3 px-4">Trạng thái thưởng</th>
-                  <th className="py-3 px-4 text-right">Quyết định phê duyệt</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {rewards.map((rew) => (
-                  <tr key={rew.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3 px-4 font-mono font-bold text-blue-900">
-                      {rew.external_admission_code || 'STHC-2026-TS-0188'}
-                    </td>
-                    <td className="py-3 px-4 font-semibold text-slate-900">
-                      <div>{rew.affiliate_name || 'Trần Thị Thu Thảo'}</div>
-                      <div className="text-[11px] font-mono text-amber-800">{rew.affiliate_code || 'STHCCTV1088'}</div>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-slate-700">
-                      {rew.id_card_number || '079201001234'}
-                    </td>
-                    <td className="py-3 px-4 font-mono font-bold text-slate-900 tabular-nums">
-                      {new Intl.NumberFormat('vi-VN').format(rew.amount || 500000)} VNĐ
-                    </td>
-                    <td className="py-3 px-4">
-                      {rew.status === 'APPROVED' && (
-                        <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          ĐÃ DUYỆT (APPROVED)
-                        </span>
-                      )}
-                      {rew.status === 'PENDING_APPROVAL' && (
-                        <span className="text-amber-700 font-semibold">
-                          CHỜ DUYỆT (PENDING)
-                        </span>
-                      )}
-                      {rew.status === 'REJECTED' && (
-                        <span className="text-rose-700 font-semibold">TỪ CHỐI (REJECTED)</span>
-                      )}
-                      {rew.status === 'VOIDED' && (
-                        <span className="text-slate-500 font-semibold">HỦY GHÉP (VOIDED)</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-right space-x-2">
-                      {rew.status === 'PENDING_APPROVAL' && (
-                        <>
-                          <button
-                            onClick={() => handleApproveReward(rew.id)}
-                            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold shadow-sm transition-colors"
-                          >
-                            Duyệt thưởng
-                          </button>
-                          <button
-                            onClick={() => setRejectRewardId(rew.id)}
-                            className="px-3 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded text-xs font-semibold transition-colors"
-                          >
-                            Từ chối
-                          </button>
-                        </>
-                      )}
-                      {rew.status === 'APPROVED' && (
-                        <span className="text-slate-400 text-xs">Đã chốt thẩm định</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {/* Sub-tabs for Rewards (A5.1 vs A5.4) */}
+          <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+            <button
+              type="button"
+              onClick={() => setRewardsSubTab('list')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                rewardsSubTab === 'list'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              Danh sách khoản thù lao
+            </button>
+            {hasPermission('rewards.summary') && (
+              <button
+                type="button"
+                onClick={() => setRewardsSubTab('summary')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                  rewardsSubTab === 'summary'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Tổng hợp theo CTV
+              </button>
+            )}
           </div>
+
+          {rewardsSubTab === 'summary' ? (
+            <AdminRewardsSummaryView
+              currentUser={currentUser}
+              userPermissions={userPermissions}
+              onViewAffiliateRewards={(affId) => {
+                setRewardsAffiliateFilter(affId);
+                setRewardsSubTab('list');
+              }}
+            />
+          ) : (
+            <div className="space-y-4">
+
+          {/* Filter Toolbar */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2">
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Tìm mã CTV, tên CTV, khách, SĐT, mã EGOV..."
+                value={rewardsSearchInput}
+                onChange={(e) => setRewardsSearchInput(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              />
+            </div>
+
+            <div>
+              <select
+                value={rewardsStatusFilter}
+                onChange={(e) => {
+                  setRewardsStatusFilter(e.target.value);
+                  setRewardsPage(1);
+                }}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              >
+                <option value="ACTIVE">Trạng thái: Còn hiệu lực (Chờ duyệt + Đã duyệt)</option>
+                <option value="ALL">Tất cả trạng thái</option>
+                <option value="PENDING_APPROVAL">Chờ duyệt (Pending)</option>
+                <option value="APPROVED">Đã duyệt (Approved)</option>
+                <option value="REJECTED">Từ chối (Rejected)</option>
+                <option value="VOIDED">Đã hủy (Voided)</option>
+              </select>
+            </div>
+
+            <div>
+              <select
+                value={rewardsCourseFilter}
+                onChange={(e) => {
+                  setRewardsCourseFilter(e.target.value);
+                  setRewardsPage(1);
+                }}
+                className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+              >
+                <option value="ALL">Tất cả khóa học</option>
+                {courses.map(c => (
+                  <option key={c.id} value={c.id}>{c.code} — {c.title}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRewardsSearchInput('');
+                  setRewardsDebouncedSearch('');
+                  setRewardsStatusFilter('ACTIVE');
+                  setRewardsAffiliateFilter('ALL');
+                  setRewardsCourseFilter('ALL');
+                  setRewardsFromDate('');
+                  setRewardsToDate('');
+                  setRewardsPage(1);
+                }}
+                className="w-full px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors"
+              >
+                Xóa bộ lọc
+              </button>
+            </div>
+          </div>
+
+          {!hasPermission('rewards.view') ? (
+            <div className="p-8 text-center bg-rose-50 rounded-xl border border-rose-200 text-rose-800 text-xs">
+              Tài khoản của bạn không có quyền xem danh sách thù lao (<code className="font-mono">rewards.view</code>).
+            </div>
+          ) : rewardsError ? (
+            <div className="p-8 text-center bg-rose-50 rounded-xl border border-rose-200 text-rose-800 text-xs">
+              {rewardsError}
+            </div>
+          ) : rewardsLoading ? (
+            <div className="py-16 text-center text-slate-500 text-xs">
+              Đang tải danh sách thù lao...
+            </div>
+          ) : rewards.length === 0 ? (
+            <div className="py-16 text-center text-slate-500 text-xs">
+              Không có khoản thù lao nào phù hợp với bộ lọc.
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-50 text-slate-600 font-semibold border-y border-slate-200 uppercase tracking-wider text-[11px]">
+                    <tr>
+                      <th className="py-3 px-3">STT</th>
+                      <th className="py-3 px-3">Khách hàng</th>
+                      <th className="py-3 px-3">Mã hồ sơ EGOV</th>
+                      <th className="py-3 px-3">Cộng tác viên</th>
+                      <th className="py-3 px-3">Khóa học</th>
+                      <th className="py-3 px-3">Thù lao</th>
+                      <th className="py-3 px-3">Trạng thái</th>
+                      <th className="py-3 px-3">Ngày phát sinh</th>
+                      <th className="py-3 px-3 text-right">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {rewards.map((rew, idx) => {
+                      const stt = (rewardsPagination.page - 1) * rewardsPagination.page_size + idx + 1;
+                      return (
+                        <tr key={rew.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3 px-3 text-slate-500 font-mono">{stt}</td>
+                          <td className="py-3 px-3 font-semibold text-slate-900">
+                            <div>{rew.candidate_name}</div>
+                            {rew.candidate_phone && (
+                              <div className="text-[11px] font-mono text-slate-500">{rew.candidate_phone}</div>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 font-mono font-bold text-blue-900">
+                            {rew.external_admission_code || <span className="text-slate-400 font-normal">Chưa cập nhật</span>}
+                          </td>
+                          <td className="py-3 px-3">
+                            <div className="font-semibold text-slate-900">{rew.affiliate_name || 'CTV'}</div>
+                            <div className="text-[11px] font-mono text-amber-800">{rew.affiliate_code}</div>
+                          </td>
+                          <td className="py-3 px-3 text-slate-700 max-w-[180px] truncate" title={rew.course_title}>
+                            {rew.course_title}
+                          </td>
+                          <td className="py-3 px-3 font-mono font-bold text-slate-900 tabular-nums">
+                            {new Intl.NumberFormat('vi-VN').format(rew.amount)} VNĐ
+                          </td>
+                          <td className="py-3 px-3 font-medium">
+                            {rew.status === 'APPROVED' && (
+                              <span className="text-emerald-700">Đã duyệt</span>
+                            )}
+                            {rew.status === 'PENDING_APPROVAL' && (
+                              <span className="text-amber-700">Chờ duyệt</span>
+                            )}
+                            {rew.status === 'REJECTED' && (
+                              <span className="text-rose-700">Từ chối</span>
+                            )}
+                            {rew.status === 'VOIDED' && (
+                              <span className="text-slate-500">Đã hủy</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-slate-600 font-mono text-[11px]">
+                            {new Date(rew.created_at).toLocaleString('vi-VN')}
+                          </td>
+                          <td className="py-3 px-3 text-right space-x-1.5">
+                            {hasPermission('rewards.view_detail') && (
+                              <button
+                                onClick={() => {
+                                  window.history.pushState({}, '', `/admin/rewards/${rew.id}`);
+                                  window.dispatchEvent(new PopStateEvent('popstate'));
+                                }}
+                                className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded text-xs font-semibold transition-colors"
+                              >
+                                Chi tiết
+                              </button>
+                            )}
+                            {rew.status === 'PENDING_APPROVAL' && (
+                              <>
+                                {hasPermission('rewards.approve') && (
+                                  <button
+                                    onClick={() => handleApproveReward(rew.id)}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold shadow-xs transition-colors"
+                                  >
+                                    Duyệt
+                                  </button>
+                                )}
+                                {hasPermission('rewards.reject') && (
+                                  <button
+                                    onClick={() => setRejectRewardId(rew.id)}
+                                    className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 rounded text-xs font-semibold transition-colors"
+                                  >
+                                    Từ chối
+                                  </button>
+                                )}
+                                {hasPermission('rewards.void') && (
+                                  <button
+                                    onClick={() => setVoidRewardId(rew.id)}
+                                    className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded text-xs font-semibold transition-colors"
+                                  >
+                                    Hủy
+                                  </button>
+                                )}
+                              </>
+                            )}
+                            {rew.status === 'APPROVED' && hasPermission('rewards.void') && (
+                              <button
+                                onClick={() => setVoidRewardId(rew.id)}
+                                className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded text-xs font-semibold transition-colors"
+                              >
+                                Hủy
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination controls */}
+              {rewardsPagination.total_pages > 1 && (
+                <div className="flex items-center justify-between pt-4 border-t border-slate-100 text-xs text-slate-600">
+                  <div>
+                    Hiển thị trang {rewardsPagination.page} / {rewardsPagination.total_pages} (Tổng số {rewardsPagination.total_items} khoản thù lao)
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={rewardsPagination.page <= 1}
+                      onClick={() => setRewardsPage(p => Math.max(1, p - 1))}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-lg font-medium transition-colors"
+                    >
+                      Trang trước
+                    </button>
+                    <button
+                      type="button"
+                      disabled={rewardsPagination.page >= rewardsPagination.total_pages}
+                      onClick={() => setRewardsPage(p => p + 1)}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-lg font-medium transition-colors"
+                    >
+                      Trang sau
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
+    </div>
+  )}
 
       {/* ---------------------------------------------------------------------- */}
       {/* TAB 6: NHẬT KÝ KIỂM TOÁN (AUDIT LOGS) */}
@@ -1644,6 +1995,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
       {/* ---------------------------------------------------------------------- */}
       {/* REJECT REWARD MODAL */}
       {/* ---------------------------------------------------------------------- */}
+      {/* ---------------------------------------------------------------------- */}
+      {/* REJECT REWARD MODAL */}
+      {/* ---------------------------------------------------------------------- */}
       {rejectRewardId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4 text-xs">
@@ -1680,6 +2034,54 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
                   className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold shadow transition-colors"
                 >
                   Xác nhận từ chối
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------------------- */}
+      {/* VOID REWARD MODAL */}
+      {/* ---------------------------------------------------------------------- */}
+      {voidRewardId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4 text-xs">
+            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              HỦY KHOẢN THÙ LAO (VOID)
+            </h3>
+            <p className="text-slate-600 leading-relaxed">
+              Bạn đang thực hiện hủy khoản thù lao này. Kết quả đối chiếu và tình trạng nhập học gốc được giữ nguyên, chỉ vô hiệu hóa quyền lợi thù lao.
+            </p>
+            <form onSubmit={handleSubmitVoidReward} className="space-y-4">
+              <div>
+                <label className="block font-semibold text-slate-800 mb-1">
+                  Lý do hủy bắt buộc <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={voidRewardReason}
+                  onChange={(e) => setVoidRewardReason(e.target.value)}
+                  placeholder="Ví dụ: Hủy khoản thưởng do nhầm lẫn hoặc trùng lặp..."
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setVoidRewardId(null)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-xs font-medium"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold shadow transition-colors"
+                >
+                  Xác nhận hủy thù lao
                 </button>
               </div>
             </form>

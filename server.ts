@@ -6,6 +6,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
+import * as XLSX from 'xlsx';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -606,12 +607,29 @@ async function startServer() {
                 .maybeSingle();
               aff = a;
             }
+
+            let permissions: string[] = [];
+            if (prof.role === 'admin') {
+              permissions = ['rewards.view', 'rewards.view_detail', 'rewards.approve', 'rewards.reject', 'rewards.void', 'rewards.summary', 'rewards.export'];
+            } else if (prof.role === 'staff') {
+              try {
+                const { data: perms } = await supabase.rpc('fn_get_user_permissions', { p_user_id: prof.id });
+                if (perms && Array.isArray(perms)) {
+                  permissions = perms.map((p: any) => p.permission_code || p);
+                }
+              } catch (e) {}
+              if (prof.id === demoState.staffUser.id && permissions.length === 0) {
+                permissions = ['rewards.view', 'rewards.view_detail', 'rewards.approve', 'rewards.reject', 'rewards.void', 'rewards.summary', 'rewards.export'];
+              }
+            }
+
             return res.json({
               success: true,
               data: {
                 role: prof.role,
                 user: prof,
                 affiliate: aff,
+                permissions,
               },
             });
           }
@@ -653,6 +671,25 @@ async function startServer() {
       return res.json({ success: true, role: demoState.currentRole });
     }
     res.status(400).json({ success: false, error: 'Vai trò demo không hợp lệ' });
+  });
+
+  app.get('/api/v1/auth/permissions', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    const user = (req as any).user;
+    let permissions: string[] = [];
+    if (user.role === 'admin' || user.id === demoState.adminUser.id) {
+      permissions = ['rewards.view', 'rewards.view_detail', 'rewards.approve', 'rewards.reject', 'rewards.void', 'rewards.summary', 'rewards.export'];
+    } else if (user.role === 'staff') {
+      try {
+        const { data: perms } = await supabase.rpc('fn_get_user_permissions', { p_user_id: user.id });
+        if (perms && Array.isArray(perms)) {
+          permissions = perms.map((p: any) => p.permission_code || p);
+        }
+      } catch (e) {}
+      if (user.id === demoState.staffUser.id && permissions.length === 0) {
+        permissions = ['rewards.view', 'rewards.view_detail', 'rewards.approve', 'rewards.reject', 'rewards.void', 'rewards.summary', 'rewards.export'];
+      }
+    }
+    res.json({ success: true, data: { permissions } });
   });
 
   // ----------------------------------------------------------------------------
@@ -4155,7 +4192,7 @@ async function startServer() {
   // ----------------------------------------------------------------------------
   // E3 – ADMIN PORTAL (Duyệt CTV, Quản lý Khóa, Lead, Đối soát, Duyệt Thưởng)
   // ----------------------------------------------------------------------------
-  const requireStaffOrAdmin = async (req: Request, res: Response, next: NextFunction) => {
+  async function requireStaffOrAdmin(req: Request, res: Response, next: NextFunction) {
     // 1. Kiểm tra Bearer token nếu có (xác thực danh tính thực tế từ DB profiles)
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -4229,6 +4266,51 @@ async function startServer() {
       error: 'Chưa đăng nhập hoặc phiên làm việc đã hết hạn. Vui lòng đăng nhập với tài khoản Cán bộ Tuyển sinh hoặc Quản trị viên.',
       code: 'UNAUTHENTICATED',
     });
+  };
+
+  const requirePermission = (permissionCode: string) => {
+    return async (req: Request, res: Response, next: NextFunction) => {
+      await new Promise<void>((resolve) => {
+        requireStaffOrAdmin(req, res, () => {
+          resolve();
+        });
+      });
+
+      if (res.headersSent) return;
+
+      const user = (req as any).user;
+      if (!user) {
+        return res.status(401).json({ success: false, error: 'Chưa đăng nhập.', code: 'UNAUTHENTICATED' });
+      }
+
+      if (user.role === 'admin' || user.id === demoState.adminUser.id) {
+        return next();
+      }
+
+      try {
+        const { data: hasPerm, error: permErr } = await supabase.rpc('fn_has_permission', {
+          p_user_id: user.id,
+          p_perm: permissionCode,
+        });
+
+        if (!permErr && hasPerm === true) {
+          return next();
+        }
+
+        if (user.id === demoState.staffUser.id) {
+          return next();
+        }
+      } catch (err) {
+        console.warn('[REQUIRE PERMISSION EXCEPTION]', err);
+      }
+
+      return res.status(403).json({
+        success: false,
+        error: `Truy cập bị từ chối: Tài khoản của bạn không có quyền thực hiện thao tác này (${permissionCode}).`,
+        code: 'PERMISSION_DENIED',
+        required_permission: permissionCode,
+      });
+    };
   };
 
   const requireAdminOnly = async (req: Request, res: Response, next: NextFunction) => {
@@ -8379,89 +8461,563 @@ async function startServer() {
     });
   });
 
-  // 7. Quản lý Thưởng (Phê duyệt / Từ chối)
-  app.get('/api/v1/admin/rewards', requireStaffOrAdmin, async (req: Request, res: Response) => {
-    const { data: rewards } = await supabase
-      .from('rewards')
-      .select('*, leads(full_name, phone), affiliate_profiles(affiliate_code, id_card_number)')
-      .order('created_at', { ascending: false });
-
-    const mockAdminRewards = [
-      {
-        id: 'rew-adm-01',
-        lead_id: 'lead-admin-01',
-        affiliate_id: demoState.activeAffiliate.id,
-        candidate_name: 'Nguyễn Hoàng Khang',
-        affiliate_code: 'STHCCTV1088',
-        affiliate_name: 'Trần Thị Thu Thảo',
-        id_card_number: '079201001234',
-        amount: 500000.00,
-        status: 'APPROVED',
-        external_admission_code: 'STHC-2026-TS-0188',
-        approved_at: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
-        created_at: new Date(Date.now() - 3600000 * 24 * 4).toISOString(),
-      },
-      {
-        id: 'rew-adm-02',
-        lead_id: 'lead-admin-02',
-        affiliate_id: demoState.activeAffiliate.id,
-        candidate_name: 'Trần Mỹ Linh',
-        affiliate_code: 'STHCCTV1088',
-        affiliate_name: 'Trần Thị Thu Thảo',
-        id_card_number: '079201001234',
-        amount: 500000.00,
-        status: 'PENDING_APPROVAL',
-        external_admission_code: 'STHC-2026-TS-0215',
-        approved_at: null,
-        created_at: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
-      },
-    ];
-
-    res.json({
-      success: true,
-      data: rewards && rewards.length > 0 ? [...rewards, ...mockAdminRewards] : mockAdminRewards,
-    });
-  });
-
-  app.post('/api/v1/admin/rewards/:id/approve', requireAdminOnly, async (req: Request, res: Response) => {
-    const { id: rewardId } = req.params;
-
+  // 7A. Tổng hợp thù lao theo CTV (A5.4A)
+  app.get('/api/v1/admin/rewards/summary', requirePermission('rewards.summary'), async (req: Request, res: Response) => {
     try {
-      const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_approve_reward', {
-        p_reward_id: rewardId,
-        p_admin_id: demoState.adminUser.id,
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const pageSizeRaw = parseInt((req.query.page_size || req.query.limit) as string) || 20;
+      const pageSize = [20, 50, 100].includes(pageSizeRaw) ? pageSizeRaw : 20;
+      const q = (req.query.q as string || '').trim().toLowerCase();
+      const statusFilter = (req.query.status as string || 'ALL').trim().toUpperCase();
+      const affiliateId = (req.query.affiliate_id as string || '').trim();
+      const courseId = (req.query.course_id as string || '').trim();
+      const dateType = (req.query.date_type as string || 'created_at').trim();
+      const fromDate = (req.query.from_date as string || '').trim();
+      const toDate = (req.query.to_date as string || '').trim();
+      const sortBy = (req.query.sort_by as string || 'effective_amount').trim();
+      const sortOrderAsc = (req.query.sort_order as string || 'desc').trim().toLowerCase() === 'asc';
+
+      let query = supabase.from('rewards').select(`
+        id,
+        lead_id,
+        affiliate_id,
+        reconciliation_id,
+        amount,
+        status,
+        rejection_reason,
+        void_reason,
+        approved_at,
+        created_at,
+        leads:lead_id(id, full_name, phone, course_id),
+        affiliate_profiles:affiliate_id(id, affiliate_code, status, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)),
+        lead_reconciliations(id, external_admission_code, course_id, reconciliation_status)
+      `);
+
+      const { data: rawRewards, error } = await query;
+      if (error) throw error;
+
+      const { data: coursesData } = await supabase.from('courses').select('id, title, code');
+      const courseMap = new Map<string, any>();
+      if (coursesData) coursesData.forEach((c: any) => courseMap.set(c.id, c));
+
+      const filtered = (rawRewards || []).filter((r: any) => {
+        const lead = r.leads || {};
+        const aff = r.affiliate_profiles || {};
+        const affProfile = aff.profile || {};
+        const affName = affProfile.full_name || '';
+        const recon = r.lead_reconciliations || {};
+        const cId = recon.course_id || lead.course_id;
+
+        if (statusFilter !== 'ALL') {
+          if (statusFilter === 'ACTIVE') {
+            if (!['PENDING_APPROVAL', 'APPROVED'].includes(r.status)) return false;
+          } else {
+            if (r.status !== statusFilter) return false;
+          }
+        }
+
+        if (affiliateId && affiliateId !== 'ALL' && r.affiliate_id !== affiliateId) return false;
+        if (courseId && courseId !== 'ALL' && cId !== courseId) return false;
+
+        if (q) {
+          const textMatch = 
+            (aff.affiliate_code || '').toLowerCase().includes(q) ||
+            affName.toLowerCase().includes(q) ||
+            (lead.full_name || '').toLowerCase().includes(q) ||
+            (lead.phone || '').toLowerCase().includes(q) ||
+            (recon.external_admission_code || '').toLowerCase().includes(q);
+          if (!textMatch) return false;
+        }
+
+        if (fromDate || toDate) {
+          let targetDateStr = r.created_at;
+          if (dateType === 'approved_at') targetDateStr = r.approved_at;
+          else if (dateType === 'voided_at') targetDateStr = r.voided_at;
+          else if (dateType === 'rejected_at') targetDateStr = r.approved_at;
+
+          if (!targetDateStr) return false;
+          const targetD = new Date(targetDateStr).getTime();
+          if (fromDate) {
+            const fromD = new Date(`${fromDate}T00:00:00+07:00`).getTime();
+            if (targetD < fromD) return false;
+          }
+          if (toDate) {
+            const toD = new Date(`${toDate}T23:59:59+07:00`).getTime();
+            if (targetD > toD) return false;
+          }
+        }
+
+        return true;
       });
 
-      if (!rpcError && rpcResult) {
-        return res.json({
-          success: true,
-          message: 'Phê duyệt khoản thưởng 500.000 VNĐ thành công!',
-          data: rpcResult,
+      const globalTotals = {
+        pending_count: 0,
+        pending_amount: 0,
+        approved_count: 0,
+        approved_amount: 0,
+        rejected_count: 0,
+        rejected_amount: 0,
+        voided_count: 0,
+        voided_amount: 0,
+        effective_count: 0,
+        effective_amount: 0,
+        total_records: filtered.length,
+      };
+
+      filtered.forEach((r: any) => {
+        const amt = Number(r.amount) || 500000;
+        if (r.status === 'PENDING_APPROVAL') {
+          globalTotals.pending_count += 1;
+          globalTotals.pending_amount += amt;
+          globalTotals.effective_count += 1;
+          globalTotals.effective_amount += amt;
+        } else if (r.status === 'APPROVED') {
+          globalTotals.approved_count += 1;
+          globalTotals.approved_amount += amt;
+          globalTotals.effective_count += 1;
+          globalTotals.effective_amount += amt;
+        } else if (r.status === 'REJECTED') {
+          globalTotals.rejected_count += 1;
+          globalTotals.rejected_amount += amt;
+        } else if (r.status === 'VOIDED') {
+          globalTotals.voided_count += 1;
+          globalTotals.voided_amount += amt;
+        }
+      });
+
+      const affMap = new Map<string, any>();
+      filtered.forEach((r: any) => {
+        const affId = r.affiliate_id;
+        const aff = r.affiliate_profiles || {};
+        const affProfile = aff.profile || {};
+        const affName = affProfile.full_name || 'Cộng tác viên';
+        if (!affMap.has(affId)) {
+          affMap.set(affId, {
+            affiliate_id: affId,
+            affiliate_code: aff.affiliate_code || 'CTV',
+            affiliate_name: affName,
+            affiliate_status: aff.status || 'ACTIVE',
+            pending_count: 0,
+            pending_amount: 0,
+            approved_count: 0,
+            approved_amount: 0,
+            rejected_count: 0,
+            rejected_amount: 0,
+            voided_count: 0,
+            voided_amount: 0,
+            effective_count: 0,
+            effective_amount: 0,
+          });
+        }
+        const item = affMap.get(affId);
+        const amt = Number(r.amount) || 500000;
+        if (r.status === 'PENDING_APPROVAL') {
+          item.pending_count += 1;
+          item.pending_amount += amt;
+          item.effective_count += 1;
+          item.effective_amount += amt;
+        } else if (r.status === 'APPROVED') {
+          item.approved_count += 1;
+          item.approved_amount += amt;
+          item.effective_count += 1;
+          item.effective_amount += amt;
+        } else if (r.status === 'REJECTED') {
+          item.rejected_count += 1;
+          item.rejected_amount += amt;
+        } else if (r.status === 'VOIDED') {
+          item.voided_count += 1;
+          item.voided_amount += amt;
+        }
+      });
+
+      let summaryList = Array.from(affMap.values());
+
+      summaryList.sort((a, b) => {
+        let valA = a[sortBy];
+        let valB = b[sortBy];
+        if (typeof valA === 'string') {
+          return sortOrderAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        }
+        return sortOrderAsc ? (valA - valB) : (valB - valA);
+      });
+
+      const totalItems = summaryList.length;
+      const totalPages = Math.ceil(totalItems / pageSize) || 1;
+      const paginatedList = summaryList.slice((page - 1) * pageSize, page * pageSize);
+
+      return res.json({
+        success: true,
+        summary_totals: globalTotals,
+        data: paginatedList,
+        pagination: {
+          page,
+          page_size: pageSize,
+          total_items: totalItems,
+          total_pages: totalPages,
+        },
+        filters_applied: {
+          q,
+          status: statusFilter,
+          affiliate_id: affiliateId,
+          course_id: courseId,
+          date_type: dateType,
+          from_date: fromDate,
+          to_date: toDate,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err: any) {
+      console.error('[ADMIN REWARDS SUMMARY API EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi máy chủ khi tổng hợp thù lao.' });
+    }
+  });
+
+  // 7. Quản lý Thưởng (Chi tiết, Phê duyệt, Từ chối, Danh sách)
+  app.get('/api/v1/admin/rewards/:id', requirePermission('rewards.view_detail'), async (req: Request, res: Response) => {
+    try {
+      const { id: rewardId } = req.params;
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(rewardId)) {
+        return res.status(400).json({ success: false, error: 'Mã định danh khoản thù lao không hợp lệ (UUID required).' });
+      }
+
+      const { data: reward, error: rewardErr } = await supabase
+        .from('rewards')
+        .select('*')
+        .eq('id', rewardId)
+        .maybeSingle();
+
+      if (rewardErr || !reward) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy khoản thù lao yêu cầu.' });
+      }
+
+      const { data: lead } = await supabase
+        .from('leads')
+        .select('*')
+        .eq('id', reward.lead_id)
+        .maybeSingle();
+
+      const { data: beneficiaryAff } = await supabase
+        .from('affiliate_profiles')
+        .select('id, affiliate_code, status, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)')
+        .eq('id', reward.affiliate_id)
+        .maybeSingle();
+
+      const { data: recon } = await supabase
+        .from('lead_reconciliations')
+        .select('*, staff:staff_id(id, full_name, email), voided_by_profile:voided_by(id, full_name, email)')
+        .eq('id', reward.reconciliation_id)
+        .maybeSingle();
+
+      const { data: currentEgov } = await supabase
+        .from('lead_egov_links')
+        .select('*')
+        .eq('lead_id', reward.lead_id)
+        .eq('link_status', 'ACTIVE')
+        .maybeSingle();
+
+      const { data: coursesData } = await supabase.from('courses').select('id, title, code');
+      const courseMap = new Map<string, any>();
+      if (coursesData) {
+        coursesData.forEach((c: any) => courseMap.set(c.id, c));
+      }
+
+      const rewardCourseId = recon?.course_id || lead?.course_id;
+      const course = rewardCourseId ? courseMap.get(rewardCourseId) : null;
+
+      const { data: auditLogs } = await supabase
+        .from('audit_logs')
+        .select('*, profiles(full_name, email)')
+        .or(`entity_id.eq.${rewardId},entity_id.eq.${reward.lead_id},entity_id.eq.${reward.reconciliation_id}`)
+        .order('created_at', { ascending: false });
+
+      const historyEvents: any[] = [];
+      if (reward.created_at) {
+        historyEvents.push({
+          action: 'REWARD_CREATED',
+          description: 'Khoản thù lao được sinh tự động từ lần đối chiếu hợp lệ.',
+          created_at: reward.created_at,
+          actor: 'Hệ thống tự động',
         });
       }
-    } catch (e: any) {
-      console.warn('RPC fn_approve_reward fallback:', e.message);
-    }
+      if (reward.approved_at) {
+        historyEvents.push({
+          action: reward.status === 'APPROVED' ? 'REWARD_APPROVED' : 'REWARD_REJECTED',
+          description: reward.status === 'APPROVED' ? 'Khoản thù lao đã được phê duyệt.' : `Khoản thù lao bị từ chối. Lý do: ${reward.rejection_reason || 'Không có'}`,
+          created_at: reward.approved_at,
+          actor: 'Quản trị viên / Trưởng bộ phận',
+        });
+      }
+      if (reward.voided_at) {
+        historyEvents.push({
+          action: 'REWARD_VOIDED',
+          description: `Khoản thù lao bị hủy hiệu lực do hủy đối chiếu. Lý do: ${reward.void_reason || 'Không có'}`,
+          created_at: reward.voided_at,
+          actor: 'Hệ thống / Cán bộ đối chiếu',
+        });
+      }
 
-    await supabase
-      .from('rewards')
-      .update({
-        status: 'APPROVED',
-        approved_by: demoState.adminUser.id,
-        approved_at: new Date().toISOString(),
-      })
-      .eq('id', rewardId);
+      if (auditLogs) {
+        auditLogs.forEach((log: any) => {
+          if (!historyEvents.some(e => e.created_at === log.created_at && e.action === log.action)) {
+            historyEvents.push({
+              action: log.action,
+              description: log.reason || log.action,
+              created_at: log.created_at,
+              actor: log.profiles?.full_name || log.actor_name || 'Hệ thống',
+            });
+          }
+        });
+      }
+
+      historyEvents.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+      const checks: string[] = [];
+      if (recon && recon.reconciliation_status === 'VOIDED' && ['PENDING_APPROVAL', 'APPROVED'].includes(reward.status)) {
+        checks.push('CẢNH BÁO: Lần đối chiếu làm căn cứ đã bị hủy, nhưng khoản thù lao vẫn đang ở trạng thái hiệu lực. Cần xem xét thu hồi.');
+      }
+      if (lead && lead.affiliate_id && lead.affiliate_id !== reward.affiliate_id) {
+        checks.push('LƯU Ý: Cộng tác viên thụ hưởng khoản này khác với cộng tác viên đang gắn trên hồ sơ lead hiện tại.');
+      }
+      if (currentEgov && recon && currentEgov.external_admission_code !== recon.external_admission_code) {
+        checks.push('LƯU Ý: Mã hồ sơ EGOV hiện hành trên hồ sơ thí sinh đã thay đổi so với mã EGOV tại thời điểm đối chiếu phát sinh thù lao.');
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          reward: {
+            id: reward.id,
+            amount: Number(reward.amount) || 500000,
+            currency: 'VND',
+            status: reward.status,
+            created_at: reward.created_at,
+            approved_at: reward.approved_at,
+            rejection_reason: reward.rejection_reason,
+            void_reason: reward.void_reason,
+            voided_at: reward.voided_at,
+          },
+          candidate: {
+            id: lead?.id || reward.lead_id,
+            full_name: lead?.full_name || 'Khách vãng lai',
+            phone: lead?.phone || '',
+            email: lead?.email || '',
+            registered_at: lead?.created_at || reward.created_at,
+          },
+          affiliate: {
+            beneficiary: beneficiaryAff ? {
+              id: beneficiaryAff.id,
+              affiliate_code: beneficiaryAff.affiliate_code,
+              full_name: (beneficiaryAff as any).profile?.full_name || 'Cộng tác viên',
+              status: beneficiaryAff.status,
+            } : { id: reward.affiliate_id, affiliate_code: 'CTV', full_name: 'Cộng tác viên' },
+            current_lead_affiliate_id: lead?.affiliate_id || null,
+            is_affiliate_changed: lead?.affiliate_id && lead.affiliate_id !== reward.affiliate_id,
+          },
+          course: {
+            id: course?.id || null,
+            title: course?.title || 'Chưa cập nhật khóa học',
+            code: course?.code || '',
+          },
+          reconciliation_basis: recon ? {
+            id: recon.id,
+            external_admission_code: recon.external_admission_code,
+            reconciliation_status: recon.reconciliation_status,
+            tuition_fee_collected: recon.tuition_fee_collected,
+            receipt_number: recon.receipt_number,
+            tuition_paid_at: recon.tuition_paid_at,
+            verified_at: recon.reconciled_at,
+            verified_by_name: recon.staff?.full_name || 'Cán bộ tuyển sinh',
+            staff_note: recon.staff_note,
+            is_voided: recon.reconciliation_status === 'VOIDED',
+          } : null,
+          current_state: {
+            current_egov_code: currentEgov?.external_admission_code || null,
+            lead_status: lead?.counseling_status || null,
+            reconciliation_status: lead?.reconciliation_status || null,
+          },
+          history: historyEvents,
+          basis_checks: checks,
+        },
+      });
+    } catch (err: any) {
+      console.error('[ADMIN REWARD DETAIL API EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi tải chi tiết khoản thù lao.' });
+    }
+  });
+
+  app.get('/api/v1/admin/rewards', requirePermission('rewards.view'), async (req: Request, res: Response) => {
+    try {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const pageSizeRaw = parseInt((req.query.page_size || req.query.limit) as string) || 20;
+      const pageSize = [20, 50, 100].includes(pageSizeRaw) ? pageSizeRaw : 20;
+      const q = (req.query.q as string || '').trim();
+      const statusFilter = (req.query.status as string || 'ACTIVE').trim().toUpperCase();
+      const affiliateId = (req.query.affiliate_id as string || '').trim();
+      const courseId = (req.query.course_id as string || '').trim();
+      const createdFrom = (req.query.created_from as string || '').trim();
+      const createdTo = (req.query.created_to as string || '').trim();
+      const sortBy = (req.query.sort_by as string || 'created_at').trim();
+      const sortOrder = (req.query.sort_order as string || 'desc').trim().toLowerCase() === 'asc' ? true : false;
+
+      let query = supabase
+        .from('rewards')
+        .select(`
+          id,
+          lead_id,
+          affiliate_id,
+          reconciliation_id,
+          amount,
+          status,
+          rejection_reason,
+          void_reason,
+          approved_at,
+          created_at,
+          leads:lead_id(id, full_name, phone, course_id),
+          affiliate_profiles:affiliate_id(id, affiliate_code, status, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)),
+          lead_reconciliations(id, external_admission_code, course_id, reconciliation_status)
+        `, { count: 'exact' });
+
+      // Status filtering
+      if (statusFilter === 'ACTIVE') {
+        query = query.in('status', ['PENDING_APPROVAL', 'APPROVED']);
+      } else if (statusFilter !== 'ALL' && ['PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'VOIDED'].includes(statusFilter)) {
+        query = query.eq('status', statusFilter);
+      }
+
+      // Affiliate filter
+      if (affiliateId && affiliateId !== 'ALL') {
+        query = query.eq('affiliate_id', affiliateId);
+      }
+
+      // Date range filtering (Asia/Ho_Chi_Minh timezone)
+      if (createdFrom) {
+        query = query.gte('created_at', `${createdFrom}T00:00:00+07:00`);
+      }
+      if (createdTo) {
+        query = query.lte('created_at', `${createdTo}T23:59:59+07:00`);
+      }
+
+      // Sorting
+      const validSortCols = ['created_at', 'amount', 'status'];
+      const sortCol = validSortCols.includes(sortBy) ? sortBy : 'created_at';
+      query = query.order(sortCol, { ascending: sortOrder }).order('id', { ascending: false });
+
+      const { data: rawRewards, count, error: queryErr } = await query;
+
+      if (queryErr) {
+        console.error('[ADMIN REWARDS API] Query error:', queryErr);
+        return res.status(500).json({ success: false, error: 'Lỗi truy vấn cơ sở dữ liệu thù lao.' });
+      }
+
+      let items = rawRewards || [];
+
+      // Fetch courses for mapping course_id to title/code
+      const { data: coursesData } = await supabase.from('courses').select('id, title, code');
+      const courseMap = new Map<string, any>();
+      if (coursesData) {
+        coursesData.forEach((c: any) => courseMap.set(c.id, c));
+      }
+
+      let formattedItems = items.map((r: any) => {
+        const lead = r.leads || {};
+        const aff = r.affiliate_profiles || {};
+        const affProfile = aff.profile || {};
+        const recon = r.lead_reconciliations || {};
+        
+        const cId = recon.course_id || lead.course_id;
+        const course = cId ? courseMap.get(cId) : null;
+
+        return {
+          id: r.id,
+          lead_id: r.lead_id,
+          affiliate_id: r.affiliate_id,
+          reconciliation_id: r.reconciliation_id,
+          amount: Number(r.amount) || 500000,
+          status: r.status,
+          rejection_reason: r.rejection_reason,
+          void_reason: r.void_reason,
+          approved_at: r.approved_at,
+          created_at: r.created_at,
+          candidate_name: lead.full_name || 'Khách vãng lai',
+          candidate_phone: lead.phone || '',
+          affiliate_code: aff.affiliate_code || '',
+          affiliate_name: affProfile.full_name || 'Cộng tác viên',
+          external_admission_code: recon.external_admission_code || null,
+          course_id: cId || null,
+          course_title: course?.title || 'Chưa cập nhật khóa học',
+          course_code: course?.code || '',
+          reconciliation_status: recon.reconciliation_status || null,
+        };
+      });
+
+      // Course filter
+      if (courseId && courseId !== 'ALL') {
+        formattedItems = formattedItems.filter((item: any) => item.course_id === courseId);
+      }
+
+      // Search query (q) filtering
+      if (q) {
+        const keyword = q.toLowerCase();
+        formattedItems = formattedItems.filter((item: any) => {
+          return (
+            (item.affiliate_code && item.affiliate_code.toLowerCase().includes(keyword)) ||
+            (item.affiliate_name && item.affiliate_name.toLowerCase().includes(keyword)) ||
+            (item.candidate_name && item.candidate_name.toLowerCase().includes(keyword)) ||
+            (item.candidate_phone && item.candidate_phone.includes(keyword)) ||
+            (item.external_admission_code && item.external_admission_code.toLowerCase().includes(keyword))
+          );
+        });
+      }
+
+      const totalItems = (courseId && courseId !== 'ALL') || q ? formattedItems.length : (count || formattedItems.length);
+      const totalPages = Math.ceil(totalItems / pageSize) || 1;
+      const startIndex = (page - 1) * pageSize;
+      const paginatedItems = formattedItems.slice(startIndex, startIndex + pageSize);
+
+      return res.json({
+        success: true,
+        data: paginatedItems,
+        pagination: {
+          page,
+          page_size: pageSize,
+          total_items: totalItems,
+          total_pages: totalPages,
+        },
+      });
+    } catch (err: any) {
+      console.error('[ADMIN REWARDS API EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi tải danh sách thù lao.' });
+    }
+  });
+
+  app.post('/api/v1/admin/rewards/:id/approve', requirePermission('rewards.approve'), async (req: Request, res: Response) => {
+    const { id: rewardId } = req.params;
+    const actorUser = (req as any).user;
+
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_approve_reward', {
+      p_reward_id: rewardId,
+      p_admin_id: actorUser?.id || demoState.adminUser.id,
+    });
+
+    if (rpcError) {
+      return res.status(400).json({
+        success: false,
+        error: `Không thể phê duyệt khoản thưởng: ${rpcError.message}`,
+      });
+    }
 
     res.json({
       success: true,
       message: 'Phê duyệt khoản thưởng 500.000 VNĐ thành công!',
-      status: 'APPROVED',
+      data: rpcResult,
     });
   });
 
-  app.post('/api/v1/admin/rewards/:id/reject', requireAdminOnly, async (req: Request, res: Response) => {
+  app.post('/api/v1/admin/rewards/:id/reject', requirePermission('rewards.reject'), async (req: Request, res: Response) => {
     const { id: rewardId } = req.params;
     const { rejection_reason } = req.body;
+    const actorUser = (req as any).user;
 
     if (!rejection_reason || rejection_reason.trim() === '') {
       return res.status(400).json({
@@ -8470,38 +9026,55 @@ async function startServer() {
       });
     }
 
-    try {
-      const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_reject_reward', {
-        p_reward_id: rewardId,
-        p_admin_id: demoState.adminUser.id,
-        p_rejection_reason: rejection_reason.trim(),
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_reject_reward', {
+      p_reward_id: rewardId,
+      p_admin_id: actorUser?.id || demoState.adminUser.id,
+      p_rejection_reason: rejection_reason.trim(),
+    });
+
+    if (rpcError) {
+      return res.status(400).json({
+        success: false,
+        error: `Không thể từ chối khoản thưởng: ${rpcError.message}`,
       });
-
-      if (!rpcError && rpcResult) {
-        return res.json({
-          success: true,
-          message: 'Đã từ chối duyệt thưởng!',
-          data: rpcResult,
-        });
-      }
-    } catch (e: any) {
-      console.warn('RPC fn_reject_reward fallback:', e.message);
     }
-
-    await supabase
-      .from('rewards')
-      .update({
-        status: 'REJECTED',
-        rejection_reason: rejection_reason.trim(),
-        approved_by: demoState.adminUser.id,
-        approved_at: new Date().toISOString(),
-      })
-      .eq('id', rewardId);
 
     res.json({
       success: true,
       message: 'Đã từ chối duyệt thưởng.',
-      status: 'REJECTED',
+      data: rpcResult,
+    });
+  });
+
+  app.post('/api/v1/admin/rewards/:id/void', requirePermission('rewards.void'), async (req: Request, res: Response) => {
+    const { id: rewardId } = req.params;
+    const { void_reason } = req.body;
+    const actorUser = (req as any).user;
+
+    if (!void_reason || void_reason.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        error: 'Bắt buộc phải nhập lý do hủy khoản thù lao.',
+      });
+    }
+
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_void_reward', {
+      p_reward_id: rewardId,
+      p_admin_id: actorUser?.id || demoState.adminUser.id,
+      p_void_reason: void_reason.trim(),
+    });
+
+    if (rpcError) {
+      return res.status(400).json({
+        success: false,
+        error: `Không thể hủy khoản thù lao: ${rpcError.message}`,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Hủy khoản thù lao thành công!',
+      data: rpcResult,
     });
   });
 
@@ -8555,16 +9128,185 @@ async function startServer() {
     });
   });
 
-  // 9. Xuất báo cáo danh sách thưởng APPROVED cho Phòng Kế toán
-  app.get('/api/v1/admin/reports/rewards-export', requireAdminOnly, async (req: Request, res: Response) => {
-    const csvHeader = 'STT,Ma Khoan Thuong,Ho Ten CTV,So CCCD CTV,Ma Dinh Danh CTV,So Tien Thuong (VND),Ma Ho So Nhap Hoc,Ngay Phe Duyet,Trang Thai\n';
-    const csvRows = [
-      '1,rew-adm-01,Tran Thi Thu Thao,079201001234,STHCCTV1088,500000,STHC-2026-TS-0188,27/09/2026,APPROVED',
-    ].join('\n');
+  // 9. Xuất báo cáo Excel tổng hợp và chi tiết thù lao CTV (A5.4B)
+  app.get('/api/v1/admin/reports/rewards-export', requirePermission('rewards.export'), async (req: Request, res: Response) => {
+    try {
+      const q = (req.query.q as string || '').trim().toLowerCase();
+      const statusFilter = (req.query.status as string || 'ALL').trim().toUpperCase();
+      const affiliateId = (req.query.affiliate_id as string || '').trim();
+      const courseId = (req.query.course_id as string || '').trim();
+      const dateType = (req.query.date_type as string || 'created_at').trim();
+      const fromDate = (req.query.from_date as string || '').trim();
+      const toDate = (req.query.to_date as string || '').trim();
 
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="Bang_Ke_Thuong_CTV_STHC_Ketoan.csv"');
-    res.send('\uFEFF' + csvHeader + csvRows);
+      let query = supabase.from('rewards').select(`
+        id,
+        lead_id,
+        affiliate_id,
+        reconciliation_id,
+        amount,
+        status,
+        rejection_reason,
+        void_reason,
+        approved_at,
+        created_at,
+        leads:lead_id(id, full_name, phone, course_id),
+        affiliate_profiles:affiliate_id(id, affiliate_code, status, profile:profiles!affiliate_profiles_user_id_fkey(full_name, email, phone)),
+        lead_reconciliations(id, external_admission_code, course_id, reconciliation_status, reconciled_at)
+      `);
+
+      const { data: rawRewards, error } = await query;
+      if (error) throw error;
+
+      const { data: coursesData } = await supabase.from('courses').select('id, title, code');
+      const courseMap = new Map<string, any>();
+      if (coursesData) coursesData.forEach((c: any) => courseMap.set(c.id, c));
+
+      const filtered = (rawRewards || []).filter((r: any) => {
+        const lead = r.leads || {};
+        const aff = r.affiliate_profiles || {};
+        const affProfile = aff.profile || {};
+        const affName = affProfile.full_name || '';
+        const recon = r.lead_reconciliations || {};
+        const cId = recon.course_id || lead.course_id;
+
+        if (statusFilter !== 'ALL') {
+          if (statusFilter === 'ACTIVE') {
+            if (!['PENDING_APPROVAL', 'APPROVED'].includes(r.status)) return false;
+          } else {
+            if (r.status !== statusFilter) return false;
+          }
+        }
+        if (affiliateId && affiliateId !== 'ALL' && r.affiliate_id !== affiliateId) return false;
+        if (courseId && courseId !== 'ALL' && cId !== courseId) return false;
+        if (q) {
+          const textMatch = 
+            (aff.affiliate_code || '').toLowerCase().includes(q) ||
+            affName.toLowerCase().includes(q) ||
+            (lead.full_name || '').toLowerCase().includes(q) ||
+            (lead.phone || '').toLowerCase().includes(q) ||
+            (recon.external_admission_code || '').toLowerCase().includes(q);
+          if (!textMatch) return false;
+        }
+        if (fromDate || toDate) {
+          let targetDateStr = r.created_at;
+          if (dateType === 'approved_at') targetDateStr = r.approved_at;
+          else if (dateType === 'voided_at') targetDateStr = r.voided_at;
+          else if (dateType === 'rejected_at') targetDateStr = r.approved_at;
+
+          if (!targetDateStr) return false;
+          const targetD = new Date(targetDateStr).getTime();
+          if (fromDate) {
+            const fromD = new Date(`${fromDate}T00:00:00+07:00`).getTime();
+            if (targetD < fromD) return false;
+          }
+          if (toDate) {
+            const toD = new Date(`${toDate}T23:59:59+07:00`).getTime();
+            if (targetD > toD) return false;
+          }
+        }
+        return true;
+      });
+
+      // Sheet 1: Tong_hop_CTV
+      const affMap = new Map<string, any>();
+      filtered.forEach((r: any) => {
+        const affId = r.affiliate_id;
+        const aff = r.affiliate_profiles || {};
+        const affProfile = aff.profile || {};
+        const affName = affProfile.full_name || 'Cộng tác viên';
+        if (!affMap.has(affId)) {
+          affMap.set(affId, {
+            'Mã CTV': aff.affiliate_code || 'CTV',
+            'Họ và tên CTV': affName,
+            'Số khoản Chờ duyệt': 0,
+            'Tiền Chờ duyệt (VNĐ)': 0,
+            'Số khoản Đã duyệt': 0,
+            'Tiền Đã duyệt (VNĐ)': 0,
+            'Số khoản Từ chối': 0,
+            'Tiền Từ chối (VNĐ)': 0,
+            'Số khoản Đã hủy': 0,
+            'Tiền Đã hủy (VNĐ)': 0,
+            'Tổng khoản còn hiệu lực': 0,
+            'Tổng tiền còn hiệu lực (VNĐ)': 0,
+          });
+        }
+        const item = affMap.get(affId);
+        const amt = Number(r.amount) || 500000;
+        if (r.status === 'PENDING_APPROVAL') {
+          item['Số khoản Chờ duyệt'] += 1;
+          item['Tiền Chờ duyệt (VNĐ)'] += amt;
+          item['Tổng khoản còn hiệu lực'] += 1;
+          item['Tổng tiền còn hiệu lực (VNĐ)'] += amt;
+        } else if (r.status === 'APPROVED') {
+          item['Số khoản Đã duyệt'] += 1;
+          item['Tiền Đã duyệt (VNĐ)'] += amt;
+          item['Tổng khoản còn hiệu lực'] += 1;
+          item['Tổng tiền còn hiệu lực (VNĐ)'] += amt;
+        } else if (r.status === 'REJECTED') {
+          item['Số khoản Từ chối'] += 1;
+          item['Tiền Từ chối (VNĐ)'] += amt;
+        } else if (r.status === 'VOIDED') {
+          item['Số khoản Đã hủy'] += 1;
+          item['Tiền Đã hủy (VNĐ)'] += amt;
+        }
+      });
+
+      const summaryRows = Array.from(affMap.values());
+
+      // Sheet 2: Chi_tiet_thu_lao
+      const detailRows = filtered.map((r: any, idx: number) => {
+        const lead = r.leads || {};
+        const aff = r.affiliate_profiles || {};
+        const affProfile = aff.profile || {};
+        const affName = affProfile.full_name || 'Cộng tác viên';
+        const recon = r.lead_reconciliations || {};
+        const cId = recon.course_id || lead.course_id;
+        const course = cId ? courseMap.get(cId) : null;
+
+        return {
+          'STT': idx + 1,
+          'ID Khoản': r.id,
+          'Mã CTV': aff.affiliate_code || '',
+          'Họ tên CTV thụ hưởng': affName,
+          'Họ tên khách hàng': lead.full_name || '',
+          'Mã hồ sơ EGOV': recon.external_admission_code || '',
+          'Khóa học': course ? `${course.title} (${course.code})` : '—',
+          'Số tiền (VNĐ)': Number(r.amount) || 500000,
+          'Trạng thái': r.status,
+          'Ngày phát sinh': r.created_at ? new Date(r.created_at).toLocaleString('vi-VN') : '',
+          'Ngày duyệt': r.approved_at ? new Date(r.approved_at).toLocaleString('vi-VN') : '',
+          'Lý do từ chối/hủy': r.rejection_reason || r.void_reason || '',
+        };
+      });
+
+      const wb = XLSX.utils.book_new();
+      const ws1 = XLSX.utils.json_to_sheet(summaryRows);
+      const ws2 = XLSX.utils.json_to_sheet(detailRows);
+
+      XLSX.utils.book_append_sheet(wb, ws1, 'Tong_hop_CTV');
+      XLSX.utils.book_append_sheet(wb, ws2, 'Chi_tiet_thu_lao');
+
+      const excelBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+      const actorUser = (req as any).user;
+      await supabase.from('audit_logs').insert({
+        actor_id: actorUser?.id || null,
+        action: 'EXPORT_REWARDS_REPORT',
+        entity_name: 'rewards',
+        entity_id: '00000000-0000-0000-0000-000000000000',
+        new_values: { filters: { q, status: statusFilter, affiliate_id: affiliateId, course_id: courseId }, row_count: filtered.length },
+        reason: 'Xuất báo cáo Excel tổng hợp và chi tiết thù lao CTV',
+      });
+
+      const timestampSlug = new Date().toISOString().replace(/[-:]/g, '').split('.')[0];
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="Bao_cao_thu_lao_CTV_${timestampSlug}.xlsx"`);
+      return res.send(excelBuffer);
+    } catch (err: any) {
+      console.error('[ADMIN REWARDS EXPORT API EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi máy chủ khi xuất báo cáo Excel thù lao.' });
+    }
   });
 
   // ----------------------------------------------------------------------------
@@ -9958,6 +10700,136 @@ async function startServer() {
     } catch (err: any) {
       console.error('[AFFILIATE DOWNLOAD REGULATION EXCEPTION]', err);
       return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi tải tệp quy chế.' });
+    }
+  });
+
+  // --- PQ.4 & PQ.5: PERMISSION MANAGEMENT ENDPOINTS ---
+  app.get('/api/v1/admin/permissions/catalog', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const { data, error } = await supabase.from('permissions').select('*').order('code');
+      if (error) throw error;
+      return res.json({ success: true, data: data || [] });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi tải danh mục quyền.' });
+    }
+  });
+
+  app.get('/api/v1/admin/permission-groups', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const { data: groups, error: gErr } = await supabase.from('permission_groups').select('*').order('code');
+      if (gErr) throw gErr;
+
+      const { data: items, error: iErr } = await supabase
+        .from('permission_group_items')
+        .select('group_code, permission_code, permissions(name, description)');
+      if (iErr) throw iErr;
+
+      const itemsMap = new Map<string, string[]>();
+      (items || []).forEach((item: any) => {
+        const list = itemsMap.get(item.group_code) || [];
+        list.push(item.permission_code);
+        itemsMap.set(item.group_code, list);
+      });
+
+      const result = (groups || []).map((g: any) => ({
+        ...g,
+        permissions: itemsMap.get(g.code) || [],
+      }));
+
+      return res.json({ success: true, data: result });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi tải nhóm quyền.' });
+    }
+  });
+
+  app.get('/api/v1/admin/staff-permissions', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const { data: staffList, error: sErr } = await supabase
+        .from('profiles')
+        .select('id, email, full_name, role, is_active')
+        .eq('role', 'staff')
+        .order('full_name');
+      if (sErr) throw sErr;
+
+      const { data: staffGroups, error: sgErr } = await supabase
+        .from('staff_permission_groups')
+        .select('*');
+      if (sgErr) throw sgErr;
+
+      const groupMap = new Map<string, any[]>();
+      (staffGroups || []).forEach((sg: any) => {
+        const list = groupMap.get(sg.staff_id) || [];
+        list.push(sg);
+        groupMap.set(sg.staff_id, list);
+      });
+
+      const result = await Promise.all((staffList || []).map(async (staff: any) => {
+        let effPerms: string[] = [];
+        try {
+          const { data: rpcData } = await supabase.rpc('fn_get_user_permissions', { p_user_id: staff.id });
+          if (Array.isArray(rpcData)) {
+            effPerms = rpcData.map((p: any) => typeof p === 'string' ? p : p.permission_code || p.code);
+          }
+        } catch {}
+
+        return {
+          ...staff,
+          assigned_groups: groupMap.get(staff.id) || [],
+          effective_permissions: effPerms,
+        };
+      }));
+
+      return res.json({ success: true, data: result });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi tải danh sách nhân viên và phân quyền.' });
+    }
+  });
+
+  app.post('/api/v1/admin/staff-permissions/assign', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const { staff_id, group_code } = req.body;
+      if (!staff_id || !group_code) {
+        return res.status(400).json({ success: false, error: 'Thiếu thông tin staff_id hoặc group_code.' });
+      }
+
+      const adminUser = (req as any).user;
+
+      const { error } = await supabase
+        .from('staff_permission_groups')
+        .upsert({
+          staff_id,
+          group_code,
+          is_active: true,
+          assigned_by: adminUser?.id || null,
+          assigned_at: new Date().toISOString(),
+        }, { onConflict: 'staff_id,group_code' });
+
+      if (error) throw error;
+
+      return res.json({ success: true, message: `Đã gán nhóm quyền ${group_code} thành công!` });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi gán nhóm quyền cho nhân viên.' });
+    }
+  });
+
+  app.post('/api/v1/admin/staff-permissions/revoke', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const { staff_id, group_code } = req.body;
+      if (!staff_id || !group_code) {
+        return res.status(400).json({ success: false, error: 'Thiếu thông tin staff_id hoặc group_code.' });
+      }
+
+      const { error } = await supabase
+        .from('staff_permission_groups')
+        .update({ is_active: false })
+        .eq('staff_id', staff_id)
+        .eq('group_code', group_code);
+
+      if (error) throw error;
+
+      return res.json({ success: true, message: `Đã thu hồi nhóm quyền ${group_code} thành công!` });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi thu hồi nhóm quyền của nhân viên.' });
     }
   });
 
