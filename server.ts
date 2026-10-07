@@ -2329,6 +2329,49 @@ async function startServer() {
     }
   };
 
+  // Helper trích xuất bản ghi đối soát đang có hiệu lực gần nhất (A4)
+  function getActiveReconciliation(reconciliations: any) {
+    if (!reconciliations) return null;
+    const list = Array.isArray(reconciliations) ? [...reconciliations] : [reconciliations];
+    if (list.length === 0) return null;
+    const active = list
+      .filter((r: any) => r && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(r.reconciliation_status))
+      .sort((a: any, b: any) => {
+        const timeA = new Date(a.reconciled_at || a.created_at || 0).getTime();
+        const timeB = new Date(b.reconciled_at || b.created_at || 0).getTime();
+        return timeB - timeA;
+      });
+    return active.length > 0 ? active[0] : null;
+  }
+
+  // Nguồn trạng thái nhập học có thẩm quyền dùng chung (C6.3)
+  // ENROLLED: Đã được cán bộ xác nhận nhập học qua đối soát A4 (MATCHED_VALID hoặc EXISTING_IN_SCHOOL_SYSTEM, không bị VOIDED)
+  function resolveAuthoritativeAdmissionStatus(lead: {
+    admission_status?: string | null;
+    reconciliation_status?: string | null;
+    lead_reconciliations?: any[] | any;
+  }): 'ENROLLED' | 'NOT_ENROLLED' | 'WITHDRAWN' {
+    if (lead.admission_status === 'WITHDRAWN') {
+      return 'WITHDRAWN';
+    }
+
+    const activeRecon = getActiveReconciliation(lead.lead_reconciliations);
+
+    if (activeRecon) {
+      if (['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM'].includes(activeRecon.reconciliation_status)) {
+        return activeRecon.admission_status === 'NOT_ENROLLED' ? 'NOT_ENROLLED' : 'ENROLLED';
+      }
+      return 'NOT_ENROLLED';
+    }
+
+    // Nếu không có đối soát đang hiệu lực hoặc đối soát bị VOIDED -> Chưa nhập học (trừ khi WITHDRAWN)
+    if (['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM'].includes(lead.reconciliation_status || '')) {
+      return lead.admission_status === 'NOT_ENROLLED' ? 'NOT_ENROLLED' : 'ENROLLED';
+    }
+
+    return lead.admission_status === 'ENROLLED' ? 'ENROLLED' : 'NOT_ENROLLED';
+  }
+
   // Service tổng hợp dữ liệu Dashboard CTV dùng chung (C6.2)
   async function getAffiliateDashboardSummaryData(affiliate: AuthenticatedAffiliateInfo, authStatus: string) {
     const affiliateId = affiliate.id;
@@ -2405,11 +2448,24 @@ async function startServer() {
 
     const rewardsList = rewards || [];
 
-    // 3. Tính toán các chỉ số khách / hồ sơ (Metrics)
-    const totalLeads = leadsList.length;
-    const enrolledLeads = leadsList.filter((l: any) => l.admission_status === 'ENROLLED').length;
-    const notEnrolledLeads = leadsList.filter((l: any) => l.admission_status !== 'ENROLLED').length;
-    const matchedValidLeads = leadsList.filter((l: any) => l.reconciliation_status === 'MATCHED_VALID').length;
+    // 3. Chuẩn hóa nguồn trạng thái có thẩm quyền cho toàn bộ danh sách leads
+    const augmentedLeads = leadsList.map((l: any) => {
+      const activeRecon = getActiveReconciliation(l.lead_reconciliations);
+      const effectiveAdmissionStatus = resolveAuthoritativeAdmissionStatus(l);
+      const effectiveReconStatus = activeRecon ? activeRecon.reconciliation_status : (l.reconciliation_status || 'NOT_RECONCILED');
+
+      return {
+        ...l,
+        _activeRecon: activeRecon,
+        _effectiveAdmissionStatus: effectiveAdmissionStatus,
+        _effectiveReconStatus: effectiveReconStatus,
+      };
+    });
+
+    const totalLeads = augmentedLeads.length;
+    const enrolledLeads = augmentedLeads.filter((l: any) => l._effectiveAdmissionStatus === 'ENROLLED').length;
+    const notEnrolledLeads = augmentedLeads.filter((l: any) => l._effectiveAdmissionStatus !== 'ENROLLED').length;
+    const matchedValidLeads = augmentedLeads.filter((l: any) => l._effectiveReconStatus === 'MATCHED_VALID').length;
 
     // 4. Tính toán các khoản thù lao (Rewards)
     // Loại trừ REJECTED và VOIDED khỏi Chờ duyệt và Đã duyệt
@@ -2428,7 +2484,7 @@ async function startServer() {
 
     let enrolledMissingDateCount = 0;
 
-    leadsList.forEach((lead: any) => {
+    augmentedLeads.forEach((lead: any) => {
       // Đăng ký mới theo ngày tạo lead (leads.created_at)
       const regMonth = getVietnamMonthKey(lead.created_at);
       if (regMonth && monthMap[regMonth]) {
@@ -2436,16 +2492,8 @@ async function startServer() {
       }
 
       // Nhập học CHỈ tính theo sự kiện xác nhận nhập học chính thức có mốc reconciled_at hợp lệ
-      if (lead.admission_status === 'ENROLLED') {
-        let enrollDate: string | null = null;
-        if (lead.lead_reconciliations && Array.isArray(lead.lead_reconciliations)) {
-          const validRecons = lead.lead_reconciliations
-            .filter((r: any) => r.admission_status === 'ENROLLED' && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM'].includes(r.reconciliation_status) && r.reconciled_at)
-            .sort((a: any, b: any) => new Date(b.reconciled_at).getTime() - new Date(a.reconciled_at).getTime());
-          if (validRecons.length > 0) {
-            enrollDate = validRecons[0].reconciled_at;
-          }
-        }
+      if (lead._effectiveAdmissionStatus === 'ENROLLED') {
+        const enrollDate = lead._activeRecon?.reconciled_at || null;
 
         if (enrollDate) {
           const enrollMonth = getVietnamMonthKey(enrollDate);
@@ -2468,7 +2516,7 @@ async function startServer() {
       enrolled_leads: number;
     }> = {};
 
-    leadsList.forEach((lead: any) => {
+    augmentedLeads.forEach((lead: any) => {
       const courseId = lead.course_id || 'UNASSIGNED';
       if (!courseMap[courseId]) {
         courseMap[courseId] = {
@@ -2480,7 +2528,7 @@ async function startServer() {
         };
       }
       courseMap[courseId].total_leads += 1;
-      if (lead.admission_status === 'ENROLLED') {
+      if (lead._effectiveAdmissionStatus === 'ENROLLED') {
         courseMap[courseId].enrolled_leads += 1;
       }
     });
@@ -2491,26 +2539,8 @@ async function startServer() {
       return a.course_title.localeCompare(b.course_title);
     });
 
-    // 7. Lấy tối đa 5 lượt đăng ký mới nhất (Recent Leads) trực tiếp với limit(5) tại CSDL
-    let recentLeadsQuery = supabase
-      .from('leads')
-      .select('id, full_name, phone, course_id, counseling_status, admission_status, reconciliation_status, created_at, courses(id, code, title)')
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: false })
-      .limit(5);
-
-    if (validAffiliateId && validUserId && validAffiliateId !== validUserId) {
-      recentLeadsQuery = recentLeadsQuery.or(`affiliate_id.eq.${validAffiliateId},affiliate_id.eq.${validUserId}`);
-    } else if (validAffiliateId) {
-      recentLeadsQuery = recentLeadsQuery.eq('affiliate_id', validAffiliateId);
-    } else if (validUserId) {
-      recentLeadsQuery = recentLeadsQuery.eq('affiliate_id', validUserId);
-    } else {
-      recentLeadsQuery = recentLeadsQuery.eq('affiliate_id', '00000000-0000-0000-0000-000000000000');
-    }
-
-    const { data: recentLeadsData } = await recentLeadsQuery;
-    const recentLeadsRaw = recentLeadsData || leadsList.slice(0, 5);
+    // 7. Lấy tối đa 5 lượt đăng ký mới nhất (Recent Leads) trực tiếp từ danh sách đã sắp xếp
+    const recentLeadsRaw = augmentedLeads.slice(0, 5);
 
     const recentLeads = recentLeadsRaw.map((l: any) => {
       return {
@@ -2521,8 +2551,8 @@ async function startServer() {
         course_title: l.courses?.title || (l.course_id ? 'Khóa học không còn khả dụng' : 'Chưa chọn khóa học'),
         created_at: l.created_at,
         counseling_status: l.counseling_status || 'NEW',
-        admission_status: l.admission_status || 'NOT_ENROLLED',
-        reconciliation_status: l.reconciliation_status || 'NOT_RECONCILED',
+        admission_status: l._effectiveAdmissionStatus,
+        reconciliation_status: l._effectiveReconStatus,
       };
     });
 
@@ -3081,7 +3111,7 @@ async function startServer() {
 
       let query = supabase
         .from('leads')
-        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status, reconciled_at), lead_egov_links(external_admission_code, link_status)', { count: 'exact' });
+        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, admission_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(id, external_admission_code, reconciliation_status, admission_status, reconciled_at), lead_egov_links(external_admission_code, link_status)', { count: 'exact' });
 
       if (affiliateId && affiliateUserId && affiliateId !== affiliateUserId) {
         query = query.or(`affiliate_id.eq.${affiliateId},affiliate_id.eq.${affiliateUserId}`);
@@ -3107,9 +3137,9 @@ async function startServer() {
 
       if (admission_status && admission_status !== 'ALL') {
         if (admission_status === 'ENROLLED' || admission_status === 'MATCHED_VALID') {
-          query = query.eq('reconciliation_status', 'MATCHED_VALID');
+          query = query.in('reconciliation_status', ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM']);
         } else if (admission_status === 'NOT_ENROLLED' || admission_status === 'NOT_RECONCILED') {
-          query = query.neq('reconciliation_status', 'MATCHED_VALID');
+          query = query.not('reconciliation_status', 'in', '("MATCHED_VALID","EXISTING_IN_SCHOOL_SYSTEM")');
         }
       }
 
@@ -3147,19 +3177,6 @@ async function startServer() {
         'DH-TC-08': 'Quản trị Điều hành Tour & Đại lý Du lịch',
       };
 
-      const getActiveReconciliation = (reconciliations: any) => {
-        if (!reconciliations) return null;
-        const list = Array.isArray(reconciliations) ? [...reconciliations] : [reconciliations];
-        if (list.length === 0) return null;
-        list.sort((a: any, b: any) => {
-          const timeA = new Date(a.reconciled_at || a.created_at || 0).getTime();
-          const timeB = new Date(b.reconciled_at || b.created_at || 0).getTime();
-          return timeB - timeA;
-        });
-        const latest = list[0];
-        return (latest && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(latest.reconciliation_status)) ? latest : null;
-      };
-
       const getActiveEgovLink = (links: any) => {
         if (!links) return null;
         const list = Array.isArray(links) ? [...links] : [links];
@@ -3170,7 +3187,8 @@ async function startServer() {
       const formattedRealLeads = (realLeads || []).map((l: any) => {
         const activeRecon = getActiveReconciliation(l.lead_reconciliations);
         const activeEgov = getActiveEgovLink(l.lead_egov_links);
-        const reconStatus = activeRecon ? activeRecon.reconciliation_status : 'NOT_RECONCILED';
+        const reconStatus = activeRecon ? activeRecon.reconciliation_status : (l.reconciliation_status || 'NOT_RECONCILED');
+        const effectiveAdmission = resolveAuthoritativeAdmissionStatus(l);
         const egovCode = activeEgov?.external_admission_code || null;
         const courseTitle = l.courses?.title || (l.course_id ? (courseMap[l.course_id] || 'Chương trình tuyển sinh STHC') : 'Tư vấn chung');
 
@@ -3184,7 +3202,7 @@ async function startServer() {
           course_title: courseTitle,
           counseling_status: l.counseling_status,
           reconciliation_status: reconStatus,
-          admission_status: activeRecon?.admission_status || (reconStatus === 'MATCHED_VALID' ? 'ENROLLED' : 'NOT_ENROLLED'),
+          admission_status: effectiveAdmission,
           reward_status: l.reward_status,
           external_admission_code: egovCode,
           created_at: l.created_at,
@@ -3221,7 +3239,7 @@ async function startServer() {
     try {
       let leadQuery = supabase
         .from('leads')
-        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(external_admission_code, reconciliation_status, reconciled_at), lead_egov_links(external_admission_code, link_status)')
+        .select('id, full_name, phone, email, province, customer_note, course_id, counseling_status, admission_status, reconciliation_status, reward_status, created_at, updated_at, courses(title, code), lead_reconciliations(id, external_admission_code, reconciliation_status, admission_status, reconciled_at), lead_egov_links(external_admission_code, link_status)')
         .eq('id', id);
 
       if (affiliateId && affiliateUserId && affiliateId !== affiliateUserId) {
@@ -3241,19 +3259,6 @@ async function startServer() {
         return phone.slice(0, -4) + '****';
       };
 
-      const getActiveReconciliation = (reconciliations: any) => {
-        if (!reconciliations) return null;
-        const list = Array.isArray(reconciliations) ? [...reconciliations] : [reconciliations];
-        if (list.length === 0) return null;
-        list.sort((a: any, b: any) => {
-          const timeA = new Date(a.reconciled_at || a.created_at || 0).getTime();
-          const timeB = new Date(b.reconciled_at || b.created_at || 0).getTime();
-          return timeB - timeA;
-        });
-        const latest = list[0];
-        return (latest && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(latest.reconciliation_status)) ? latest : null;
-      };
-
       const getActiveEgovLink = (links: any) => {
         if (!links) return null;
         const list = Array.isArray(links) ? [...links] : [links];
@@ -3263,7 +3268,8 @@ async function startServer() {
 
       const activeRecon = getActiveReconciliation(lead.lead_reconciliations);
       const activeEgov = getActiveEgovLink(lead.lead_egov_links);
-      const reconStatus = activeRecon ? activeRecon.reconciliation_status : 'NOT_RECONCILED';
+      const reconStatus = activeRecon ? activeRecon.reconciliation_status : (lead.reconciliation_status || 'NOT_RECONCILED');
+      const effectiveAdmission = resolveAuthoritativeAdmissionStatus(lead);
       const egovCode = activeEgov?.external_admission_code || null;
       const courseMap: Record<string, string> = {
         'CBMA-TC-01': 'Kỹ thuật Chế biến Món ăn Á - Âu',
@@ -3287,7 +3293,7 @@ async function startServer() {
         course_title: courseTitle,
         counseling_status: lead.counseling_status,
         reconciliation_status: reconStatus,
-        admission_status: activeRecon?.admission_status || (reconStatus === 'MATCHED_VALID' ? 'ENROLLED' : 'NOT_ENROLLED'),
+        admission_status: effectiveAdmission,
         reward_status: lead.reward_status,
         external_admission_code: egovCode,
         created_at: lead.created_at,
@@ -7202,19 +7208,6 @@ async function startServer() {
       const total = count ?? (leads?.length || 0);
       const totalPages = Math.max(1, Math.ceil(total / limitNum));
 
-      const getActiveReconciliation = (reconciliations: any) => {
-        if (!reconciliations) return null;
-        const list = Array.isArray(reconciliations) ? [...reconciliations] : [reconciliations];
-        if (list.length === 0) return null;
-        list.sort((a: any, b: any) => {
-          const timeA = new Date(a.reconciled_at || a.created_at || 0).getTime();
-          const timeB = new Date(b.reconciled_at || b.created_at || 0).getTime();
-          return timeB - timeA;
-        });
-        const latest = list[0];
-        return (latest && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(latest.reconciliation_status)) ? latest : null;
-      };
-
       const getActiveEgovLink = (links: any) => {
         if (!links) return null;
         const list = Array.isArray(links) ? [...links] : [links];
@@ -7226,7 +7219,7 @@ async function startServer() {
         const activeRecon = getActiveReconciliation(l.lead_reconciliations);
         const activeEgovLink = getActiveEgovLink(l.lead_egov_links);
         const reconStatus = l.reconciliation_status || (activeRecon ? activeRecon.reconciliation_status : 'NOT_RECONCILED');
-        const admStatus = activeRecon?.admission_status || l.admission_status || (reconStatus === 'MATCHED_VALID' ? 'ENROLLED' : (reconStatus === 'EXISTING_IN_SCHOOL_SYSTEM' ? 'ENROLLED' : 'NOT_ENROLLED'));
+        const admStatus = resolveAuthoritativeAdmissionStatus(l);
 
         const initialCourseTitle = l.courses?.title || (l.course_id ? 'Chương trình STHC' : 'Tư vấn chung');
         const initialCourseCode = l.courses?.code || null;
@@ -7302,19 +7295,6 @@ async function startServer() {
         return res.status(404).json({ success: false, error: 'Không tìm thấy hồ sơ khách hàng.' });
       }
 
-      const getActiveReconciliation = (reconciliations: any) => {
-        if (!reconciliations) return null;
-        const list = Array.isArray(reconciliations) ? [...reconciliations] : [reconciliations];
-        if (list.length === 0) return null;
-        list.sort((a: any, b: any) => {
-          const timeA = new Date(a.reconciled_at || a.created_at || 0).getTime();
-          const timeB = new Date(b.reconciled_at || b.created_at || 0).getTime();
-          return timeB - timeA;
-        });
-        const latest = list[0];
-        return (latest && ['MATCHED_VALID', 'EXISTING_IN_SCHOOL_SYSTEM', 'MISMATCH_INVALID'].includes(latest.reconciliation_status)) ? latest : null;
-      };
-
       const getActiveEgovLink = (links: any) => {
         if (!links) return null;
         const list = Array.isArray(links) ? [...links] : [links];
@@ -7326,7 +7306,7 @@ async function startServer() {
       const activeEgovLink = getActiveEgovLink(lead.lead_egov_links);
       const egovCode = activeEgovLink?.external_admission_code || activeRecon?.external_admission_code || null;
       const reconStatus = lead.reconciliation_status || (activeRecon ? activeRecon.reconciliation_status : 'NOT_RECONCILED');
-      const admStatus = lead.admission_status || (reconStatus === 'MATCHED_VALID' ? 'ENROLLED' : (reconStatus === 'EXISTING_IN_SCHOOL_SYSTEM' ? 'ENROLLED' : 'NOT_ENROLLED'));
+      const admStatus = resolveAuthoritativeAdmissionStatus(lead);
 
       const initialCourseTitle = lead.courses?.title || (lead.course_id ? 'Chương trình STHC' : 'Tư vấn chung');
       const initialCourseCode = lead.courses?.code || null;
@@ -7902,6 +7882,7 @@ async function startServer() {
         receipt_number: cleanReceipt,
         tuition_paid_at: cleanPaidAt,
         reconciliation_status: cleanReconStatus,
+        admission_status: cleanAdmissionStatus,
         staff_note: cleanNote,
         reconciled_at: nowIso,
       })
@@ -7951,6 +7932,7 @@ async function startServer() {
       .from('leads')
       .update({
         reconciliation_status: cleanReconStatus,
+        admission_status: cleanAdmissionStatus,
         reward_status: newRewardStatus,
         course_id: targetCourseId || lead.course_id,
         updated_at: nowIso,
@@ -8199,6 +8181,7 @@ async function startServer() {
       .from('leads')
       .update({
         reconciliation_status: 'NOT_RECONCILED',
+        admission_status: 'NOT_ENROLLED',
         reward_status: 'NONE',
         updated_at: nowIso,
       })
