@@ -4233,6 +4233,9 @@ async function startServer() {
           if (!prof) {
             if (userId === demoState.adminUser.id) prof = demoState.adminUser;
             else if (userId === demoState.staffUser.id) prof = demoState.staffUser;
+            else if (userId === demoState.activeAffiliate.user_id) prof = { ...demoState.activeAffiliate, role: 'affiliate', is_active: true };
+            else if (userId === demoState.pendingAffiliate.user_id) prof = { ...demoState.pendingAffiliate, role: 'affiliate', is_active: true };
+            else if (userId === demoState.disabledUser.id) prof = demoState.disabledUser;
           }
 
           if (!prof) {
@@ -4395,8 +4398,899 @@ async function startServer() {
     });
   };
 
+  // ----------------------------------------------------------------------------
+  // A9.5A: ADMIN DASHBOARD SUMMARY API (CHỈ SỐ TUYỂN SINH, MẠNG LƯỚI CTV, VIỆC CHỜ XỬ LÝ)
+  // ----------------------------------------------------------------------------
+  function isValidCalendarDateString(str?: any): boolean {
+    if (typeof str !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(str)) return false;
+    const [yStr, mStr, dStr] = str.split('-');
+    const y = parseInt(yStr, 10);
+    const m = parseInt(mStr, 10);
+    const d = parseInt(dStr, 10);
+    if (m < 1 || m > 12) return false;
+    if (d < 1 || d > 31) return false;
+    const date = new Date(Date.UTC(y, m - 1, d));
+    return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+  }
+
+  function isValidUuidString(str?: any): boolean {
+    if (typeof str !== 'string') return false;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+  }
+
+  // Helper: Kiểm tra quyền xem tổng hợp thù lao (rewards.summary) an toàn trên backend
+  async function checkUserHasRewardSummaryPermission(user: any): Promise<boolean> {
+    if (!user || !user.id || !user.is_active) return false;
+    if (user.role === 'admin' || user.id === demoState.adminUser.id) return true;
+    if (user.role !== 'staff') return false;
+
+    try {
+      const { data: hasPerm, error: permErr } = await supabase.rpc('fn_has_permission', {
+        p_user_id: user.id,
+        p_perm: 'rewards.summary',
+      });
+      if (!permErr && typeof hasPerm === 'boolean') {
+        return hasPerm;
+      }
+    } catch (err) {
+      console.warn('[CHECK REWARD SUMMARY PERMISSION RPC WARN]', err);
+    }
+
+    // Tra cứu trực tiếp từ bảng liên kết phân quyền staff_permission_groups trong CSDL
+    try {
+      const { data: groups } = await supabase
+        .from('staff_permission_groups')
+        .select('group_code, is_active')
+        .eq('staff_id', user.id)
+        .eq('is_active', true);
+      if (groups && groups.length > 0) {
+        const groupCodes = groups.map((g: any) => g.group_code);
+        const { data: items } = await supabase
+          .from('permission_group_items')
+          .select('permission_code')
+          .in('group_code', groupCodes)
+          .eq('permission_code', 'rewards.summary');
+        return Boolean(items && items.length > 0);
+      }
+    } catch (err) {
+      console.warn('[CHECK REWARD SUMMARY PERMISSION DB WARN]', err);
+    }
+
+    return false;
+  }
+
+  app.get('/api/v1/admin/dashboard/summary', requireStaffOrAdmin, async (req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'private, no-store');
+
+    try {
+      const {
+        period = 'THIS_MONTH',
+        from_date,
+        to_date,
+        course_id = 'ALL',
+        affiliate_id = 'ALL',
+      } = req.query;
+
+      // 1. Validate period
+      const ALLOWED_PERIODS = ['THIS_MONTH', 'LAST_MONTH', 'THIS_YEAR', 'ALL_TIME', 'CUSTOM'];
+      const cleanPeriod = String(period).trim();
+      if (!ALLOWED_PERIODS.includes(cleanPeriod)) {
+        return res.status(400).json({
+          success: false,
+          error: `Giai đoạn thống kê (period) không hợp lệ: "${period}". Chỉ chấp nhận: THIS_MONTH, LAST_MONTH, THIS_YEAR, ALL_TIME, CUSTOM.`,
+          code: 'INVALID_PERIOD',
+        });
+      }
+
+      // 2. Validate course_id
+      const cleanCourseId = String(course_id).trim();
+      let filterCourseDbId: string | null = null;
+      if (cleanCourseId !== 'ALL') {
+        if (!isValidUuidString(cleanCourseId)) {
+          return res.status(400).json({
+            success: false,
+            error: `Mã định danh khóa học (course_id) không đúng định dạng UUID: "${course_id}".`,
+            code: 'INVALID_COURSE_ID_FORMAT',
+          });
+        }
+        // Kiểm tra tồn tại trong CSDL hoặc INITIAL_COURSES
+        const { data: existCourse, error: courseCheckErr } = await supabase
+          .from('courses')
+          .select('id')
+          .eq('id', cleanCourseId)
+          .maybeSingle();
+
+        const matchInitial = INITIAL_COURSES.some(c => (c as any).id === cleanCourseId);
+        if (!existCourse && !matchInitial && !courseCheckErr) {
+          return res.status(400).json({
+            success: false,
+            error: `Khóa học với mã ID "${cleanCourseId}" không tồn tại trong hệ thống.`,
+            code: 'COURSE_NOT_FOUND',
+          });
+        }
+        filterCourseDbId = cleanCourseId;
+      }
+
+      // 3. Validate affiliate_id
+      const cleanAffiliateId = String(affiliate_id).trim();
+      let filterAffiliateDbId: string | null = null;
+      let filterUnassigned = false;
+      if (cleanAffiliateId === 'UNASSIGNED') {
+        filterUnassigned = true;
+      } else if (cleanAffiliateId !== 'ALL') {
+        if (!isValidUuidString(cleanAffiliateId)) {
+          return res.status(400).json({
+            success: false,
+            error: `Mã định danh CTV (affiliate_id) không đúng định dạng UUID: "${affiliate_id}".`,
+            code: 'INVALID_AFFILIATE_ID_FORMAT',
+          });
+        }
+        // Kiểm tra tồn tại trong CSDL hoặc demoState
+        const { data: existAff, error: affCheckErr } = await supabase
+          .from('affiliate_profiles')
+          .select('id')
+          .eq('id', cleanAffiliateId)
+          .maybeSingle();
+
+        const matchDemo = [
+          demoState.pendingAffiliate,
+          demoState.pendingVerifiedAffiliate,
+          demoState.activeAffiliate,
+          demoState.suspendedAffiliate,
+          demoState.rejectedAffiliate,
+        ].some(a => a.id === cleanAffiliateId || a.user_id === cleanAffiliateId);
+
+        if (!existAff && !matchDemo && !affCheckErr) {
+          return res.status(400).json({
+            success: false,
+            error: `Cộng tác viên với mã ID "${cleanAffiliateId}" không tồn tại trong hệ thống.`,
+            code: 'AFFILIATE_NOT_FOUND',
+          });
+        }
+        filterAffiliateDbId = cleanAffiliateId;
+      }
+
+      // 4. Validate and calculate date boundaries in Asia/Ho_Chi_Minh (UTC+7)
+      const now = new Date();
+      const vnNow = new Date(now.getTime() + 7 * 3600000);
+      const currentVnYear = vnNow.getUTCFullYear();
+      const currentVnMonth = vnNow.getUTCMonth() + 1; // 1..12
+
+      let resolvedFromDate: string | null = null;
+      let resolvedToDate: string | null = null;
+      let startUtc: string | null = null;
+      let endUtcExclusive: string | null = null;
+
+      if (cleanPeriod === 'CUSTOM') {
+        if (!from_date || !to_date) {
+          return res.status(400).json({
+            success: false,
+            error: 'Bộ lọc tùy chỉnh (CUSTOM) bắt buộc phải cung cấp đầy đủ cả from_date và to_date (định dạng YYYY-MM-DD).',
+            code: 'MISSING_CUSTOM_DATES',
+          });
+        }
+        const cleanFromStr = String(from_date).trim();
+        const cleanToStr = String(to_date).trim();
+
+        if (!isValidCalendarDateString(cleanFromStr) || !isValidCalendarDateString(cleanToStr)) {
+          return res.status(400).json({
+            success: false,
+            error: 'Ngày được chọn không hợp lệ hoặc không tồn tại trên lịch (định dạng chuẩn: YYYY-MM-DD).',
+            code: 'INVALID_DATE_VALUE',
+          });
+        }
+
+        if (cleanFromStr > cleanToStr) {
+          return res.status(400).json({
+            success: false,
+            error: `Khoảng ngày không hợp lệ: from_date (${cleanFromStr}) không thể lớn hơn to_date (${cleanToStr}).`,
+            code: 'INVALID_DATE_RANGE',
+          });
+        }
+
+        resolvedFromDate = cleanFromStr;
+        resolvedToDate = cleanToStr;
+      } else if (cleanPeriod === 'THIS_MONTH') {
+        resolvedFromDate = `${currentVnYear}-${String(currentVnMonth).padStart(2, '0')}-01`;
+        const lastDay = new Date(Date.UTC(currentVnYear, currentVnMonth, 0)).getUTCDate();
+        resolvedToDate = `${currentVnYear}-${String(currentVnMonth).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      } else if (cleanPeriod === 'LAST_MONTH') {
+        const lastMonthDate = new Date(Date.UTC(currentVnYear, currentVnMonth - 2, 1));
+        const lmYear = lastMonthDate.getUTCFullYear();
+        const lmMonth = lastMonthDate.getUTCMonth() + 1;
+        const lmLastDay = new Date(Date.UTC(lmYear, lmMonth, 0)).getUTCDate();
+        resolvedFromDate = `${lmYear}-${String(lmMonth).padStart(2, '0')}-01`;
+        resolvedToDate = `${lmYear}-${String(lmMonth).padStart(2, '0')}-${String(lmLastDay).padStart(2, '0')}`;
+      } else if (cleanPeriod === 'THIS_YEAR') {
+        resolvedFromDate = `${currentVnYear}-01-01`;
+        resolvedToDate = `${currentVnYear}-12-31`;
+      } else if (cleanPeriod === 'ALL_TIME') {
+        resolvedFromDate = null;
+        resolvedToDate = null;
+      }
+
+      if (resolvedFromDate && resolvedToDate) {
+        startUtc = new Date(`${resolvedFromDate}T00:00:00+07:00`).toISOString();
+        const nextDayVn = new Date(new Date(`${resolvedToDate}T00:00:00+07:00`).getTime() + 24 * 3600000);
+        endUtcExclusive = nextDayVn.toISOString();
+      }
+
+      // 5. Query Recruitment Metrics for Cohort
+      let leadsQuery = supabase
+        .from('leads')
+        .select(`
+          id,
+          admission_status,
+          reconciliation_status,
+          counseling_status,
+          created_at,
+          course_id,
+          affiliate_id,
+          lead_reconciliations(id, reconciliation_status, admission_status, reconciled_at),
+          lead_egov_links(id, external_admission_code, link_status)
+        `);
+
+      if (startUtc) {
+        leadsQuery = leadsQuery.gte('created_at', startUtc);
+      }
+      if (endUtcExclusive) {
+        leadsQuery = leadsQuery.lt('created_at', endUtcExclusive);
+      }
+      if (filterCourseDbId) {
+        leadsQuery = leadsQuery.eq('course_id', filterCourseDbId);
+      }
+      if (filterUnassigned) {
+        leadsQuery = leadsQuery.is('affiliate_id', null);
+      } else if (filterAffiliateDbId) {
+        leadsQuery = leadsQuery.eq('affiliate_id', filterAffiliateDbId);
+      }
+
+      const { data: cohortLeads, error: cohortErr } = await leadsQuery;
+      if (cohortErr) {
+        console.error('[ADMIN DASHBOARD SUMMARY COHORT ERROR]', cohortErr);
+        return res.status(500).json({
+          success: false,
+          error: 'Lỗi máy chủ khi truy vấn số liệu tuyển sinh.',
+          code: 'DATABASE_QUERY_ERROR',
+        });
+      }
+
+      const rawCohortList = cohortLeads || [];
+      const total_leads = rawCohortList.length;
+      let not_enrolled_leads = 0;
+      let enrolled_leads = 0;
+      let withdrawn_leads = 0;
+      let egov_active_leads = 0;
+      let matched_valid_leads = 0;
+
+      rawCohortList.forEach((lead: any) => {
+        const adm = resolveAuthoritativeAdmissionStatus(lead);
+        if (adm === 'ENROLLED') {
+          enrolled_leads++;
+        } else if (adm === 'WITHDRAWN') {
+          withdrawn_leads++;
+        } else {
+          not_enrolled_leads++;
+        }
+
+        const egovLinks = lead.lead_egov_links;
+        const hasActiveEgov = Array.isArray(egovLinks)
+          ? egovLinks.some((l: any) => l && l.link_status === 'ACTIVE')
+          : (egovLinks && (egovLinks as any).link_status === 'ACTIVE');
+        if (hasActiveEgov) {
+          egov_active_leads++;
+        }
+
+        const activeRecon = getActiveReconciliation(lead.lead_reconciliations);
+        if (activeRecon?.reconciliation_status === 'MATCHED_VALID') {
+          matched_valid_leads++;
+        } else if (!activeRecon && adm === 'ENROLLED' && lead.reconciliation_status === 'MATCHED_VALID') {
+          matched_valid_leads++;
+        }
+      });
+
+      const enrollment_rate = total_leads > 0
+        ? Number(((enrolled_leads / total_leads) * 100).toFixed(1))
+        : null;
+
+      // 6. Query Affiliate Network Metrics (All-time, profiles.role = 'affiliate')
+      const { data: allAffiliates, error: affNetErr } = await supabase
+        .from('affiliate_profiles')
+        .select('id, status, profiles:profiles!affiliate_profiles_user_id_fkey(role, is_active)');
+
+      if (affNetErr) {
+        console.error('[ADMIN DASHBOARD SUMMARY AFFILIATES ERROR]', affNetErr);
+        return res.status(500).json({
+          success: false,
+          error: 'Lỗi máy chủ khi truy vấn mạng lưới cộng tác viên.',
+          code: 'DATABASE_QUERY_ERROR',
+        });
+      }
+
+      const validAffList = (allAffiliates || []).filter((a: any) => a.profiles?.role === 'affiliate');
+      const total_affiliates = validAffList.length;
+      let active_affiliates = 0;
+      let pending_affiliates = 0;
+      let suspended_affiliates = 0;
+      let rejected_affiliates = 0;
+
+      validAffList.forEach((a: any) => {
+        if (a.status === 'ACTIVE' && a.profiles?.is_active === true) {
+          active_affiliates++;
+        }
+        if (a.status === 'PENDING_REVIEW') {
+          pending_affiliates++;
+        } else if (a.status === 'SUSPENDED') {
+          suspended_affiliates++;
+        } else if (a.status === 'REJECTED') {
+          rejected_affiliates++;
+        }
+      });
+
+      // 7. Query Backlog Metrics (System-wide, All-time)
+      const { data: allSystemLeads, error: sysLeadsErr } = await supabase
+        .from('leads')
+        .select(`
+          id,
+          counseling_status,
+          admission_status,
+          reconciliation_status,
+          lead_reconciliations(id, reconciliation_status, admission_status, reconciled_at)
+        `);
+
+      if (sysLeadsErr) {
+        console.error('[ADMIN DASHBOARD SUMMARY BACKLOG ERROR]', sysLeadsErr);
+        return res.status(500).json({
+          success: false,
+          error: 'Lỗi máy chủ khi truy vấn danh sách công việc chờ xử lý.',
+          code: 'DATABASE_QUERY_ERROR',
+        });
+      }
+
+      let new_leads_to_contact = 0;
+      let pending_reconciliation_leads = 0;
+
+      (allSystemLeads || []).forEach((lead: any) => {
+        const adm = resolveAuthoritativeAdmissionStatus(lead);
+        const activeRecon = getActiveReconciliation(lead.lead_reconciliations);
+
+        // a) Khách mới cần liên hệ: counseling_status = 'NEW' và admission_status chuẩn hóa = 'NOT_ENROLLED'
+        if (lead.counseling_status === 'NEW' && adm === 'NOT_ENROLLED') {
+          new_leads_to_contact++;
+        }
+
+        // b) Hồ sơ chờ đối chiếu: chưa có đối soát hiệu lực và không ở trạng thái WITHDRAWN
+        if (adm !== 'WITHDRAWN') {
+          if (!activeRecon) {
+            if (['NOT_RECONCILED', 'NONE', null, ''].includes(lead.reconciliation_status)) {
+              pending_reconciliation_leads++;
+            }
+          }
+        }
+      });
+
+      // 8. Query Rewards Metrics (A9.5B — Kiểm quyền an toàn qua rewards.summary)
+      const currentUser = (req as any).user;
+      const hasRewardSummaryPerm = await checkUserHasRewardSummaryPermission(currentUser);
+
+      let rewardsBlock: any;
+
+      if (hasRewardSummaryPerm) {
+        // Lấy tất cả các bản ghi thưởng có liên quan từ CSDL
+        const { data: allRewards, error: rewardsErr } = await supabase
+          .from('rewards')
+          .select('id, amount, status, approved_at, created_at');
+
+        if (rewardsErr) {
+          console.error('[ADMIN DASHBOARD SUMMARY REWARDS ERROR]', rewardsErr);
+          return res.status(500).json({
+            success: false,
+            error: 'Lỗi máy chủ khi truy vấn số liệu thù lao.',
+            code: 'DATABASE_QUERY_ERROR',
+          });
+        }
+
+        const rawRewards = allRewards || [];
+        let pending_all_count = 0;
+        let pending_all_amount = 0;
+        let approved_all_count = 0;
+        let approved_all_amount = 0;
+        let approved_period_count = 0;
+        let approved_period_amount = 0;
+        let approved_missing_date_count = 0;
+
+        rawRewards.forEach((r: any) => {
+          const amount = Number(r.amount) || 0;
+          if (r.status === 'PENDING_APPROVAL') {
+            pending_all_count++;
+            pending_all_amount += amount;
+          } else if (r.status === 'APPROVED') {
+            approved_all_count++;
+            approved_all_amount += amount;
+
+            const isDateMissing = !r.approved_at;
+            if (isDateMissing) {
+              approved_missing_date_count++;
+            }
+
+            if (cleanPeriod === 'ALL_TIME') {
+              approved_period_count++;
+              approved_period_amount += amount;
+            } else if (r.approved_at && startUtc && endUtcExclusive) {
+              const appDateIso = new Date(r.approved_at).toISOString();
+              if (appDateIso >= startUtc && appDateIso < endUtcExclusive) {
+                approved_period_count++;
+                approved_period_amount += amount;
+              }
+            }
+          }
+        });
+
+        rewardsBlock = {
+          available: true,
+          pending_all: {
+            amount: pending_all_amount,
+            count: pending_all_count,
+          },
+          approved_period: {
+            amount: approved_period_amount,
+            count: approved_period_count,
+          },
+          approved_all: {
+            amount: approved_all_amount,
+            count: approved_all_count,
+          },
+          paid: {
+            available: false,
+            amount: null,
+            count: null,
+            reason_code: 'PAYMENT_TRACKING_NOT_AVAILABLE',
+          },
+          metadata: {
+            currency: 'VND',
+            pending_scope: 'SYSTEM_WIDE_ALL_TIME',
+            approved_period_scope: 'SYSTEM_WIDE_SELECTED_APPROVAL_PERIOD',
+            approved_all_scope: 'SYSTEM_WIDE_ALL_TIME',
+            approved_missing_date_count: approved_missing_date_count,
+          },
+        };
+      } else {
+        // Quyền bị từ chối -> Redaction dữ liệu tài chính
+        rewardsBlock = {
+          available: false,
+          reason_code: 'PERMISSION_DENIED',
+          pending_all: null,
+          approved_period: null,
+          approved_all: null,
+          paid: null,
+        };
+      }
+
+      // 9. Query Monthly Trend (12 rolling months in Asia/Ho_Chi_Minh UTC+7)
+      // Cố định 12 tháng liên tục tính đến tháng hiện tại, tuân theo bộ lọc course_id & affiliate_id
+      const rollingMonths = getVietnamMonthList(12);
+      const monthlyTrendMap: Record<string, { month_key: string; month_label: string; leads_count: number; enrolled_count: number }> = {};
+      rollingMonths.forEach(m => {
+        monthlyTrendMap[m.month_key] = { ...m };
+      });
+
+      let trendQuery = supabase
+        .from('leads')
+        .select(`
+          id,
+          created_at,
+          admission_status,
+          reconciliation_status,
+          lead_reconciliations(id, reconciliation_status, admission_status, reconciled_at)
+        `);
+
+      if (filterCourseDbId) {
+        trendQuery = trendQuery.eq('course_id', filterCourseDbId);
+      }
+      if (filterUnassigned) {
+        trendQuery = trendQuery.is('affiliate_id', null);
+      } else if (filterAffiliateDbId) {
+        trendQuery = trendQuery.eq('affiliate_id', filterAffiliateDbId);
+      }
+
+      const { data: trendLeads, error: trendErr } = await trendQuery;
+      if (trendErr) {
+        console.error('[ADMIN DASHBOARD SUMMARY TREND ERROR]', trendErr);
+      }
+
+      let enrolledMissingDateCount = 0;
+      (trendLeads || []).forEach((lead: any) => {
+        const regMonth = getVietnamMonthKey(lead.created_at);
+        if (regMonth && monthlyTrendMap[regMonth]) {
+          monthlyTrendMap[regMonth].leads_count += 1;
+        }
+
+        const adm = resolveAuthoritativeAdmissionStatus(lead);
+        if (adm === 'ENROLLED') {
+          const activeRecon = getActiveReconciliation(lead.lead_reconciliations);
+          const enrollDate = activeRecon?.reconciled_at || null;
+          if (enrollDate) {
+            const enrollMonth = getVietnamMonthKey(enrollDate);
+            if (enrollMonth && monthlyTrendMap[enrollMonth]) {
+              monthlyTrendMap[enrollMonth].enrolled_count += 1;
+            }
+          } else {
+            enrolledMissingDateCount += 1;
+          }
+        }
+      });
+
+      const monthlyTrendPoints = rollingMonths.map(m => monthlyTrendMap[m.month_key]);
+
+      // 10. Query Course Breakdown (Kết quả theo khóa đăng ký trong kỳ chọn)
+      let coursesQuery = supabase.from('courses').select('id, code, title, sort_order');
+      if (filterCourseDbId) {
+        coursesQuery = coursesQuery.eq('id', filterCourseDbId);
+      } else {
+        coursesQuery = coursesQuery.order('sort_order', { ascending: true });
+      }
+
+      const { data: catalogCourses, error: coursesErr } = await coursesQuery;
+      if (coursesErr) {
+        console.error('[ADMIN DASHBOARD SUMMARY COURSES ERROR]', coursesErr);
+      }
+
+      const effectiveCatalog = (catalogCourses && catalogCourses.length > 0)
+        ? catalogCourses
+        : (filterCourseDbId ? INITIAL_COURSES.filter(c => (c as any).id === filterCourseDbId) : INITIAL_COURSES);
+
+      const courseMap = new Map<string, { total_leads: number; enrolled_leads: number }>();
+      let unassignedTotal = 0;
+      let unassignedEnrolled = 0;
+      const unknownCourseMap = new Map<string, { total_leads: number; enrolled_leads: number }>();
+
+      rawCohortList.forEach((lead: any) => {
+        const adm = resolveAuthoritativeAdmissionStatus(lead);
+        const isEnrolled = adm === 'ENROLLED';
+        const cId = lead.course_id;
+
+        if (!cId) {
+          unassignedTotal++;
+          if (isEnrolled) unassignedEnrolled++;
+        } else {
+          const isCatalog = effectiveCatalog.some((c: any) => c.id === cId || c.code === cId);
+          if (isCatalog) {
+            const current = courseMap.get(cId) || { total_leads: 0, enrolled_leads: 0 };
+            current.total_leads++;
+            if (isEnrolled) current.enrolled_leads++;
+            courseMap.set(cId, current);
+          } else {
+            const current = unknownCourseMap.get(cId) || { total_leads: 0, enrolled_leads: 0 };
+            current.total_leads++;
+            if (isEnrolled) current.enrolled_leads++;
+            unknownCourseMap.set(cId, current);
+          }
+        }
+      });
+
+      const courseBreakdownList: any[] = effectiveCatalog.map((c: any) => {
+        const stat = courseMap.get(c.id) || { total_leads: 0, enrolled_leads: 0 };
+        const rate = stat.total_leads > 0 ? Number(((stat.enrolled_leads / stat.total_leads) * 100).toFixed(1)) : null;
+        return {
+          course_id: c.id,
+          course_code: c.code,
+          course_title: c.title,
+          total_leads: stat.total_leads,
+          enrolled_leads: stat.enrolled_leads,
+          enrollment_rate: rate,
+        };
+      });
+
+      if (!filterCourseDbId && unassignedTotal > 0) {
+        courseBreakdownList.push({
+          course_id: null,
+          course_code: 'UNASSIGNED',
+          course_title: 'Chưa chọn khóa học',
+          total_leads: unassignedTotal,
+          enrolled_leads: unassignedEnrolled,
+          enrollment_rate: unassignedTotal > 0 ? Number(((unassignedEnrolled / unassignedTotal) * 100).toFixed(1)) : null,
+        });
+      }
+
+      if (!filterCourseDbId && unknownCourseMap.size > 0) {
+        unknownCourseMap.forEach((stat, unknownId) => {
+          courseBreakdownList.push({
+            course_id: unknownId,
+            course_code: 'UNKNOWN',
+            course_title: 'Khóa học chưa xác định',
+            total_leads: stat.total_leads,
+            enrolled_leads: stat.enrolled_leads,
+            enrollment_rate: stat.total_leads > 0 ? Number(((stat.enrolled_leads / stat.total_leads) * 100).toFixed(1)) : null,
+          });
+        });
+      }
+
+      // Sắp xếp: Giảm dần theo total_leads, sau đó enrolled_leads, sau đó course_title
+      courseBreakdownList.sort((a, b) => {
+        if (b.total_leads !== a.total_leads) return b.total_leads - a.total_leads;
+        if (b.enrolled_leads !== a.enrolled_leads) return b.enrolled_leads - a.enrolled_leads;
+        return a.course_title.localeCompare(b.course_title, 'vi');
+      });
+
+      // 11. Query Recent Leads (Tối đa 5 lượt đăng ký gần đây trong tập lọc tuyển sinh)
+      let recentLeadsQuery = supabase
+        .from('leads')
+        .select(`
+          id,
+          full_name,
+          phone,
+          email,
+          created_at,
+          course_id,
+          counseling_status,
+          admission_status,
+          reconciliation_status,
+          affiliate_id,
+          courses(id, title, code),
+          affiliate_profiles(id, affiliate_code, profile:profiles!affiliate_profiles_user_id_fkey(full_name)),
+          lead_reconciliations(id, reconciliation_status, admission_status, reconciled_at)
+        `);
+
+      if (startUtc) {
+        recentLeadsQuery = recentLeadsQuery.gte('created_at', startUtc);
+      }
+      if (endUtcExclusive) {
+        recentLeadsQuery = recentLeadsQuery.lt('created_at', endUtcExclusive);
+      }
+      if (filterCourseDbId) {
+        recentLeadsQuery = recentLeadsQuery.eq('course_id', filterCourseDbId);
+      }
+      if (filterUnassigned) {
+        recentLeadsQuery = recentLeadsQuery.is('affiliate_id', null);
+      } else if (filterAffiliateDbId) {
+        recentLeadsQuery = recentLeadsQuery.eq('affiliate_id', filterAffiliateDbId);
+      }
+
+      recentLeadsQuery = recentLeadsQuery
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(5);
+
+      const { data: dbRecentLeads, error: recentLeadsErr } = await recentLeadsQuery;
+      if (recentLeadsErr) {
+        console.error('[ADMIN DASHBOARD SUMMARY RECENT LEADS ERROR]', recentLeadsErr);
+      }
+
+      const formattedRecentLeads = (dbRecentLeads || []).map((lead: any) => {
+        const activeRecon = getActiveReconciliation(lead.lead_reconciliations);
+        const authoritativeAdmission = resolveAuthoritativeAdmissionStatus(lead);
+        const reconStatus = activeRecon?.reconciliation_status || lead.reconciliation_status || 'NOT_RECONCILED';
+
+        const courseTitle = lead.courses?.title || (lead.course_id ? 'Chương trình STHC' : 'Chưa chọn khóa học');
+        const courseCode = lead.courses?.code || (lead.course_id ? 'UNKNOWN' : 'UNASSIGNED');
+
+        return {
+          id: lead.id,
+          full_name: lead.full_name,
+          phone: lead.phone, // Hiển thị đầy đủ SĐT cho Admin/Staff
+          email: lead.email || null,
+          course_id: lead.course_id || null,
+          course_code: courseCode,
+          course_title: courseTitle,
+          affiliate_id: lead.affiliate_id || null,
+          affiliate_code: lead.affiliate_profiles?.affiliate_code || null,
+          affiliate_name: lead.affiliate_profiles?.profile?.full_name || null,
+          counseling_status: lead.counseling_status || 'NEW',
+          admission_status: authoritativeAdmission,
+          reconciliation_status: reconStatus,
+          created_at: lead.created_at,
+        };
+      });
+
+      const recentLeadsBlock = {
+        leads: formattedRecentLeads,
+        metadata: {
+          scope: 'FILTERED_REGISTRATION_COHORT',
+          total_returned: formattedRecentLeads.length,
+        },
+      };
+
+      // 12. Query Leaderboard (Top 5 CTV tiêu biểu theo tổng thù lao đã duyệt All-time)
+      let leaderboardBlock: any;
+
+      if (hasRewardSummaryPerm) {
+        // Lấy tất cả các khoản thưởng APPROVED trong toàn bộ thời gian
+        const { data: approvedRewards, error: rewErr } = await supabase
+          .from('rewards')
+          .select('id, affiliate_id, amount, status')
+          .eq('status', 'APPROVED');
+
+        if (rewErr) {
+          console.error('[ADMIN DASHBOARD LEADERBOARD ERROR] Rewards query failed:', rewErr);
+        }
+
+        // Lấy tất cả hồ sơ CTV có trạng thái ACTIVE
+        const { data: activeAffiliates, error: affErr } = await supabase
+          .from('affiliate_profiles')
+          .select('id, user_id, affiliate_code, status, profiles:profiles!affiliate_profiles_user_id_fkey(id, full_name, role, is_active)')
+          .eq('status', 'ACTIVE');
+
+        if (affErr) {
+          console.error('[ADMIN DASHBOARD LEADERBOARD ERROR] Affiliates query failed:', affErr);
+        }
+
+        const affList = activeAffiliates || [];
+        const rewardsList = approvedRewards || [];
+
+        // Lọc bỏ tài khoản Admin/Staff và kiểm tra is_active
+        const validAffiliates = affList.filter((aff: any) => {
+          const prof = aff.profiles;
+          const role = prof?.role?.toLowerCase();
+          return role === 'affiliate' && prof?.is_active === true;
+        });
+
+        // Gom nhóm thưởng APPROVED theo từng CTV ACTIVE
+        const affMap: Record<string, {
+          affiliate_id: string;
+          user_id: string;
+          affiliate_code: string;
+          full_name: string;
+          approved_reward_amount: number;
+          approved_reward_count: number;
+        }> = {};
+
+        const lookupToAffKey: Record<string, string> = {};
+
+        validAffiliates.forEach((aff: any) => {
+          const affId = aff.id;
+          const userId = aff.user_id;
+          const fullName = aff.profiles?.full_name || 'Cộng tác viên';
+          const affCode = aff.affiliate_code || '';
+
+          affMap[affId] = {
+            affiliate_id: affId,
+            user_id: userId,
+            affiliate_code: affCode,
+            full_name: fullName,
+            approved_reward_amount: 0,
+            approved_reward_count: 0,
+          };
+
+          if (affId) lookupToAffKey[affId] = affId;
+          if (userId) lookupToAffKey[userId] = affId;
+        });
+
+        // Cộng dồn thưởng APPROVED thực tế từ CSDL
+        rewardsList.forEach((rew: any) => {
+          const targetAffKey = lookupToAffKey[rew.affiliate_id];
+          if (targetAffKey && affMap[targetAffKey]) {
+            affMap[targetAffKey].approved_reward_amount += Number(rew.amount) || 0;
+            affMap[targetAffKey].approved_reward_count += 1;
+          }
+        });
+
+        // Chỉ đưa vào bảng CTV ACTIVE có tổng thưởng đã duyệt > 0
+        const rankedList = Object.values(affMap)
+          .filter((aff) => aff.approved_reward_amount > 0)
+          .sort((a, b) => {
+            if (b.approved_reward_amount !== a.approved_reward_amount) {
+              return b.approved_reward_amount - a.approved_reward_amount;
+            }
+            return a.affiliate_code.localeCompare(b.affiliate_code);
+          });
+
+        // Lấy tối đa 5 người
+        const top5 = rankedList.slice(0, 5);
+
+        // Gán thứ hạng chuẩn (đồng hạng nếu cùng số tiền)
+        let currentRank = 1;
+        const finalLeaderboard = top5.map((item, index) => {
+          if (index > 0 && item.approved_reward_amount < top5[index - 1].approved_reward_amount) {
+            currentRank = index + 1;
+          }
+
+          return {
+            rank: currentRank,
+            affiliate_id: item.affiliate_id,
+            user_id: item.user_id,
+            affiliate_code: item.affiliate_code,
+            affiliate_name: item.full_name,
+            approved_reward_amount: item.approved_reward_amount,
+            approved_reward_count: item.approved_reward_count,
+          };
+        });
+
+        leaderboardBlock = {
+          available: true,
+          items: finalLeaderboard,
+          metadata: {
+            scope: 'SYSTEM_WIDE_ALL_TIME',
+            criteria: 'TOTAL_APPROVED_REWARD_AMOUNT',
+            total_returned: finalLeaderboard.length,
+          },
+        };
+      } else {
+        // Redaction khi Staff không có quyền rewards.summary
+        leaderboardBlock = {
+          available: false,
+          reason_code: 'PERMISSION_DENIED',
+          items: null,
+        };
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          filters: {
+            period: cleanPeriod,
+            from_date: resolvedFromDate,
+            to_date: resolvedToDate,
+            start_utc: startUtc,
+            end_utc_exclusive: endUtcExclusive,
+            course_id: cleanCourseId,
+            affiliate_id: cleanAffiliateId,
+          },
+          recruitment: {
+            total_leads,
+            not_enrolled_leads,
+            enrolled_leads,
+            withdrawn_leads,
+            enrollment_rate,
+            egov_active_leads,
+            matched_valid_leads,
+          },
+          affiliate_network: {
+            total_affiliates,
+            active_affiliates,
+            pending_affiliates,
+            suspended_affiliates,
+            rejected_affiliates,
+          },
+          backlog: {
+            pending_affiliates,
+            new_leads_to_contact,
+            pending_reconciliation_leads,
+          },
+          rewards: rewardsBlock,
+          monthly_trend: {
+            points: monthlyTrendPoints,
+            metadata: {
+              scope: 'ROLLING_12_MONTHS',
+              timezone: 'Asia/Ho_Chi_Minh',
+              enrolled_missing_date_count: enrolledMissingDateCount,
+            },
+          },
+          course_breakdown: {
+            courses: courseBreakdownList,
+            metadata: {
+              scope: 'FILTERED_REGISTRATION_COHORT',
+              total_courses: courseBreakdownList.length,
+            },
+          },
+          recent_leads: recentLeadsBlock,
+          leaderboard: leaderboardBlock,
+          metadata: {
+            timezone: 'Asia/Ho_Chi_Minh',
+            generated_at: now.toISOString(),
+            data_scope: 'SYSTEM_WIDE',
+            recruitment_scope: 'FILTERED_REGISTRATION_COHORT',
+            network_scope: 'CURRENT_ALL_TIME',
+            backlog_scope: 'CURRENT_ALL_TIME',
+            monthly_trend_scope: 'ROLLING_12_MONTHS',
+            course_breakdown_scope: 'FILTERED_REGISTRATION_COHORT',
+            recent_leads_scope: 'FILTERED_REGISTRATION_COHORT',
+            leaderboard_scope: 'SYSTEM_WIDE_ALL_TIME',
+          },
+        },
+      });
+    } catch (err: any) {
+      console.error('[API GET /api/v1/admin/dashboard/summary EXCEPTION]', err);
+      return res.status(500).json({
+        success: false,
+        error: 'Lỗi hệ thống khi tổng hợp chỉ số quản trị.',
+        code: 'INTERNAL_SERVER_ERROR',
+      });
+    }
+  });
+
   // Admin Homepage Config GET (Returns published, draft, and history)
   app.get('/api/v1/admin/homepage-config', requireStaffOrAdmin, async (req: Request, res: Response) => {
+
     const DEFAULT_LAYOUT_BLOCKS = [
       {
         id: 'hero',

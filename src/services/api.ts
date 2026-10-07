@@ -2,7 +2,7 @@
  * Client API Service for STHC Affiliate & Admission Management System
  */
 
-import { Course, AffiliateProfile, UserProfile, Lead, Reward, AuditLog, AffiliateDashboardSummaryData } from '../types';
+import { Course, AffiliateProfile, UserProfile, Lead, Reward, AuditLog, AffiliateDashboardSummaryData, AdminDashboardSummaryResponse } from '../types';
 
 export function getAuthHeaders(): Record<string, string> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('sthc_auth_token') : null;
@@ -1023,5 +1023,23 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+  // A9.5A: API Tổng quan quản trị Admin/Staff (Chỉ số tuyển sinh, Mạng lưới CTV, Việc chờ xử lý)
+  async getAdminDashboardSummary(params?: {
+    period?: 'THIS_MONTH' | 'LAST_MONTH' | 'THIS_YEAR' | 'ALL_TIME' | 'CUSTOM';
+    from_date?: string;
+    to_date?: string;
+    course_id?: string;
+    affiliate_id?: string;
+  }): Promise<AdminDashboardSummaryResponse> {
+    const q = new URLSearchParams();
+    if (params?.period) q.set('period', params.period);
+    if (params?.from_date) q.set('from_date', params.from_date);
+    if (params?.to_date) q.set('to_date', params.to_date);
+    if (params?.course_id && params.course_id !== 'ALL') q.set('course_id', params.course_id);
+    if (params?.affiliate_id && params.affiliate_id !== 'ALL') q.set('affiliate_id', params.affiliate_id);
+    const qs = q.toString();
+    return apiFetch(`/api/v1/admin/dashboard/summary${qs ? `?${qs}` : ''}`);
+  },
 };
+
 

@@ -1464,6 +1464,273 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
    - `npm run lint` (`tsc --noEmit`): **PASS (0 lỗi, 0 cảnh báo)**.
    - `compile_applet`: **PASS (Build succeeded)**.
 
+---
+
+### 53. Kiểm kê hiện trạng Tổng quan Quản trị Admin / Staff (A9.1)
+1. **Phạm vi & Mục tiêu**:
+   - Rà soát trực tiếp toàn bộ mã nguồn, API backend, cơ sở dữ liệu PostgreSQL/Supabase, hệ thống phân quyền (PQ.1–PQ.5), các luồng nghiệp vụ A1–A7 và Dashboard CTV C6.
+   - Xác định hiện trạng: Route `/admin` hiện đang đặt `activeTab = 'affiliates'` (chưa có Dashboard chuyên biệt).
+   - Truy vết chi tiết các luồng dữ liệu: Đăng ký CTV, Khóa học, Leads, Liên kết EGOV, Đối chiếu A4, Thù lao A5, Phân quyền PQ, và Nhật ký kiểm toán.
+   - Xác minh mô hình dữ liệu và các rủi ro nhân bản số liệu (Cartesian Product) khi JOIN các bảng con (`lead_egov_links`, `lead_reconciliations`, `rewards`).
+   - Đánh giá khả năng cung cấp 12 nhóm chỉ số dự kiến cho Dashboard Admin/Staff và xác lập các quy tắc chống nhầm lẫn nghiệp vụ (tách biệt `admission_status` và `reconciliation_status`, tính thù lao từ `SUM(rewards.amount)`, múi giờ `Asia/Ho_Chi_Minh` UTC+7).
+   - Đánh giá khả năng tái sử dụng từ C6 (biểu đồ SVG, hàm xử lý tháng, quy tắc thương hiệu động) và tách biệt phạm vi dữ liệu toàn trường (`SYSTEM_WIDE`).
+2. **Tài liệu bàn giao**:
+   - `/docs/A9_1_ADMIN_DASHBOARD_AUDIT_REPORT.md`.
+3. **Kết luận bước A9.1**: **HOÀN THÀNH 100% KIỂM KÊ VÀ LẬP BÁO CÁO A9.1**. Đã có đầy đủ căn cứ chuyển sang bước thiết kế & đặc tả A9.2. (Dừng tại A9.1 theo yêu cầu, chưa sửa đổi giao diện hoặc tạo API mới).
+
+---
+
+### 54. Chốt chỉ số và cách tính Tổng quan Quản trị Admin / Staff (A9.2)
+1. **Phạm vi & Mục tiêu**:
+   - Đối chiếu sâu báo cáo A9.1 với mã nguồn `server.ts`, CSDL PostgreSQL/Supabase và chuẩn hóa C6.
+   - Chốt phạm vi dữ liệu: Chỉ số tuyển sinh đo bằng "Lượt đăng ký" (`leads.id`), không gọi là số người duy nhất, không dùng `DISTINCT phone`, bảo toàn lịch sử CTV tạm ngưng và khóa ngừng tuyển.
+   - Chuẩn hóa nguồn trạng thái có thẩm quyền: `getActiveReconciliation()` (loại trừ `VOIDED`, chọn bản ghi mới nhất theo `reconciled_at`) và `resolveAuthoritativeAdmissionStatus()` (tách biệt rõ `admission_status` và `reconciliation_status`).
+   - Tách biệt 4 nhóm thời gian: (A) Nhóm đăng ký trong kỳ, (B) Phát sinh theo thời điểm sự kiện, (C) Công việc tồn đọng hiện tại (toàn bộ thời gian), (D) Mạng lưới CTV & Top vinh danh (toàn bộ thời gian). Quy chuẩn múi giờ `Asia/Ho_Chi_Minh` (UTC+7).
+   - Lập bảng Master Metric Catalog cho 17 chỉ số cốt lõi kèm mã chỉ số, đơn vị, công thức, điều kiện lọc, xử lý rỗng và đường dẫn kiểm tra.
+   - Đặc tả 2 biểu đồ (SVG cột đôi 12 tháng theo ngày xác nhận nhập học và thanh ngang theo khóa học đăng ký ban đầu), Top 5 CTV (tính trên `rewards.status = 'APPROVED'`), 5 khách hàng gần đây và 5 sự kiện audit logs (chỉ dành cho Admin).
+   - Thiết lập cơ chế Phân tầng hiển thị linh hoạt (Permission-Aware Redaction): Ẩn dữ liệu tài chính nếu Staff không có quyền `rewards.summary`.
+   - Lập bảng Truth Table kiểm thử công thức cho 16 kịch bản biên thực tế.
+2. **Tài liệu bàn giao**:
+   - `/docs/A9_2_ADMIN_DASHBOARD_METRICS_SPEC.md`.
+3. **Kết luận bước A9.2**: **HOÀN THÀNH 100% ĐẶC TẢ CHỈ SỐ VÀ CÁCH TÍNH A9.2**. Sẵn sàng chuyển sang bước thiết kế API và giao diện A9.3. (Dừng tại A9.2 theo yêu cầu, chưa sửa UI, chưa tạo API hoặc thay đổi CSDL).
+
+---
+
+### 55. Chốt quyền Admin / Staff cho module Tổng quan Quản trị (A9.3)
+1. **Phạm vi & Mục tiêu**:
+   - Rà soát toàn bộ cơ chế xác thực phiên, middleware `requireStaffOrAdmin`, `requireAdminOnly`, `requirePermission` và các hàm RPC `fn_get_user_permissions`, `fn_has_permission`.
+   - Chốt quyền truy cập A9: Admin và Staff đang hoạt động được phép truy cập Tổng quan; CTV và tài khoản bị vô hiệu hóa bị chặn (HTTP 403).
+   - Thiết lập Ma trận Phân quyền 3 Khối:
+     - **Khối A (Tuyển sinh & Vận hành chung)**: Admin và Staff đều xem được toàn bộ 11 chỉ số, biểu đồ và 5 khách gần đây.
+     - **Khối B (Thù lao & Top CTV)**: Chỉ Admin hoặc Staff có quyền `rewards.summary` mới xem được số tiền và số khoản. Staff không có quyền sẽ nhận `reason_code: "PERMISSION_DENIED"` và ẩn toàn bộ thẻ thù lao + Top 5 CTV.
+     - **Khối C (Nhật ký kiểm toán)**: Chỉ dành riêng cho Admin (`requireAdminOnly`).
+   - Phân lập độc lập giữa các quyền A5: `rewards.summary` (xem số liệu) và `rewards.view` (xem danh sách) không tự động kế thừa nhau.
+   - Chốt cơ chế bảo mật PII: Hiển thị đầy đủ số điện thoại khách hàng cho cán bộ tuyển sinh; không trả CCCD, tài khoản ngân hàng, ghi chú nội bộ hoặc biên lai trong API summary.
+   - Cơ chế thu hồi quyền thời gian thực: Backend kiểm tra quyền qua RPC theo từng request, client xóa sạch dữ liệu nhạy cảm khi đăng xuất/đổi tài khoản.
+   - Lập ma trận kiểm thử phân quyền cho 17 kịch bản chi tiết.
+2. **Tài liệu bàn giao**:
+   - `/docs/A9_3_ADMIN_STAFF_ACCESS_SPEC.md`.
+3. **Kết luận bước A9.3**: **HOÀN THÀNH 100% ĐẶC TẢ PHÂN QUYỀN A9.3**. Sẵn sàng chuyển sang bước thiết kế giao diện A9.4 và xây dựng API A9.5. (Dừng tại A9.3 theo yêu cầu, chưa sửa UI, chưa tạo API hoặc thay đổi CSDL).
+
+---
+
+### 56. Chốt Bố cục và Bộ lọc Tổng quan Quản trị Admin / Staff (A9.4)
+1. **Phạm vi & Quyết định cốt lõi**:
+   - Hoàn thành thiết kế kiến trúc giao diện, hệ thống bộ lọc, cơ chế phân bổ thẻ chỉ số, biểu đồ, bảng biểu và điều hướng module Tổng quan Quản trị Admin / Staff (A9).
+   - **LOẠI BỎ HOÀN TOÀN KHỐI NHẬT KÝ KIỂM TOÁN (Hoạt động quản trị gần đây)**: Thống nhất loại bỏ khỏi Dashboard A9 cho cả Admin và Staff (thay thế định hướng nhật ký trong A9.1–A9.3). Mô-đun `/admin/audit` độc lập vẫn được duy trì nguyên vẹn cho Admin.
+   - **Cấu trúc 6 Khối giao diện chuẩn hóa**:
+     - **Khối 1**: Tiêu đề, bộ lọc (Năm tuyển sinh, Đợt/Khóa, Khoảng ngày, Trạng thái EGOV link), nút thao tác (Áp dụng, Đặt lại, Tải lại) và nhãn thời gian cập nhật theo giờ Việt Nam (`HH:mm:ss DD/MM/YYYY`).
+     - **Khối 2**: Kết quả tuyển sinh trong kỳ (4 thẻ chính: Tổng lượt ĐK, Nhập học, Tỷ lệ nhập học, Chưa nhập học).
+     - **Khối 3**: Trạng thái hồ sơ & Vận hành (4 thẻ phụ: Chờ xử lý/chăm sóc, Rút/Hủy hồ sơ, Liên kết EGOV, CTV đang hoạt động).
+     - **Khối 4**: Thù lao trong kỳ (2 thẻ tài chính: Đang chờ duyệt, Đã duyệt chi). Tự động ẩn sạch sẽ khi người dùng không có quyền `rewards.summary`, hiển thị banner thông báo thân thiện.
+     - **Khối 5**: Trực quan hóa & Xu hướng (Biểu đồ đường/cột 12 tháng gần nhất & Biểu đồ thanh ngang phân bổ theo ngành/khóa).
+     - **Khối 6**: Danh sách theo dõi nhanh (5 lượt đăng ký mới nhất có số điện thoại đầy đủ cho cán bộ + Bảng Top 5 CTV xuất sắc có kiểm tra quyền thù lao).
+   - **Thiết kế Responsive & Trạng thái UI**:
+     - Định nghĩa chi tiết Loading Skeleton, Error State, Empty Data State, Permission Denied State.
+     - Đồng bộ quy chuẩn định dạng số Việt Nam (`vi-VN`), tiền tệ VND, tỷ lệ phần trăm (1 chữ số thập phân).
+     - Đặt nền móng kỹ thuật và lộ trình tiếp theo: A9.5A/B (API Summary), A9.6 (Giao diện tổng quan), A9.7A/B (Biểu đồ xu hướng & phân bổ), A9.8A/B (Danh sách & Bảng xếp hạng), A9.9 (Nghiệm thu toàn diện).
+2. **Tài liệu bàn giao**:
+   - `/docs/A9_4_ADMIN_DASHBOARD_LAYOUT_FILTER_SPEC.md`.
+3. **Kết luận bước A9.4**: **HOÀN THÀNH 100% ĐẶC TẢ BỐ CỤC VÀ BỘ LỌC A9.4**. Dừng tại A9.4 theo yêu cầu, chưa xây API, chưa sửa UI, chưa thay đổi CSDL hoặc phân quyền.
+
+---
+
+### 57. Triển khai API Chỉ số và Việc chờ xử lý Admin / Staff (A9.5A)
+1. **Phạm vi & Triển khai thực tế**:
+   - Triển khai endpoint `GET /api/v1/admin/dashboard/summary` phục vụ module Tổng quan quản trị Admin/Staff.
+   - Xây dựng 4 khối dữ liệu chuẩn hóa:
+     - **Bộ lọc & Thời gian**: Hỗ trợ 5 giá trị `period` (`THIS_MONTH`, `LAST_MONTH`, `THIS_YEAR`, `ALL_TIME`, `CUSTOM`), tính toán ranh giới ngày chính xác theo múi giờ `Asia/Ho_Chi_Minh` (UTC+7), quy đổi sang UTC `start_utc` (inclusive) và `end_utc_exclusive` (exclusive). Validate lịch thực tế (phát hiện ngày 30/02, 31/04) và khoảng ngày đảo ngược.
+     - **Chỉ số tuyển sinh trong kỳ (Recruitment Metrics)**: `total_leads`, `not_enrolled_leads`, `enrolled_leads`, `withdrawn_leads`, `enrollment_rate` (%), `egov_active_leads`, `matched_valid_leads`. Đảm bảo bất biến `total = not_enrolled + enrolled + withdrawn`.
+     - **Mạng lưới CTV toàn hệ thống (Affiliate Network Metrics)**: `total_affiliates`, `active_affiliates`, `pending_affiliates`, `suspended_affiliates`, `rejected_affiliates` (chỉ tính `profiles.role = 'affiliate'`).
+     - **Việc chờ xử lý toàn hệ thống (Operational Backlog)**: `pending_affiliates`, `new_leads_to_contact` (loại trừ hồ sơ WITHDRAWN và ENROLLED), `pending_reconciliation_leads` (hồ sơ chưa nhập học và chưa có đối soát hiệu lực).
+     - **Metadata**: `timezone: "Asia/Ho_Chi_Minh"`, `generated_at`, `data_scope: "SYSTEM_WIDE"`.
+   - **Xác thực & Bảo mật**:
+     - Bảo vệ bởi `requireStaffOrAdmin` (Admin & Staff đang hoạt động truy cập thành công, Staff không có quyền A5 vẫn gọi summary bình thường, tài khoản CTV/vô hiệu hóa bị chặn 403, chưa đăng nhập trả 401).
+     - Header bảo mật: `Cache-Control: private, no-store`.
+   - **Cơ sở dữ liệu & Migration**:
+     - Tạo migration `/supabase/migrations/20261007000001_admin_dashboard_summary_rpc.sql` khai báo hàm RPC `fn_get_admin_dashboard_summary_metrics` với `SECURITY DEFINER` và `SET search_path = public`.
+   - **Client Types & SDK**:
+     - Bổ sung `AdminDashboardSummaryData`, `AdminDashboardSummaryResponse` vào `/src/types/index.ts`.
+     - Bổ sung phương thức `api.getAdminDashboardSummary(params)` vào `/src/services/api.ts`.
+2. **Kết quả kiểm thử (14/14 PASS)**:
+   - Đã chạy kiểm thử tự động 14 ca test kịch bản API trực tiếp trên server: Xác thực Admin (200), Staff (200), No-auth (401), Affiliate (403), Disabled (403), Invalid Period (400), Invalid Course UUID (400), Non-existent Course (400), CUSTOM missing dates (400), CUSTOM invalid date (400), CUSTOM reversed range (400), ALL_TIME (200), UNASSIGNED affiliate (200), Invariant check (PASS: 8 = 7 + 1 + 0).
+3. **Tài liệu bàn giao**:
+   - `/docs/A9_5A_ADMIN_DASHBOARD_METRICS_BACKLOG_API_REPORT.md`.
+4. **Kết luận bước A9.5A**: **HOÀN THÀNH 100% VÀ ĐÃ ĐƯỢC KIỂM CHỨNG TOÀN DIỆN**. Sẵn sàng chuyển sang bước A9.5B (API Thù lao & Top CTV). (Dừng tại A9.5A theo yêu cầu, chưa xây dựng UI hay các bước sau).
+
+---
+
+### 58. Triển khai API Thù lao Tổng quan Quản trị Admin / Staff (A9.5B)
+1. **Phạm vi & Triển khai thực tế**:
+   - Mở rộng endpoint `GET /api/v1/admin/dashboard/summary` bổ sung khối dữ liệu Thù lao (`rewards`).
+   - **Phân quyền chặt chẽ (`rewards.summary`)**:
+     - Admin: Toàn quyền truy cập số liệu thù lao (`available: true`).
+     - Staff có quyền hiệu lực `rewards.summary` (qua `fn_has_permission` hoặc nhóm `reward_manager`): Truy cập thành công số liệu thù lao (`available: true`).
+     - Staff không có quyền `rewards.summary` (kể cả khi có `rewards.view`/`rewards.view_detail`): Phản hồi HTTP 200 an toàn, khối thù lao bị che giấu (`available: false`, `reason_code: "PERMISSION_DENIED"`, các trường số tiền là `null`).
+   - **Công thức tính toán Thù lao**:
+     - `pending_all`: `COUNT(rewards.id)` và `SUM(rewards.amount)` trạng thái `PENDING_APPROVAL` toàn hệ thống (All-Time).
+     - `approved_period`: `COUNT(rewards.id)` và `SUM(rewards.amount)` trạng thái `APPROVED` có `approved_at` nằm trong kỳ lọc chuẩn hóa.
+     - `approved_all`: `COUNT(rewards.id)` và `SUM(rewards.amount)` trạng thái `APPROVED` toàn hệ thống (All-Time).
+     - `paid`: `available: false`, `reason_code: "PAYMENT_TRACKING_NOT_AVAILABLE"`.
+     - `approved_missing_date_count`: Đếm các khoản duyệt thiếu ngày để báo cáo minh bạch.
+   - **Bảo mật môi trường**:
+     - Khóa token demo `demo-session-token-*` khi chạy trên môi trường `NODE_ENV === 'production'` (trả về 401 `UNAUTHORIZED_DEMO_TOKEN`).
+   - **Cơ sở dữ liệu & Migration**:
+     - Tạo migration `/supabase/migrations/20261007000002_admin_dashboard_summary_with_rewards_rpc.sql` nâng cấp hàm RPC `fn_get_admin_dashboard_summary_metrics`.
+   - **Client Types & SDK**:
+     - Bổ sung các kiểu dữ liệu `AdminDashboardRewardsMetrics` và cập nhật `AdminDashboardSummaryData` trong `/src/types/index.ts`.
+   - **Điều chỉnh lộ trình**:
+     - Bảng xếp hạng Top 5 CTV xuất sắc sẽ được triển khai tại bước **A9.8A** (kèm danh sách 5 khách gần đây A9.8B), không triển khai trong bước API thù lao A9.5B.
+2. **Kết quả kiểm thử**:
+   - Đã kiểm thử tự động toàn diện: Admin có quyền (200), Staff không có quyền (200 redaction null), Staff có `reward_manager` (200 xem đủ tiền), Staff đổi sang `reward_viewer` (200 redaction null), Lọc kỳ `LAST_MONTH` (approved_period = 0), `ALL_TIME` (approved_period = approved_all = 500.000đ), Lọc khóa học (thù lao giữ nguyên phạm vi toàn trường), Hồi quy A9.5A (100% PASS).
+3. **Tài liệu bàn giao**:
+   - `/docs/A9_5B_ADMIN_DASHBOARD_REWARDS_API_REPORT.md`.
+4. **Kết luận bước A9.5B**: **HOÀN THÀNH 100% VÀ ĐÃ ĐƯỢC KIỂM CHỨNG TOÀN DIỆN**. Sẵn sàng chuyển sang bước A9.6 (Giao diện Tổng quan & Bộ lọc).
+
+---
+
+### 59. Triển khai Giao diện Nền và Các Thẻ Tổng hợp Admin / Staff (A9.6)
+1. **Phạm vi & Triển khai thực tế**:
+   - Xây dựng component `AdminDashboardView.tsx` (`/src/components/admin/AdminDashboardView.tsx`) và tích hợp vào router của ứng dụng tại `/src/App.tsx`.
+   - **Định tuyến & Layout**:
+     - Route `/admin` và `/admin/` render trực tiếp `AdminDashboardView`.
+     - Bảo toàn nguyên vẹn các module quản trị chuyên biệt (`/admin/affiliates`, `/admin/courses`, `/admin/leads`, `/admin/reconcile`, `/admin/rewards`, `/admin/audit`, `/admin/homepage`, `/admin/staff-accounts`, `/admin/permissions`, `/admin/system-settings`).
+     - Sidebar Header đánh dấu menu "Tổng quan" active chính xác.
+   - **Khối 1: Tiêu đề, Bộ lọc & Thanh thao tác**:
+     - Tiêu đề gọn gàng: "Tổng quan quản trị", mô tả: "Theo dõi tuyển sinh, mạng lưới cộng tác viên và thù lao trong hệ thống."
+     - Bộ lọc 4 chiều: Kỳ thời gian (5 lựa chọn), Khoảng ngày (tùy chọn với validate `from_date <= to_date`), Khóa học (tải động từ CSDL), CTV (Combobox autocomplete debounce 400ms, max 20 kết quả, hỗ trợ "Tất cả CTV" và "Không gắn CTV").
+     - Thanh nút: Áp dụng (Navy), Đặt lại (Reset về mặc định), Tải lại dữ liệu (RotateCcw với spinner), Nhãn mốc thời gian cập nhật `HH:mm:ss DD/MM/YYYY` (Giờ Việt Nam).
+     - Đồng bộ Query String lên URL và bảo vệ Race Condition bất đồng bộ.
+   - **Khối 2: Kết quả Tuyển sinh trong kỳ**:
+     - 4 Thẻ chính: Tổng lượt đăng ký, Chưa nhập học, Đã nhập học, Tỷ lệ nhập học.
+     - Thanh 3 thông số phụ: Đã rút học, Đã gắn mã EGOV, Nguồn CTV hợp lệ.
+     - Clickable cards điều hướng sang `/admin/leads` với bộ lọc tương ứng.
+   - **Khối 3: Mạng lưới CTV & Việc cần xử lý ngay**:
+     - 3A: Tổng số CTV toàn thời gian, phân rã 3 trạng thái Hoạt động / Chờ duyệt / Tạm ngưng.
+     - 3B: Việc tồn đọng: Khách mới cần liên hệ (nổi bật badge cam) điều hướng `/admin/leads?status=NEW`, Hồ sơ chưa đối chiếu điều hướng `/admin/reconcile`.
+   - **Khối 4: Thù lao Tuyển sinh (Kiểm soát quyền)**:
+     - Hiển thị khi `rewards.available === true` (Admin hoặc Staff có `rewards.summary`).
+     - 3 Thẻ thù lao: Thù lao chờ duyệt, Thù lao đã duyệt trong kỳ, Tổng thù lao đã duyệt còn hiệu lực.
+     - Tự động ẩn hoàn toàn và co giãn giao diện liền mạch khi Staff thiếu quyền.
+     - Ghi chú: `* Thưởng đã duyệt không đồng nghĩa với đã thanh toán. Hệ thống hiện chưa có dữ liệu theo dõi chi trả tài chính.`
+2. **Kết quả kiểm thử & Nghiệm thu**:
+   - `npm run build` và `tsc --noEmit` hoàn thành thành công 0 lỗi.
+   - Kiểm thử tự động trên server: Admin xem đủ 4 khối gồm Thù lao, Staff không có quyền `rewards.summary` được hiển thị an toàn với 3 khối (Thù lao ẩn hoàn toàn).
+   - Bộ lọc, autocomplete CTV, reset và điều hướng URL hoạt động chuẩn xác.
+3. **Tài liệu bàn giao**:
+   - `/src/components/admin/AdminDashboardView.tsx`.
+   - `/docs/A9_6_ADMIN_DASHBOARD_CARDS_UI_REPORT.md`.
+4. **Kết luận bước A9.6**: **HOÀN THÀNH 100% VÀ ĐÃ KIỂM THỬ THÀNH CÔNG**. Sẵn sàng chuyển sang bước A9.7A & A9.7B (API và Giao diện Biểu đồ SVG).
+
+---
+
+### 60. Triển khai API Biểu đồ Tuyển sinh Admin / Staff (A9.7A)
+1. **Phạm vi & Triển khai thực tế**:
+   - Bổ sung 2 nhóm dữ liệu biểu đồ vào endpoint `GET /api/v1/admin/dashboard/summary`:
+     1. `monthly_trend`: Xu hướng đăng ký và nhập học trong 12 tháng liên tục tính đến tháng hiện tại theo múi giờ Việt Nam (`Asia/Ho_Chi_Minh` UTC+07:00).
+        - Trả về đúng 12 phần tử liên tục theo thứ tự thời gian (`points`).
+        - `leads_count`: Số lượt đăng ký tạo trong tháng.
+        - `enrolled_count`: Số học viên được xác nhận nhập học chính thức có mốc `reconciled_at` trong tháng.
+        - `metadata`: `{ scope: 'ROLLING_12_MONTHS', timezone: 'Asia/Ho_Chi_Minh', enrolled_missing_date_count: number }`.
+        - Cố định 12 tháng liên tục không phụ thuộc vào `period`, nhưng tuân thủ theo bộ lọc `course_id` và `affiliate_id` nếu người dùng chọn.
+     2. `course_breakdown`: Kết quả tuyển sinh theo từng khóa học đăng ký trong kỳ chọn.
+        - Bao gồm toàn bộ danh mục khóa học kết hợp nhóm `UNASSIGNED` (lead chưa chọn khóa).
+        - Trả về: `course_id`, `course_code`, `course_title`, `total_leads`, `enrolled_leads`, `enrollment_rate` (%).
+        - Sắp xếp giảm dần theo `total_leads`, sau đó `enrolled_leads`.
+        - Tuân thủ đầy đủ bộ lọc thời gian (`period`, `from_date`, `to_date`), `course_id`, và `affiliate_id`.
+   - **Phân quyền**:
+     - Cả Admin và Staff đang hoạt động đều được quyền xem 2 biểu đồ tuyển sinh (không yêu cầu `rewards.summary`).
+     - Staff thiếu quyền tài chính vẫn nhận 2 biểu đồ bình thường, khối `rewards` ẩn an toàn.
+   - **Mã nguồn & Migration**:
+     - `/src/types/index.ts`: Bổ sung các interfaces `AdminDashboardMonthlyTrendPoint`, `AdminDashboardMonthlyTrend`, `AdminDashboardCourseStat`, `AdminDashboardCourseBreakdown`, cập nhật `AdminDashboardSummaryData`.
+     - `/supabase/migrations/20261007000003_admin_dashboard_summary_charts_rpc.sql`: Nâng cấp RPC `fn_get_admin_dashboard_summary_metrics` hỗ trợ tính toán 12 tháng liên tục và phân bố khóa học nguyên tử.
+     - `/server.ts`: Cập nhật endpoint `GET /api/v1/admin/dashboard/summary` tính toán và trả về đầy đủ `monthly_trend` và `course_breakdown`.
+2. **Kết quả kiểm thử & Nghiệm thu**:
+   - `npm run build` và `tsc --noEmit` hoàn thành thành công 0 lỗi.
+   - Kịch bản Admin: Trả về đầy đủ 12 tháng liên tục, 8 khóa học và khối thù lao `available: true`.
+   - Kịch bản Staff: Trả về đầy đủ 12 tháng liên tục, 8 khóa học và khối thù lao `available: false` (`PERMISSION_DENIED`).
+   - Kịch bản Lọc 1 khóa học: `course_breakdown` thu hẹp về 1 khóa học tương ứng, `monthly_trend` lọc dữ liệu theo khóa học đó trên 12 tháng.
+   - Kịch bản Chưa đăng nhập: Chặn 401 Unauthorized an toàn.
+3. **Tài liệu bàn giao**:
+   - `/docs/A9_7A_ADMIN_DASHBOARD_CHARTS_API_REPORT.md`.
+4. **Kết luận bước A9.7A**: **HOÀN THÀNH 100% VÀ ĐÃ KIỂM CHỨNG TỰ ĐỘNG**. Sẵn sàng chuyển sang bước A9.7B (Giao diện Biểu đồ SVG). Dừng tại A9.7A theo yêu cầu.
+
+---
+
+### 61. Triển khai Giao diện Biểu đồ Tuyển sinh Admin / Staff (A9.7B)
+1. **Mục tiêu & Phạm vi**:
+   - Tích hợp 2 biểu đồ tuyển sinh chuyên sâu vào màn hình Tổng quan quản trị (`AdminDashboardView.tsx`), đặt ngay dưới Khối 4 (Thù lao tuyển sinh).
+   - Tái sử dụng dữ liệu từ kết quả `GET /api/v1/admin/dashboard/summary` duy nhất, không gọi thêm request trùng lặp.
+2. **Các thành phần đã triển khai**:
+   - **Khối 5A — Biểu đồ xu hướng 12 tháng (`monthly_trend`)**:
+     - Cột đôi SVG thuần (Đăng ký: Xanh dương `#2563eb`, Đã nhập học: Xanh ngọc `#10b981`).
+     - Trục Y số nguyên tự động co giãn, trục X nhãn tháng bảo toàn năm (`T11/2025`, `T12/2025`...).
+     - Hover tương tác hiển thị Tooltip nổi chi tiết.
+     - Cảnh báo nếu có hồ sơ nhập học thiếu mốc đối chiếu (`enrolled_missing_date_count`).
+     - Không tính tỷ lệ chuyển đổi trực tiếp theo tháng.
+   - **Khối 5B — Phân bố theo khóa đăng ký (`course_breakdown`)**:
+     - Thanh tổng hợp nhanh: Tổng số khóa, Tổng ĐK, Tổng nhập học, Tỷ lệ nhập học chung toàn kỳ.
+     - Danh sách khóa học có Badge mã khóa, tên khóa, số ĐK, số NH, tỷ lệ % và thanh tỷ lệ trực quan (`ratio progress bar`).
+     - Nhấp chuột vào từng khóa học điều hướng sang `/admin/leads?course_id=...`.
+     - Xử lý trạng thái trống (`Empty State`) thân thiện.
+3. **Tài liệu bàn giao**:
+   - `/docs/A9_7B_ADMIN_DASHBOARD_CHARTS_UI_REPORT.md`.
+4. **Kết luận bước A9.7B**: **HOÀN THÀNH 100% VÀ ĐÃ KIỂM CHỨNG GIAO DIỆN & BUILD**. Sẵn sàng chuyển sang bước tiếp theo (A9.8 — Danh sách khách gần đây & Top CTV).
+
+---
+
+## 62. TRIỂN KHAI API DANH SÁCH GẦN ĐÂY VÀ TOP CTV ADMIN / STAFF (A9.8A)
+- **Thời gian hoàn tất**: 07/10/2026.
+- **Phạm vi hoàn thành**:
+  1. **Bổ sung hai khối dữ liệu vào endpoint `GET /api/v1/admin/dashboard/summary`**:
+     - `recent_leads`: Tối đa 5 lượt đăng ký gần đây nhất trong tập lọc tuyển sinh (`period`, `course_id`, `affiliate_id`). Đầy đủ số điện thoại không che, mã/tên khóa học, mã/tên CTV, trạng thái tư vấn và trạng thái nhập học chuẩn hóa (`resolveAuthoritativeAdmissionStatus`).
+     - `leaderboard`: Bảng xếp hạng Top 5 CTV tiêu biểu toàn hệ thống (`SYSTEM_WIDE_ALL_TIME`), xếp theo tổng tiền thù lao đã được duyệt (`status = 'APPROVED'`) với điều kiện CTV `ACTIVE`, tài khoản `is_active = TRUE`, xếp hạng chuẩn Standard Competition Ranking (1, 2, 2, 4) và thứ tự phụ `affiliate_code ASC`.
+  2. **Bảo mật và phân quyền an toàn**:
+     - `recent_leads`: Cả Admin và Staff đều được xem.
+     - `leaderboard`: Chỉ Admin hoặc Staff có quyền `rewards.summary` mới xem được số liệu và danh sách vinh danh. Staff không có quyền sẽ nhận `leaderboard: { available: false, reason_code: 'PERMISSION_DENIED', items: null }` mà không làm lỗi toàn bộ summary (HTTP 200).
+  3. **Migration CSDL PostgreSQL RPC**:
+     - Tạo `/supabase/migrations/20261007000004_admin_dashboard_summary_recent_leads_leaderboard_rpc.sql` nâng cấp hàm `fn_get_admin_dashboard_summary_metrics`.
+  4. **Kiểm thử tự động backend**:
+     - Kịch bản `/scripts/verify_a9_8a_recent_leads_leaderboard_api.ts` đạt **33/33 tiêu chí (100%)**.
+- **Tài liệu bàn giao**:
+  - `/docs/A9_8A_ADMIN_DASHBOARD_RECENT_LEADS_LEADERBOARD_API_REPORT.md`.
+- **Kết luận bước A9.8A**: **HOÀN THÀNH 100% VÀ ĐÃ KIỂM CHỨNG TỰ ĐỘNG**. Sẵn sàng chuyển sang bước tiếp theo (A9.8B — Giao diện Khách gần đây & Top CTV).
+
+---
+
+## 63. TRIỂN KHAI GIAO DIỆN DANH SÁCH GẦN ĐÂY VÀ TOP CTV ADMIN / STAFF (A9.8B)
+- **Thời gian hoàn tất**: 07/10/2026.
+- **Phạm vi hoàn thành**:
+  1. **Tích hợp trọn vẹn Khối 6 vào `AdminDashboardView.tsx`**:
+     - **Khối 6A (Bảng khách hàng đăng ký gần đây)**:
+       - Hiển thị tối đa 5 lượt đăng ký mới nhất theo đúng tập lọc tuyển sinh đang chọn (`period`, `course_id`, `affiliate_id`).
+       - Cột thông tin: Họ tên + SĐT đầy đủ không che, Khóa đăng ký, CTV giới thiệu (hoặc Tự nhiên), Ngày đăng ký chuẩn múi giờ `Asia/Ho_Chi_Minh` (`DD/MM/YYYY HH:mm`), Badge trạng thái tư vấn (NEW, CONTACTED, CONSULTING, UNREACHABLE, LOST), Badge trạng thái nhập học chuẩn hóa (ENROLLED, NOT_ENROLLED, WITHDRAWN), Nút "Chi tiết" điều hướng trực tiếp đến `/admin/leads/:id`.
+       - Nút "Xem tất cả" điều hướng sang `/admin/leads` kèm toàn bộ query parameters của bộ lọc đang áp dụng.
+       - Hỗ trợ Skeleton loader và Empty State thân thiện, container có `overflow-x-auto` chống tràn trang trên mobile.
+     - **Khối 6B (Bảng vinh danh Top 5 CTV tiêu biểu)**:
+       - Hiển thị tối đa 5 CTV có thù lao đã duyệt cao nhất toàn hệ thống toàn thời gian (`SYSTEM_WIDE_ALL_TIME`).
+       - Phân cấp thứ hạng trực quan: Hạng 1 (Gold viền vàng/huy hiệu vàng), Hạng 2 (Silver), Hạng 3 (Bronze), Hạng 4-5 (Slate).
+       - Hiển thị tên CTV, mã CTV, số lượng khoản đã duyệt và tổng tiền thưởng đã duyệt định dạng VNĐ.
+       - Tương tác nhấp dòng chuyển hướng đến `/admin/rewards?affiliate_id=...` hoặc `/admin/affiliates`.
+  2. **Kiểm soát phân tầng quyền hiển thị (RBAC)**:
+     - Có quyền thù lao (`leaderboard.available = true`): Khối 6A chiếm 7/8 cột, Khối 6B chiếm 5/4 cột.
+     - Không có quyền thù lao (`leaderboard.available = false`): Khối 6B tự động ẩn hoàn toàn, Khối 6A tự động chiếm trọn 100% chiều ngang (`lg:col-span-12`), giao diện liền mạch, không gián đoạn.
+  3. **Kiểm chứng chất lượng & Build**:
+     - Linter `tsc --noEmit`: 0 lỗi.
+     - Build applet thành công 100%.
+     - Kịch bản kiểm thử `/scripts/verify_a9_8b_ui_contract.ts` xác thực trọn vẹn dữ liệu và phân quyền.
+- **Tài liệu bàn giao**:
+  - `/docs/A9_8B_ADMIN_DASHBOARD_RECENT_LEADS_LEADERBOARD_UI_REPORT.md`.
+- **Kết luận bước A9.8B**: **HOÀN THÀNH 100% VÀ ĐÃ KIỂM CHỨNG GIAO DIỆN & BUILD**. Sẵn sàng chuyển sang bước tiếp theo (A9.9 — Kiểm thử tự động E2E toàn diện và nghiệm thu phân hệ Tổng quan quản trị). Dừng lại theo đúng yêu cầu sau bước A9.8B.
+
+
+
+
+
+
+
+
+
 
 
 

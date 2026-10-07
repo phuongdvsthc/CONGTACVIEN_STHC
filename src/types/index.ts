@@ -424,3 +424,209 @@ export interface CodeGeneratorStats {
   sequence_active: boolean;
 }
 
+// ----------------------------------------------------------------------------
+// A9 — ADMIN DASHBOARD TYPES & CONTRACTS
+// ----------------------------------------------------------------------------
+export type AdminDashboardPeriod = 'THIS_MONTH' | 'LAST_MONTH' | 'THIS_YEAR' | 'ALL_TIME' | 'CUSTOM';
+
+export interface AdminDashboardSummaryFilters {
+  period: AdminDashboardPeriod;
+  from_date: string | null;
+  to_date: string | null;
+  start_utc: string | null;
+  end_utc_exclusive: string | null;
+  course_id: string;
+  affiliate_id: string;
+}
+
+export interface AdminDashboardRecruitmentMetrics {
+  total_leads: number;
+  not_enrolled_leads: number;
+  enrolled_leads: number;
+  withdrawn_leads: number;
+  enrollment_rate: number | null;
+  egov_active_leads: number;
+  matched_valid_leads: number;
+}
+
+export interface AdminDashboardAffiliateNetworkMetrics {
+  total_affiliates: number;
+  active_affiliates: number;
+  pending_affiliates: number;
+  suspended_affiliates: number;
+  rejected_affiliates: number;
+}
+
+export interface AdminDashboardBacklogMetrics {
+  pending_affiliates: number;
+  new_leads_to_contact: number;
+  pending_reconciliation_leads: number;
+}
+
+export interface AdminDashboardMetadata {
+  timezone: string;
+  generated_at: string;
+  data_scope: string;
+  recruitment_scope: string;
+  network_scope: string;
+  backlog_scope: string;
+}
+
+export interface AdminDashboardRewardAmountCount {
+  amount: number;
+  count: number;
+}
+
+export interface AdminDashboardPaidRewardStatus {
+  available: false;
+  amount: null;
+  count: null;
+  reason_code: 'PAYMENT_TRACKING_NOT_AVAILABLE';
+}
+
+export interface AdminDashboardRewardsAuthorizedMetadata {
+  currency: 'VND';
+  pending_scope: 'SYSTEM_WIDE_ALL_TIME';
+  approved_period_scope: 'SYSTEM_WIDE_SELECTED_APPROVAL_PERIOD';
+  approved_all_scope: 'SYSTEM_WIDE_ALL_TIME';
+  approved_missing_date_count: number;
+}
+
+export interface AdminDashboardRewardsMetricsAuthorized {
+  available: true;
+  pending_all: AdminDashboardRewardAmountCount;
+  approved_period: AdminDashboardRewardAmountCount;
+  approved_all: AdminDashboardRewardAmountCount;
+  paid: AdminDashboardPaidRewardStatus;
+  metadata: AdminDashboardRewardsAuthorizedMetadata;
+}
+
+export interface AdminDashboardRewardsMetricsDenied {
+  available: false;
+  reason_code: 'PERMISSION_DENIED';
+  pending_all: null;
+  approved_period: null;
+  approved_all: null;
+  paid: null;
+  metadata?: never;
+}
+
+export type AdminDashboardRewardsMetrics = AdminDashboardRewardsMetricsAuthorized | AdminDashboardRewardsMetricsDenied;
+
+export interface AdminDashboardMonthlyTrendPoint {
+  month_key: string;
+  month_label: string;
+  leads_count: number;
+  enrolled_count: number;
+}
+
+export interface AdminDashboardMonthlyTrendMetadata {
+  scope: string;
+  timezone: string;
+  enrolled_missing_date_count: number;
+}
+
+export interface AdminDashboardMonthlyTrend {
+  points: AdminDashboardMonthlyTrendPoint[];
+  metadata: AdminDashboardMonthlyTrendMetadata;
+}
+
+export interface AdminDashboardCourseStat {
+  course_id: string | null;
+  course_code: string;
+  course_title: string;
+  total_leads: number;
+  enrolled_leads: number;
+  enrollment_rate: number | null;
+}
+
+export interface AdminDashboardCourseBreakdownMetadata {
+  scope: string;
+  total_courses: number;
+}
+
+export interface AdminDashboardCourseBreakdown {
+  courses: AdminDashboardCourseStat[];
+  metadata: AdminDashboardCourseBreakdownMetadata;
+}
+
+export interface AdminDashboardRecentLead {
+  id: string;
+  full_name: string;
+  phone: string;
+  email: string | null;
+  course_id: string | null;
+  course_code: string | null;
+  course_title: string | null;
+  affiliate_id: string | null;
+  affiliate_code: string | null;
+  affiliate_name: string | null;
+  counseling_status: string;
+  admission_status: 'ENROLLED' | 'NOT_ENROLLED' | 'WITHDRAWN';
+  reconciliation_status: string | null;
+  created_at: string;
+}
+
+export interface AdminDashboardRecentLeadsMetadata {
+  scope: string;
+  total_returned: number;
+}
+
+export interface AdminDashboardRecentLeads {
+  leads: AdminDashboardRecentLead[];
+  metadata: AdminDashboardRecentLeadsMetadata;
+}
+
+export interface AdminDashboardLeaderboardItem {
+  rank: number;
+  affiliate_id: string;
+  user_id?: string;
+  affiliate_code: string;
+  affiliate_name: string;
+  approved_reward_amount: number;
+  approved_reward_count: number;
+}
+
+export interface AdminDashboardLeaderboardMetadata {
+  scope: string;
+  criteria: string;
+  total_returned: number;
+}
+
+export interface AdminDashboardLeaderboardAuthorized {
+  available: true;
+  items: AdminDashboardLeaderboardItem[];
+  metadata: AdminDashboardLeaderboardMetadata;
+}
+
+export interface AdminDashboardLeaderboardDenied {
+  available: false;
+  reason_code: 'PERMISSION_DENIED';
+  items: null;
+  metadata?: never;
+}
+
+export type AdminDashboardLeaderboard = AdminDashboardLeaderboardAuthorized | AdminDashboardLeaderboardDenied;
+
+export interface AdminDashboardSummaryData {
+  filters: AdminDashboardSummaryFilters;
+  recruitment: AdminDashboardRecruitmentMetrics;
+  affiliate_network: AdminDashboardAffiliateNetworkMetrics;
+  backlog: AdminDashboardBacklogMetrics;
+  rewards: AdminDashboardRewardsMetrics;
+  monthly_trend: AdminDashboardMonthlyTrend;
+  course_breakdown: AdminDashboardCourseBreakdown;
+  recent_leads: AdminDashboardRecentLeads;
+  leaderboard: AdminDashboardLeaderboard;
+  metadata: AdminDashboardMetadata;
+}
+
+export interface AdminDashboardSummaryResponse {
+  success: boolean;
+  data?: AdminDashboardSummaryData;
+  error?: string;
+  code?: string;
+}
+
+
+
