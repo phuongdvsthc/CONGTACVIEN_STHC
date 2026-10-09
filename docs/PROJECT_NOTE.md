@@ -2043,6 +2043,23 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
   - `/scripts/verify_c3_7_affiliate_notification_screen.ts`
 - **Kết luận bước C3.7**: **HOÀN THÀNH 100% MÀN HÌNH THÔNG BÁO CỘNG TÁC VIÊN**. Sẵn sàng cho bước **C3.8 (Header Bell & Popover)** tiếp theo.
 
+---
+
+### [2026-10-09] BƯỚC C3.10A: DỮ LIỆU HÀNG ĐỢI EMAIL (EMAIL QUEUE DATA FOUNDATION)
+- **Mục tiêu**: Xây dựng nền tảng dữ liệu hàng đợi email dùng chung (Outbox Queue) cho 2 luồng: `LEAD_REGISTRATION_CONFIRMATION` và `CTV_NOTIFICATION_EMAIL`.
+- **Tình trạng C3.6B**: **PARTIAL** (giữ nguyên theo quy định do phát sinh qua Node.js sau commit, chưa đạt yêu cầu nguyên tử tuyệt đối trong SQL).
+- **Kết quả C3.10A**: **HOÀN THÀNH (13/13 TEST CASES PASS)**.
+  - Tệp migration: `supabase/migrations/20261009000001_c3_email_queue_schema_and_integrity.sql`
+  - 2 bảng: `public.email_jobs` và `public.email_job_attempts`
+  - Ràng buộc: 11 CHECK constraints, khóa ngoại phức hợp `(notification_recipient_id, notification_id, recipient_user_id)` và `ON DELETE RESTRICT` bảo toàn kiểm toán.
+  - 7 chỉ mục hiệu năng O(1) phục vụ worker claim (`FOR UPDATE SKIP LOCKED`), stale locks, tra cứu lead/CTV.
+  - RLS: Cấm anon/authenticated, chỉ cấp quyền cho `service_role`.
+  - 3 RPC nội bộ: `fn_enqueue_email_job`, `fn_claim_email_jobs`, `fn_complete_email_job`.
+  - Service: `src/services/emailQueueService.ts` với Idempotency Key builders, Snapshot builders, PII masking, loại trừ secret keys, và xử lý `BLOCKED` khi thiếu `official_registration_url`.
+  - Báo cáo bàn giao: `docs/C3_10A_EMAIL_QUEUE_DATA_REPORT.md`.
+  - Trạng thái DB: Migration sẵn sàng trong repo; Remote Supabase DB ở trạng thái PENDING_DEPLOYMENT (chờ thực thi qua SQL Editor).
+- **Bước tiếp theo**: C3.10B — Tích hợp lưu lead và enqueue email xác nhận trong cùng transaction.
+
 
 
 

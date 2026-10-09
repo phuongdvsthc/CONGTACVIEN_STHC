@@ -15,6 +15,7 @@
  */
 
 import { SupabaseClient } from '@supabase/supabase-js';
+import { buildCtvNotificationSnapshot, isValidEmailFormat } from './emailQueueService';
 
 export interface NotificationConsumerOptions {
   batchSize?: number;
@@ -328,7 +329,8 @@ export class NotificationEventConsumer {
         notificationId = insertedNotif.id;
       }
 
-      // 2.4 Phân phối người nhận vào notification_recipients
+      // 2.4 Phân phối người nhận vào notification_recipients và enqueue email thông báo CTV
+      let notificationRecipientId: string | null = null;
       if (event.recipient_user_id) {
         const { data: existingRec } = await this.supabase
           .from('notification_recipients')
@@ -337,13 +339,63 @@ export class NotificationEventConsumer {
           .eq('user_id', event.recipient_user_id)
           .maybeSingle();
 
-        if (!existingRec) {
-          await this.supabase
+        if (existingRec) {
+          notificationRecipientId = existingRec.id;
+        } else {
+          const { data: insertedRec, error: recErr } = await this.supabase
             .from('notification_recipients')
             .insert({
               notification_id: notificationId,
               user_id: event.recipient_user_id,
-            });
+            })
+            .select('id')
+            .single();
+
+          if (!recErr && insertedRec) {
+            notificationRecipientId = insertedRec.id;
+          }
+        }
+
+        // 2.4.1 Enqueue CTV_NOTIFICATION_EMAIL nếu CTV có email hợp lệ
+        if (notificationRecipientId) {
+          try {
+            const { data: profileData } = await this.supabase
+              .from('profiles')
+              .select('email, full_name, affiliate_code')
+              .eq('id', event.recipient_user_id)
+              .single();
+
+            if (profileData && profileData.email && isValidEmailFormat(profileData.email)) {
+              const idempotencyKey = `ctv-notification:${notificationRecipientId}`;
+              const emailPayload = buildCtvNotificationSnapshot({
+                affiliateName: profileData.full_name || 'Cộng tác viên',
+                affiliateCode: profileData.affiliate_code || 'CTV',
+                notificationTitle: template.title,
+                notificationSummary: template.summary || template.content,
+                actionUrl: template.action_url ? `https://tuyensinh.sthc.edu.vn${template.action_url}` : undefined,
+                publishedAt: nowIso,
+              });
+
+              await this.supabase.rpc('fn_enqueue_email_job', {
+                p_email_type: 'CTV_NOTIFICATION_EMAIL',
+                p_idempotency_key: idempotencyKey,
+                p_recipient_email: profileData.email.trim().toLowerCase(),
+                p_recipient_name: profileData.full_name || null,
+                p_template_code: 'CTV_NOTIFICATION_EMAIL',
+                p_payload: emailPayload,
+                p_lead_id: null,
+                p_notification_id: notificationId,
+                p_notification_recipient_id: notificationRecipientId,
+                p_recipient_user_id: event.recipient_user_id,
+                p_template_version: 'v1',
+                p_priority: 100,
+                p_initial_status: 'PENDING',
+                p_blocked_reason: null,
+              });
+            }
+          } catch (emailEnqueueErr) {
+            console.warn('[Notification Consumer] Không thể enqueue email job cho CTV:', emailEnqueueErr);
+          }
         }
       }
 

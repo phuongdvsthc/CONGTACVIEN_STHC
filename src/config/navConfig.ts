@@ -11,6 +11,8 @@ import {
   History,
   Settings,
   Shield,
+  Mail,
+  Send,
   LucideIcon,
 } from 'lucide-react';
 
@@ -192,6 +194,28 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
     isActiveMatch: (currentPath: string) => {
       const clean = currentPath.split('?')[0].split('#')[0];
       return clean === '/admin/system-settings';
+    },
+  },
+  {
+    id: 'admin_email_templates',
+    title: 'Quản lý Mẫu Email',
+    path: '/admin/email-templates',
+    icon: Mail,
+    adminOnly: true,
+    isActiveMatch: (currentPath: string) => {
+      const clean = currentPath.split('?')[0].split('#')[0];
+      return clean === '/admin/email-templates';
+    },
+  },
+  {
+    id: 'admin_email_jobs',
+    title: 'Giám sát Hàng đợi Email',
+    path: '/admin/email-jobs',
+    icon: Send,
+    adminOnly: true,
+    isActiveMatch: (currentPath: string) => {
+      const clean = currentPath.split('?')[0].split('#')[0];
+      return clean === '/admin/email-jobs';
     },
   },
 ];

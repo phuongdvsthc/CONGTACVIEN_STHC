@@ -811,6 +811,7 @@ export const api = {
     data?: {
       settings: import('../types').SystemSettings;
       code_generator_stats: import('../types').CodeGeneratorStats;
+      email_credentials_status?: import('../types').EmailCredentialsStatus;
     };
     error?: string;
   }> {
@@ -818,7 +819,7 @@ export const api = {
   },
 
   async updateAdminSystemSettingsGroup(
-    group: 'branding' | 'operation' | 'registration' | 'affiliate_code',
+    group: 'branding' | 'operation' | 'registration' | 'affiliate_code' | 'email_service',
     payload: {
       expected_revision: number;
       data: Record<string, any>;
@@ -835,6 +836,124 @@ export const api = {
     return apiFetch(`/api/v1/admin/system-settings/${group}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
+    });
+  },
+
+  async verifyAdminEmailConnection(config?: Partial<import('../types').EmailServiceSettings>): Promise<import('../types').VerifyConnectionResult> {
+    return apiFetch('/api/v1/admin/email-service/verify-connection', {
+      method: 'POST',
+      body: JSON.stringify({ config }),
+    });
+  },
+
+  async sendAdminTestEmail(payload: {
+    recipient_email: string;
+    config?: Partial<import('../types').EmailServiceSettings>;
+  }): Promise<import('../types').SendTestEmailResult> {
+    return apiFetch('/api/v1/admin/email-service/send-test-email', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAdminEmailTemplates(): Promise<{
+    success: boolean;
+    data?: import('../types').EmailTemplateWithVersionsDTO[];
+    error?: string;
+  }> {
+    return apiFetch('/api/v1/admin/email-templates');
+  },
+
+  async saveAdminEmailTemplateDraft(
+    templateCode: string,
+    payload: {
+      version_code: string;
+      subject: string;
+      body_html: string;
+      body_text?: string;
+      button_label?: string;
+      footer_text?: string;
+      expected_revision?: number;
+      change_reason?: string;
+    }
+  ): Promise<{
+    success: boolean;
+    message?: string;
+    version?: import('../types').EmailTemplateVersionDTO;
+    error?: string;
+    code?: string;
+  }> {
+    return apiFetch(`/api/v1/admin/email-templates/${templateCode}/versions`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async publishAdminEmailTemplateVersion(
+    versionId: string,
+    changeReason?: string
+  ): Promise<{
+    success: boolean;
+    message?: string;
+    published_version?: import('../types').EmailTemplateVersionDTO;
+    error?: string;
+  }> {
+    return apiFetch(`/api/v1/admin/email-templates/versions/${versionId}/publish`, {
+      method: 'POST',
+      body: JSON.stringify({ change_reason: changeReason }),
+    });
+  },
+
+  async getAdminEmailJobs(params?: {
+    q?: string;
+    type?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data?: import('../types').EmailJobDTO[];
+    pagination?: { page: number; limit: number; total: number; totalPages: number };
+    error?: string;
+  }> {
+    const searchParams = new URLSearchParams();
+    if (params?.q) searchParams.set('q', params.q);
+    if (params?.type && params.type !== 'ALL') searchParams.set('type', params.type);
+    if (params?.status && params.status !== 'ALL') searchParams.set('status', params.status);
+    if (params?.page) searchParams.set('page', String(params.page));
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    const qs = searchParams.toString();
+    return apiFetch(`/api/v1/admin/email-jobs${qs ? `?${qs}` : ''}`);
+  },
+
+  async getAdminEmailJobDetail(id: string): Promise<{
+    success: boolean;
+    job?: import('../types').EmailJobDTO;
+    attempts?: import('../types').EmailJobAttemptDTO[];
+    error?: string;
+  }> {
+    return apiFetch(`/api/v1/admin/email-jobs/${id}`);
+  },
+
+  async retryAdminEmailJob(id: string): Promise<{
+    success: boolean;
+    message?: string;
+    job?: import('../types').EmailJobDTO;
+    error?: string;
+  }> {
+    return apiFetch(`/api/v1/admin/email-jobs/${id}/retry`, {
+      method: 'POST',
+    });
+  },
+
+  async resendAdminEmailJob(id: string): Promise<{
+    success: boolean;
+    message?: string;
+    new_job?: import('../types').EmailJobDTO;
+    error?: string;
+  }> {
+    return apiFetch(`/api/v1/admin/email-jobs/${id}/resend`, {
+      method: 'POST',
     });
   },
 

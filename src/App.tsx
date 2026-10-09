@@ -32,6 +32,8 @@ import { AdminHomepageConfigView } from './components/admin/AdminHomepageConfigV
 import { AdminSystemSettingsView } from './components/admin/AdminSystemSettingsView';
 import { AdminPermissionsView } from './components/admin/AdminPermissionsView';
 import { AdminNotificationsView } from './components/admin/AdminNotificationsView';
+import { AdminEmailTemplatesView } from './components/admin/AdminEmailTemplatesView';
+import { AdminEmailJobsView } from './components/admin/AdminEmailJobsView';
 import { AppLayout } from './components/common/AppLayout';
 import { AccessNoticeScreen } from './components/common/AccessNoticeScreen';
 import { ProfileDetailView } from './components/common/ProfileDetailView';
@@ -604,6 +606,14 @@ export default function App() {
 
             {currentPath === '/admin/permissions' && (
               <AdminPermissionsView currentUser={authSession.user} />
+            )}
+
+            {currentPath === '/admin/email-templates' && (
+              <AdminEmailTemplatesView currentUser={authSession.user} />
+            )}
+
+            {currentPath === '/admin/email-jobs' && (
+              <AdminEmailJobsView currentUser={authSession.user} />
             )}
           </AppLayout>
         ) : (

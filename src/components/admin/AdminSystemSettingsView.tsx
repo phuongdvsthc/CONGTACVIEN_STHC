@@ -108,6 +108,28 @@ export const AdminSystemSettingsView: React.FC<AdminSystemSettingsViewProps> = (
   const [affiliateCodeSuccessMsg, setAffiliateCodeSuccessMsg] = useState<string | null>(null);
   const [affiliateCodeErrorMsg, setAffiliateCodeErrorMsg] = useState<string | null>(null);
 
+  // C3.11A: EMAIL NGHIỆP VỤ STATE
+  const [emailBusinessEnabled, setEmailBusinessEnabled] = useState(false);
+  const [smtpHost, setSmtpHost] = useState('');
+  const [smtpPort, setSmtpPort] = useState<number>(587);
+  const [smtpSecureMode, setSmtpSecureMode] = useState<'STARTTLS' | 'TLS_WRAPPED' | 'NONE'>('STARTTLS');
+  const [smtpSenderName, setSmtpSenderName] = useState('');
+  const [smtpSenderEmail, setSmtpSenderEmail] = useState('');
+  const [smtpReplyTo, setSmtpReplyTo] = useState('');
+  const [smtpTimeoutMs, setSmtpTimeoutMs] = useState<number>(10000);
+  const [emailCredentialsStatus, setEmailCredentialsStatus] = useState<any>(null);
+
+  const [savingEmailService, setSavingEmailService] = useState(false);
+  const [emailServiceSuccessMsg, setEmailServiceSuccessMsg] = useState<string | null>(null);
+  const [emailServiceErrorMsg, setEmailServiceErrorMsg] = useState<string | null>(null);
+
+  const [verifyingConnection, setVerifyingConnection] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<any>(null);
+
+  const [testRecipientEmail, setTestRecipientEmail] = useState('');
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState<any>(null);
+
   // A7.8: LỊCH SỬ CẤU HÌNH & KHỒI PHỤC STATE
   const [historyList, setHistoryList] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -259,6 +281,148 @@ export const AdminSystemSettingsView: React.FC<AdminSystemSettingsViewProps> = (
       setAffiliateCodeErrorMsg(err.message || 'Lỗi kết nối máy chủ.');
     } finally {
       setSavingAffiliateCode(false);
+    }
+  };
+
+  const handleSaveEmailService = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!serverSettings) return;
+    setSavingEmailService(true);
+    setEmailServiceSuccessMsg(null);
+    setEmailServiceErrorMsg(null);
+
+    const cleanHost = smtpHost.trim();
+    const portNum = Number(smtpPort);
+    const cleanSenderName = smtpSenderName.trim();
+    const cleanSenderEmail = smtpSenderEmail.trim();
+
+    if (!cleanHost) {
+      setEmailServiceErrorMsg('Địa chỉ máy chủ SMTP (Host) không được để trống.');
+      setSavingEmailService(false);
+      return;
+    }
+    if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+      setEmailServiceErrorMsg('Cổng kết nối SMTP (Port) phải từ 1 đến 65535.');
+      setSavingEmailService(false);
+      return;
+    }
+    if (!cleanSenderName) {
+      setEmailServiceErrorMsg('Tên người gửi không được để trống.');
+      setSavingEmailService(false);
+      return;
+    }
+    if (!cleanSenderEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanSenderEmail)) {
+      setEmailServiceErrorMsg('Email người gửi không đúng định dạng.');
+      setSavingEmailService(false);
+      return;
+    }
+
+    try {
+      const res = await api.updateAdminSystemSettingsGroup('email_service', {
+        expected_revision: serverSettings.revision,
+        data: {
+          email_business_enabled: emailBusinessEnabled,
+          smtp_host: cleanHost,
+          smtp_port: portNum,
+          smtp_secure_mode: smtpSecureMode,
+          smtp_sender_name: cleanSenderName,
+          smtp_sender_email: cleanSenderEmail,
+          smtp_reply_to: smtpReplyTo.trim() || null,
+          smtp_timeout_ms: Number(smtpTimeoutMs) || 10000,
+        },
+        reason: 'Cập nhật cấu hình dịch vụ email nghiệp vụ (C3.11A)',
+      });
+
+      if (res.success) {
+        setEmailServiceSuccessMsg('Cập nhật cấu hình dịch vụ email thành công.');
+        if (res.new_revision && serverSettings) {
+          setServerSettings({
+            ...serverSettings,
+            revision: res.new_revision,
+            email_business_enabled: emailBusinessEnabled,
+            smtp_host: cleanHost,
+            smtp_port: portNum,
+            smtp_secure_mode: smtpSecureMode,
+            smtp_sender_name: cleanSenderName,
+            smtp_sender_email: cleanSenderEmail,
+            smtp_reply_to: smtpReplyTo.trim() || null,
+            smtp_timeout_ms: Number(smtpTimeoutMs) || 10000,
+          });
+        }
+        fetchSettings();
+      } else if (res.code === 'CONFIG_VERSION_CONFLICT') {
+        setConflictError(true);
+        setEmailServiceErrorMsg('Xung đột phiên bản: Cấu hình đã bị thay đổi bởi quản trị viên khác. Vui lòng tải lại trang.');
+      } else {
+        setEmailServiceErrorMsg(res.error || 'Lỗi khi lưu cấu hình dịch vụ email.');
+      }
+    } catch (err: any) {
+      setEmailServiceErrorMsg(err.message || 'Lỗi kết nối máy chủ.');
+    } finally {
+      setSavingEmailService(false);
+    }
+  };
+
+  const handleVerifyConnection = async () => {
+    setVerifyingConnection(true);
+    setVerifyResult(null);
+    try {
+      const res = await api.verifyAdminEmailConnection({
+        smtp_host: smtpHost.trim(),
+        smtp_port: Number(smtpPort),
+        smtp_secure_mode: smtpSecureMode,
+        smtp_sender_name: smtpSenderName.trim(),
+        smtp_sender_email: smtpSenderEmail.trim(),
+        smtp_reply_to: smtpReplyTo.trim() || null,
+        smtp_timeout_ms: Number(smtpTimeoutMs) || 10000,
+      });
+      setVerifyResult(res);
+    } catch (err: any) {
+      setVerifyResult({
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: err.message || 'Lỗi kết nối khi kiểm tra SMTP.',
+      });
+    } finally {
+      setVerifyingConnection(false);
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    const cleanRecipient = testRecipientEmail.trim();
+    if (!cleanRecipient || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanRecipient)) {
+      setTestEmailResult({
+        success: false,
+        code: 'INVALID_RECIPIENT',
+        message: 'Vui lòng nhập địa chỉ email nhận thử hợp lệ.',
+      });
+      return;
+    }
+
+    setSendingTestEmail(true);
+    setTestEmailResult(null);
+    try {
+      const res = await api.sendAdminTestEmail({
+        recipient_email: cleanRecipient,
+        config: {
+          smtp_host: smtpHost.trim(),
+          smtp_port: Number(smtpPort),
+          smtp_secure_mode: smtpSecureMode,
+          smtp_sender_name: smtpSenderName.trim(),
+          smtp_sender_email: smtpSenderEmail.trim(),
+          smtp_reply_to: smtpReplyTo.trim() || null,
+          smtp_timeout_ms: Number(smtpTimeoutMs) || 10000,
+        },
+      });
+      setTestEmailResult(res);
+    } catch (err: any) {
+      setTestEmailResult({
+        success: false,
+        code: 'NETWORK_ERROR',
+        message: err.message || 'Lỗi kết nối khi gửi email thử.',
+      });
+    } finally {
+      setSendingTestEmail(false);
     }
   };
 
@@ -487,6 +651,19 @@ export const AdminSystemSettingsView: React.FC<AdminSystemSettingsViewProps> = (
         setAffiliateCodeMinDigits(s.affiliate_code_min_digits || 6);
         if (res.data?.code_generator_stats) {
           setCodeGeneratorStats(res.data.code_generator_stats);
+        }
+
+        // C3.11A: Cấu hình email nghiệp vụ
+        setEmailBusinessEnabled(s.email_business_enabled === true);
+        setSmtpHost(s.smtp_host || 'smtp.gmail.com');
+        setSmtpPort(s.smtp_port || 587);
+        setSmtpSecureMode(s.smtp_secure_mode || 'STARTTLS');
+        setSmtpSenderName(s.smtp_sender_name || 'Ban Tuyển sinh Trường Saigontourist');
+        setSmtpSenderEmail(s.smtp_sender_email || 'tuyensinh@sthc.edu.vn');
+        setSmtpReplyTo(s.smtp_reply_to || 'tuyensinh@sthc.edu.vn');
+        setSmtpTimeoutMs(s.smtp_timeout_ms || 10000);
+        if (res.data?.email_credentials_status) {
+          setEmailCredentialsStatus(res.data.email_credentials_status);
         }
       } else {
         setLoadError(res.error || 'Không thể tải dữ liệu cấu hình hệ thống từ cơ sở dữ liệu Supabase.');
@@ -1679,6 +1856,315 @@ export const AdminSystemSettingsView: React.FC<AdminSystemSettingsViewProps> = (
               </button>
             </div>
           </form>
+        </div>
+
+        {/* ===================================================================== */}
+        {/* C3.11A — CẤU HÌNH DỊCH VỤ EMAIL NGHIỆP VỤ (SMTP CONFIGURATION & TEST) */}
+        {/* ===================================================================== */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-900 flex items-center justify-center font-bold">
+                <Mail className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Cấu hình Dịch vụ Email Nghiệp vụ (C3.11A)</h3>
+                <p className="text-xs text-slate-500">
+                  Cấu hình SMTP gửi email xác nhận đăng ký lead và thông báo hệ thống STHC_CTV
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`px-3 py-1 text-xs font-bold rounded-lg border ${
+                emailBusinessEnabled
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                  : 'bg-amber-50 text-amber-800 border-amber-200'
+              }`}>
+                {emailBusinessEnabled ? 'Đang bật gửi nghiệp vụ' : 'Đang tắt gửi nghiệp vụ'}
+              </span>
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveEmailService} className="space-y-5">
+            {emailServiceSuccessMsg && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                <span>{emailServiceSuccessMsg}</span>
+              </div>
+            )}
+            {emailServiceErrorMsg && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{emailServiceErrorMsg}</span>
+              </div>
+            )}
+
+            {/* Công tắc bật/tắt gửi nghiệp vụ */}
+            <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+              <div>
+                <label htmlFor="email-business-toggle" className="font-bold text-slate-900 text-xs block mb-0.5">Bật / Tắt gửi email nghiệp vụ</label>
+                <p className="text-[11px] text-slate-500">
+                  Khi bật, hệ thống sẵn sàng xử lý hàng đợi email xác nhận. Khi tắt, các tác vụ ở queue sẽ được giữ nguyên (không đánh dấu gửi, không xóa).
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  id="email-business-toggle"
+                  aria-label="Bật hoặc tắt gửi email nghiệp vụ"
+                  type="checkbox"
+                  checked={emailBusinessEnabled}
+                  onChange={(e) => setEmailBusinessEnabled(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-900"></div>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div>
+                <label className="block font-bold text-slate-800 text-xs mb-1">
+                  Máy chủ SMTP (SMTP Host) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={smtpHost}
+                  onChange={(e) => setSmtpHost(e.target.value)}
+                  placeholder="smtp.gmail.com hoặc smtp.sendgrid.net"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">Địa chỉ domain hoặc IP của máy chủ SMTP gửi thư.</p>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 text-xs mb-1">
+                  Cổng kết nối (SMTP Port) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  value={smtpPort}
+                  onChange={(e) => setSmtpPort(parseInt(e.target.value, 10) || 587)}
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">Thường dùng cổng 587 (STARTTLS), 465 (TLS), hoặc 25.</p>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 text-xs mb-1">
+                  Chế độ bảo mật TLS <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={smtpSecureMode}
+                  onChange={(e) => setSmtpSecureMode(e.target.value as any)}
+                  aria-label="Chế độ bảo mật TLS"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
+                >
+                  <option value="STARTTLS">STARTTLS (Nâng cấp bảo mật sau khi kết nối)</option>
+                  <option value="TLS_WRAPPED">TLS_WRAPPED (Mã hóa SSL/TLS ngay từ đầu - Port 465)</option>
+                  <option value="NONE">NONE (Không mã hóa - chỉ dùng thử nghiệm nội bộ)</option>
+                </select>
+                <p className="text-[11px] text-slate-400 mt-1">Quy định phương thức thiết lập bảo mật kết nối.</p>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 text-xs mb-1">
+                  Thời gian chờ kết nối (Timeout ms) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min={2000}
+                  max={60000}
+                  step={1000}
+                  value={smtpTimeoutMs}
+                  onChange={(e) => setSmtpTimeoutMs(parseInt(e.target.value, 10) || 10000)}
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">Giới hạn thời gian chờ phản hồi socket (2,000 – 60,000 ms).</p>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 text-xs mb-1">
+                  Tên hiển thị người gửi (From Name) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={smtpSenderName}
+                  onChange={(e) => setSmtpSenderName(e.target.value)}
+                  placeholder="Ban Tuyển sinh Trường Saigontourist"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 text-xs mb-1">
+                  Địa chỉ email người gửi (From Email) <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={smtpSenderEmail}
+                  onChange={(e) => setSmtpSenderEmail(e.target.value)}
+                  placeholder="tuyensinh@sthc.edu.vn"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
+                />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="block font-bold text-slate-800 text-xs mb-1">
+                  Địa chỉ phản hồi (Reply-To Email)
+                </label>
+                <input
+                  type="email"
+                  value={smtpReplyTo}
+                  onChange={(e) => setSmtpReplyTo(e.target.value)}
+                  placeholder="tuyensinh@sthc.edu.vn"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
+                />
+              </div>
+            </div>
+
+            {/* Trạng thái Credentials SMTP */}
+            <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2">
+              <h4 className="font-bold text-blue-900 text-xs flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-blue-700" />
+                <span>Trạng thái Xác thực & Biến môi trường Server (Credentials Status)</span>
+              </h4>
+              <p className="text-xs text-slate-600">
+                Mật khẩu và tài khoản SMTP được quản lý an toàn qua biến môi trường máy chủ (<code className="font-mono text-blue-900 font-bold">SMTP_USER</code>, <code className="font-mono text-blue-900 font-bold">SMTP_PASS</code> hoặc <code className="font-mono text-blue-900 font-bold">SMTP_PASSWORD</code>). Không lưu mật khẩu trong cơ sở dữ liệu.
+              </p>
+              <div className="flex flex-wrap gap-3 pt-1">
+                <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold ${
+                  emailCredentialsStatus?.has_username ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {emailCredentialsStatus?.has_username ? '✓ SMTP_USER đã cấu hình' : '✗ Chưa cấu hình SMTP_USER'}
+                </span>
+                <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold ${
+                  emailCredentialsStatus?.has_password ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {emailCredentialsStatus?.has_password ? '✓ SMTP_PASS đã cấu hình' : '✗ Chưa cấu hình SMTP_PASS'}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <button
+                type="submit"
+                disabled={savingEmailService}
+                className="px-5 py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs rounded-xl shadow-xs disabled:opacity-50 transition-colors flex items-center gap-2"
+              >
+                {savingEmailService ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Đang lưu cấu hình email...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Lưu cấu hình Email Nghiệp vụ</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+
+          {/* Kiểm tra kết nối & gửi email thử nghiệm chủ động */}
+          <div className="pt-6 border-t border-slate-200 space-y-5">
+            <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-blue-900" />
+              <span>Kiểm tra kết nối SMTP & Gửi email thử nghiệm (Test Tools)</span>
+            </h4>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* 1. Kiểm tra kết nối */}
+              <div className="p-5 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                <h5 className="font-bold text-slate-800 text-xs uppercase tracking-wider">1. Kiểm tra kết nối máy chủ</h5>
+                <p className="text-xs text-slate-500">
+                  Thực hiện hand-shake và kiểm tra xác thực thông số SMTP hiện tại (Không gửi email thực).
+                </p>
+                <button
+                  type="button"
+                  disabled={verifyingConnection}
+                  onClick={handleVerifyConnection}
+                  className="w-full px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {verifyingConnection ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Đang kiểm tra kết nối...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4" />
+                      <span>Kiểm tra kết nối SMTP</span>
+                    </>
+                  )}
+                </button>
+
+                {verifyResult && (
+                  <div className={`p-3.5 rounded-xl text-xs space-y-1.5 border animate-fade-in ${
+                    verifyResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
+                  }`}>
+                    <div className="font-bold flex items-center gap-1.5">
+                      {verifyResult.success ? <Check className="w-4 h-4 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 text-rose-600" />}
+                      <span>{verifyResult.message}</span>
+                    </div>
+                    {verifyResult.details && (
+                      <div className="font-mono text-[11px] text-slate-600 pt-1 border-t border-black/5">
+                        Host: {verifyResult.details.host}:{verifyResult.details.port} ({verifyResult.details.secure_mode}) • Thời gian phản hồi: {verifyResult.details.round_trip_ms} ms
+                      </div>
+                    )}
+                    {verifyResult.error && (
+                      <div className="font-mono text-[11px] text-rose-700">{verifyResult.error}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Gửi email thử nghiệm */}
+              <div className="p-5 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                <h5 className="font-bold text-slate-800 text-xs uppercase tracking-wider">2. Gửi email thử nghiệm (Test Email)</h5>
+                <p className="text-xs text-slate-500">
+                  Gửi một bức thư mẫu đơn giản tới một địa chỉ nhận định rõ để kiểm chứng hoàn tất luồng gửi.
+                </p>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold text-slate-700">Email người nhận thử</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="email"
+                      value={testRecipientEmail}
+                      onChange={(e) => setTestRecipientEmail(e.target.value)}
+                      placeholder="admin@sthc.edu.vn"
+                      className="flex-1 px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-900/20"
+                    />
+                    <button
+                      type="button"
+                      disabled={sendingTestEmail}
+                      onClick={handleSendTestEmail}
+                      className="px-4 py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                    >
+                      {sendingTestEmail ? 'Đang gửi...' : 'Gửi thử'}
+                    </button>
+                  </div>
+                </div>
+
+                {testEmailResult && (
+                  <div className={`p-3.5 rounded-xl text-xs space-y-1.5 border animate-fade-in ${
+                    testEmailResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
+                  }`}>
+                    <div className="font-bold flex items-center gap-1.5">
+                      {testEmailResult.success ? <Check className="w-4 h-4 text-emerald-600" /> : <AlertTriangle className="w-4 h-4 text-rose-600" />}
+                      <span>{testEmailResult.message}</span>
+                    </div>
+                    {testEmailResult.message_id && (
+                      <div className="font-mono text-[11px] text-slate-600">Message ID: {testEmailResult.message_id}</div>
+                    )}
+                    {testEmailResult.error && (
+                      <div className="font-mono text-[11px] text-rose-700">{testEmailResult.error}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Khối 3B: Danh sách phiên bản Quy chế tuyển sinh (PDF) */}

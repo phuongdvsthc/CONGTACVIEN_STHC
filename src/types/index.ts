@@ -352,6 +352,15 @@ export interface SystemSettings {
   registration_closed_message?: string | null;
   affiliate_code_prefix: string;
   affiliate_code_min_digits: number;
+  // C3.11A: Email service configuration
+  email_business_enabled?: boolean;
+  smtp_host?: string | null;
+  smtp_port?: number;
+  smtp_secure_mode?: SmtpSecureMode;
+  smtp_sender_name?: string | null;
+  smtp_sender_email?: string | null;
+  smtp_reply_to?: string | null;
+  smtp_timeout_ms?: number;
   revision: number;
   updated_at: string;
   updated_by?: string | null;
@@ -399,7 +408,7 @@ export interface SystemRegulation {
 
 export interface SystemSettingsHistory {
   id: string;
-  setting_group: 'BRANDING' | 'OPERATION' | 'REGISTRATION' | 'AFFILIATE_CODE' | 'ROLLBACK';
+  setting_group: 'BRANDING' | 'OPERATION' | 'REGISTRATION' | 'AFFILIATE_CODE' | 'EMAIL_SERVICE' | 'ROLLBACK';
   action_type: 'UPDATE' | 'ROLLBACK' | 'APPLY_REGULATION';
   revision: number;
   previous_data: any;
@@ -964,6 +973,352 @@ export interface NotificationUnreadCountsResult {
   announcement_unread: number;
   system_unread: number;
 }
+
+// ==============================================================================
+// C3.10A: CƠ SỞ DỮ LIỆU HÀNG ĐỢI EMAIL (EMAIL QUEUE & ATTEMPTS)
+// ==============================================================================
+
+/**
+ * Phân loại mục đích gửi email
+ */
+export type EmailJobType =
+  | 'LEAD_REGISTRATION_CONFIRMATION'
+  | 'CTV_NOTIFICATION_EMAIL';
+
+/**
+ * Vòng đời trạng thái tác vụ email
+ */
+export type EmailJobStatus =
+  | 'PENDING'       // Chờ worker lấy xử lý
+  | 'PROCESSING'    // Worker đang giữ khóa xử lý
+  | 'RETRY_WAIT'    // Tạm thời lỗi, chờ đến lịch gửi lại
+  | 'BLOCKED'       // Thiếu cấu hình/dữ liệu bắt buộc (chưa gửi)
+  | 'SENT'          // SMTP/Dịch vụ gửi đã chấp nhận chuyển thư
+  | 'DEAD_LETTER'   // Đã hết số lần thử hoặc lỗi nghiêm trọng
+  | 'CANCELLED';    // Tác vụ đã hủy bỏ
+
+/**
+ * Trạng thái của từng lần thử gửi
+ */
+export type EmailJobAttemptStatus =
+  | 'PROCESSING'    // Đang thực hiện gửi
+  | 'SUCCESS'       // Dịch vụ gửi đã chấp nhận
+  | 'FAILED'        // Lỗi xác định từ SMTP/mạng
+  | 'UNKNOWN';      // Kết quả không rõ do timeout hoặc mất kết nối
+
+/**
+ * Snapshot dữ liệu phục vụ dựng email xác nhận đăng ký lead (C3.10A / C3.11B)
+ * Tuyệt đối không chứa thông tin nhạy cảm (mật khẩu, token, secret)
+ */
+export interface LeadRegistrationEmailPayload {
+  customer_name: string;
+  phone_masked?: string;
+  course_code?: string;
+  course_title: string;
+  affiliate_code?: string;
+  affiliate_name?: string;
+  official_registration_url?: string;
+  registered_at: string;
+  brand_name: string;
+  support_email: string;
+  support_hotline?: string;
+}
+
+/**
+ * Snapshot dữ liệu phục vụ dựng email thông báo CTV (C3.10A / C3.13A)
+ */
+export interface CtvNotificationEmailPayload {
+  affiliate_name: string;
+  affiliate_code: string;
+  notification_title: string;
+  notification_summary?: string;
+  action_url?: string;
+  published_at: string;
+  brand_name: string;
+  support_email: string;
+}
+
+/**
+ * DTO đại diện bản ghi tác vụ trong bảng email_jobs
+ */
+export interface EmailJobDTO {
+  id: string;
+  email_type: EmailJobType;
+  idempotency_key: string;
+  recipient_email: string;
+  recipient_name?: string | null;
+  recipient_user_id?: string | null;
+  lead_id?: string | null;
+  notification_id?: string | null;
+  notification_recipient_id?: string | null;
+  original_job_id?: string | null;
+  template_code: string;
+  template_version: string;
+  payload: Record<string, any>;
+  status: EmailJobStatus;
+  priority: number;
+  next_attempt_at: string;
+  attempt_count: number;
+  max_attempts: number;
+  last_error_code?: string | null;
+  last_error_message?: string | null;
+  blocked_reason?: string | null;
+  locked_by?: string | null;
+  locked_at?: string | null;
+  locked_until?: string | null;
+  lock_token?: string | null;
+  sent_at?: string | null;
+  provider_message_id?: string | null;
+  metadata?: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * DTO đại diện bản ghi lịch sử lần gửi trong bảng email_job_attempts
+ */
+export interface EmailJobAttemptDTO {
+  id: string;
+  email_job_id: string;
+  attempt_number: number;
+  worker_id?: string | null;
+  lock_token?: string | null;
+  started_at: string;
+  finished_at?: string | null;
+  status: EmailJobAttemptStatus;
+  error_code?: string | null;
+  error_message?: string | null;
+  provider_message_id?: string | null;
+  metadata?: Record<string, any>;
+  created_at: string;
+}
+
+/**
+ * Tham số đầu vào để enqueue một tác vụ email
+ */
+export interface EnqueueEmailJobParams {
+  email_type: EmailJobType;
+  idempotency_key: string;
+  recipient_email: string;
+  recipient_name?: string;
+  template_code: string;
+  template_version?: string;
+  payload: Record<string, any>;
+  lead_id?: string;
+  notification_id?: string;
+  notification_recipient_id?: string;
+  recipient_user_id?: string;
+  priority?: number;
+  initial_status?: EmailJobStatus;
+  blocked_reason?: string;
+}
+
+/**
+ * Kết quả trả về sau khi enqueue tác vụ email
+ */
+export interface EnqueueEmailJobResult {
+  success: boolean;
+  is_duplicate?: boolean;
+  job_id?: string;
+  status?: EmailJobStatus;
+  message?: string;
+  error?: string;
+  code?: string;
+}
+
+/**
+ * Tham số đầu vào cho RPC tạo lead kèm tác vụ email xác nhận nguyên tử (C3.10B)
+ */
+export interface SubmitLeadAtomicParams {
+  full_name: string;
+  phone: string;
+  email: string;
+  course_id: string;
+  consent_accepted: boolean;
+  affiliate_code?: string | null;
+  province?: string | null;
+  preferred_contact_time?: string | null;
+  customer_note?: string | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  brand_name?: string | null;
+  support_email?: string | null;
+  support_hotline?: string | null;
+}
+
+/**
+ * Kết quả trả về từ RPC đăng ký lead kèm tác vụ email xác nhận nguyên tử (C3.10B)
+ */
+export interface SubmitLeadAtomicResult {
+  success: boolean;
+  is_duplicate?: boolean;
+  lead_id?: string;
+  email_job_id?: string | null;
+  email_job_status?: EmailJobStatus | null;
+  message?: string;
+  course_title?: string | null;
+  official_registration_url?: string | null;
+  affiliate_code?: string | null;
+  affiliate_name?: string | null;
+  received_at?: string;
+  error?: string;
+  code?: string;
+}
+
+// ==============================================================================
+// C3.11A — DỊCH VỤ CẤU HÌNH VÀ GỬI EMAIL NGHIỆP VỤ (SMTP CONFIG & SERVICE)
+// ==============================================================================
+
+/**
+ * Chế độ bảo mật TLS khi kết nối máy chủ SMTP
+ * - STARTTLS: Kết nối không mã hóa ban đầu (thường port 587/25/2525), bắt buộc nâng cấp TLS qua lệnh STARTTLS.
+ * - TLS_WRAPPED: Mã hóa TLS ngay khi thiết lập socket (thường port 465).
+ * - NONE: Không mã hóa (chỉ dùng cho môi trường thử nghiệm nội bộ / giả lập).
+ */
+export type SmtpSecureMode = 'STARTTLS' | 'TLS_WRAPPED' | 'NONE';
+
+/**
+ * Cấu hình không bí mật của dịch vụ email nghiệp vụ (lưu trong system_settings)
+ */
+export interface EmailServiceSettings {
+  email_business_enabled: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_secure_mode: SmtpSecureMode;
+  smtp_sender_name: string;
+  smtp_sender_email: string;
+  smtp_reply_to?: string | null;
+  smtp_timeout_ms: number;
+}
+
+/**
+ * Trạng thái credentials SMTP (đọc từ biến môi trường server, không trả về secret)
+ */
+export interface EmailCredentialsStatus {
+  has_credentials: boolean;
+  has_username: boolean;
+  has_password: boolean;
+  username_configured: boolean;
+  password_configured: boolean;
+}
+
+/**
+ * Phản hồi chi tiết về trạng thái cấu hình dịch vụ email nghiệp vụ
+ */
+export interface EmailServiceStatusResponse {
+  settings: EmailServiceSettings;
+  credentials_status: EmailCredentialsStatus;
+  revision: number;
+}
+
+/**
+ * Kết quả kiểm tra kết nối máy chủ SMTP
+ */
+export interface VerifyConnectionResult {
+  success: boolean;
+  message: string;
+  code?: string;
+  details?: {
+    host: string;
+    port: number;
+    secure_mode: SmtpSecureMode;
+    round_trip_ms?: number;
+  };
+  error?: string;
+}
+
+/**
+ * Tham số gửi email thử nghiệm
+ */
+export interface SendTestEmailParams {
+  recipient_email: string;
+}
+
+/**
+ * Kết quả gửi email thử nghiệm
+ */
+export interface SendTestEmailResult {
+  success: boolean;
+  message: string;
+  message_id?: string;
+  masked_recipient?: string;
+  code?: string;
+  error?: string;
+}
+
+/**
+ * Interface trừu tượng cho dịch vụ gửi email
+ */
+export interface EmailSenderInterface {
+  verifyConnection(): Promise<VerifyConnectionResult>;
+  sendEmail(options: {
+    to: string;
+    subject: string;
+    html: string;
+    text?: string;
+    replyTo?: string;
+  }): Promise<{
+    success: boolean;
+    messageId?: string;
+    error?: string;
+    code?: string;
+  }>;
+}
+
+// ==============================================================================
+// C3.11B — QUẢN LÝ MẪU EMAIL (EMAIL TEMPLATES & VERSIONS)
+// ==============================================================================
+
+export type EmailTemplateStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+
+export interface EmailTemplateDTO {
+  id: string;
+  template_code: string;
+  name: string;
+  description?: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmailTemplateVersionDTO {
+  id: string;
+  template_id: string;
+  version_code: string;
+  status: EmailTemplateStatus;
+  subject: string;
+  body_html: string;
+  body_text: string;
+  button_label: string;
+  footer_text?: string | null;
+  revision: number;
+  created_by?: string | null;
+  published_by?: string | null;
+  published_at?: string | null;
+  change_reason?: string | null;
+  created_at: string;
+  updated_at: string;
+  creator?: {
+    id: string;
+    full_name: string;
+    email: string;
+  } | null;
+  publisher?: {
+    id: string;
+    full_name: string;
+    email: string;
+  } | null;
+}
+
+export interface EmailTemplateWithVersionsDTO {
+  template: EmailTemplateDTO;
+  versions: EmailTemplateVersionDTO[];
+  active_published_version?: EmailTemplateVersionDTO | null;
+}
+
+
+
 
 
 

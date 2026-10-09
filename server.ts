@@ -9,6 +9,18 @@ import { createClient } from '@supabase/supabase-js';
 import * as XLSX from 'xlsx';
 import { NotificationEventConsumer } from './src/services/notificationEventConsumer';
 import { NotificationEventService } from './src/services/notificationEventService';
+import { EmailQueueService } from './src/services/emailQueueService';
+import {
+  DEFAULT_EMAIL_SERVICE_SETTINGS,
+  getSmtpCredentials,
+  validateEmailServiceConfig,
+  verifySmtpConnection,
+  sendSmtpTestEmail,
+  maskEmailAddress,
+  isValidEmail,
+} from './src/services/emailService';
+import { EmailServiceSettings } from './src/types';
+import { startEmailWorker, stopEmailWorker } from './src/services/emailWorker';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,6 +48,9 @@ const notificationConsumer = new NotificationEventConsumer(supabase, {
 });
 const notificationEventService = new NotificationEventService(supabase, notificationConsumer);
 notificationConsumer.start();
+
+// Khởi tạo Email Queue Service (C3.10A / C3.10B)
+const emailQueueService = new EmailQueueService(supabase);
 
 // Initial academic courses of STHC
 const INITIAL_COURSES = [
@@ -1994,6 +2009,7 @@ async function startServer() {
   });
 
   // POST /api/v1/public/leads (Người học tự gửi form tư vấn, không hỏi CCCD, bảo vệ dữ liệu PII)
+  // C3.10B: Thực thi nguyên tử qua RPC fn_submit_lead_with_confirmation_email
   app.post('/api/v1/public/leads', async (req: Request, res: Response) => {
     const {
       full_name,
@@ -2015,6 +2031,7 @@ async function startServer() {
       return res.status(400).json({
         success: false,
         error: 'Bạn phải đồng ý với Chính sách bảo vệ dữ liệu cá nhân của Trường Saigontourist để gửi yêu cầu.',
+        code: 'CONSENT_REQUIRED',
       });
     }
 
@@ -2022,21 +2039,45 @@ async function startServer() {
       return res.status(400).json({
         success: false,
         error: 'Vui lòng điền đầy đủ Họ tên và Số điện thoại liên hệ.',
+        code: 'MISSING_REQUIRED_FIELDS',
       });
     }
 
-    const cleanPhone = phone.trim().replace(/[\s\.\-]/g, '');
-    let assignedAffiliateId: string | null = null;
-    let capturedCode: string | null = null;
+    // Kiểm tra Email bắt buộc và đúng định dạng cơ bản theo chuẩn RFC 5322
+    const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+    if (!cleanEmail) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vui lòng điền Địa chỉ Email nhận thông tin xác nhận.',
+        code: 'EMAIL_REQUIRED',
+      });
+    }
 
-    // 1.1 Kiểm tra trạng thái công khai và tiếp nhận đăng ký của khóa học (Yêu cầu A2.4)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Định dạng email không hợp lệ. Vui lòng kiểm tra lại.',
+        code: 'INVALID_EMAIL_FORMAT',
+      });
+    }
+
+    const cleanPhone = String(phone).trim().replace(/[\s\.\-]/g, '');
+    if (cleanPhone.length < 8 || cleanPhone.length > 20) {
+      return res.status(400).json({
+        success: false,
+        error: 'Số điện thoại liên hệ không hợp lệ. Vui lòng kiểm tra lại.',
+        code: 'INVALID_PHONE',
+      });
+    }
+
+    // 2. Phân giải UUID khóa học từ slug/code/id
     let resolvedCourseDbId: string | null = null;
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(course_id || ''));
 
     if (course_id) {
-      let targetCourse: any = null;
       try {
-        let query = supabase.from('courses').select('*');
+        let query = supabase.from('courses').select('id, is_active, accepts_referrals');
         if (isUUID) {
           query = query.or(`id.eq.${course_id},code.eq.${course_id},slug.eq.${course_id}`);
         } else {
@@ -2044,18 +2085,15 @@ async function startServer() {
         }
         const { data: dbCourse } = await query.maybeSingle();
         if (dbCourse) {
-          targetCourse = attachCourseFull(dbCourse);
           resolvedCourseDbId = dbCourse.id;
         }
       } catch (dbErr) {
-        // Fallback
+        // Fallback tra cứu static
       }
 
-      if (!targetCourse) {
+      if (!resolvedCourseDbId) {
         const fb = INITIAL_COURSES.find(c => (c as any).id === course_id || c.code === course_id || c.slug === course_id);
         if (fb) {
-          targetCourse = attachCourseFull(fb);
-          // Tra cứu thử DB xem có course nào có code hoặc slug trùng để lấy UUID thật
           const { data: matchedDb } = await supabase
             .from('courses')
             .select('id')
@@ -2064,211 +2102,127 @@ async function startServer() {
           if (matchedDb) resolvedCourseDbId = matchedDb.id;
         }
       }
+    }
 
-      if (targetCourse) {
-        if (!targetCourse.is_active) {
-          return res.status(400).json({
-            success: false,
-            error: 'Khóa học này hiện chưa được công khai. Không thể tiếp nhận đăng ký tuyển sinh.',
-            code: 'COURSE_NOT_PUBLISHED',
-          });
-        }
-        if (!targetCourse.accepts_referrals) {
-          return res.status(400).json({
-            success: false,
-            error: 'Khóa học hiện ngừng nhận đăng ký tuyển sinh. Vui lòng chọn ngành học khác hoặc liên hệ Ban Tuyển sinh STHC để được hỗ trợ.',
-            code: 'COURSE_REFERRAL_STOPPED',
-          });
-        }
+    if (!resolvedCourseDbId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vui lòng chọn khóa học cần đăng ký tư vấn.',
+        code: 'COURSE_REQUIRED',
+      });
+    }
+
+    // 3. Đọc cấu hình nhận diện thương hiệu từ CSDL (system_settings)
+    let brandName = 'Trường Saigontourist';
+    let supportEmail = 'tuyensinh@sthc.edu.vn';
+    let supportHotline = '02838442238';
+
+    try {
+      const { data: sysSettings } = await supabase
+        .from('system_settings')
+        .select('unit_name, support_email, support_phone')
+        .eq('id', 1)
+        .maybeSingle();
+
+      if (sysSettings) {
+        if (sysSettings.unit_name) brandName = sysSettings.unit_name.trim();
+        if (sysSettings.support_email) supportEmail = sysSettings.support_email.trim();
+        if (sysSettings.support_phone) supportHotline = sysSettings.support_phone.trim();
       }
+    } catch (sysErr) {
+      // Dùng giá trị mặc định an toàn
     }
 
-    // 2. Tra cứu mã giới thiệu CTV và kiểm tra quyền giới thiệu
-    if (ref_code) {
-      const cleanRef = String(ref_code).trim();
-      capturedCode = cleanRef;
+    // 4. Thực thi RPC nguyên tử: Tạo lead và tạo tác vụ email xác nhận trong cùng 1 transaction CSDL
+    const cleanRef = ref_code ? String(ref_code).trim() : null;
+    const cleanProvince = (typeof province === 'string' && province.trim()) ? province.trim() : null;
 
-      const eligibility = await checkAffiliateReferralEligibility({ code: cleanRef });
-      if (!eligibility.eligible) {
-        if (eligibility.status === 'SUSPENDED') {
-          // BẢO VỆ CHÍNH SÁCH A1.4: Không ghi nhận lượt mới, hiển thị thông báo rõ ràng, không chuyển sang CTV khác
-          return res.status(400).json({
-            success: false,
-            error: eligibility.error_message || 'Mã giới thiệu của Cộng tác viên hiện đang tạm ngưng tiếp nhận đăng ký tư vấn mới. Vui lòng liên hệ trực tiếp Ban Tuyển sinh Trường Saigontourist để được hỗ trợ.',
-            code: 'AFFILIATE_SUSPENDED',
-          });
-        }
-        if (eligibility.status === 'PENDING_REVIEW' || eligibility.status === 'REJECTED') {
-          return res.status(400).json({
-            success: false,
-            error: 'Mã giới thiệu của Cộng tác viên chưa được kích hoạt quyền giới thiệu. Vui lòng liên hệ Ban Tuyển sinh STHC.',
-            code: 'AFFILIATE_NOT_ACTIVE',
-          });
-        }
-      } else if (eligibility.affiliate) {
-        if (eligibility.affiliate.id && !eligibility.affiliate.id.startsWith('a0000000-')) {
-          assignedAffiliateId = eligibility.affiliate.id;
-        } else {
-          const { data: realDbAff } = await supabase
-            .from('affiliate_profiles')
-            .select('id')
-            .eq('affiliate_code', cleanRef)
-            .maybeSingle();
-          assignedAffiliateId = realDbAff?.id || null;
-        }
-      }
-    }
+    try {
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_submit_lead_with_confirmation_email', {
+        p_full_name: String(full_name).trim(),
+        p_phone: cleanPhone,
+        p_email: cleanEmail,
+        p_course_id: resolvedCourseDbId,
+        p_consent_accepted: Boolean(consent_accepted),
+        p_affiliate_code: cleanRef,
+        p_province: cleanProvince,
+        p_preferred_contact_time: preferred_contact_time || 'Giờ hành chính (08h - 17h)',
+        p_customer_note: customer_note ? String(customer_note).trim() : null,
+        p_utm_source: utm_source || 'direct',
+        p_utm_medium: utm_medium || (cleanRef ? 'affiliate_link' : 'organic'),
+        p_utm_campaign: utm_campaign || 'tuyensinh_2026',
+        p_brand_name: brandName,
+        p_support_email: supportEmail,
+        p_support_hotline: supportHotline,
+      });
 
-    // 3. Kiểm tra chống trùng số điện thoại theo khóa học trong 90 ngày (Attribution Policy)
-    let isDuplicate = false;
-    let duplicateReason: string | null = null;
-    const targetCourseId = resolvedCourseDbId || (isUUID ? course_id : null);
-    const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
+      if (rpcError) {
+        console.error('[ATOMIC LEAD SUBMISSION RPC ERROR]', rpcError.message);
 
-    let duplicateQuery = supabase
-      .from('leads')
-      .select('id, created_at, affiliate_id, course_id')
-      .eq('phone', cleanPhone)
-      .gte('created_at', ninetyDaysAgo);
-
-    if (targetCourseId) {
-      duplicateQuery = duplicateQuery.eq('course_id', targetCourseId);
-    }
-
-    const { data: existingLead } = await duplicateQuery
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    let insertedLead: { id: string; created_at: string } | null = null;
-
-    if (existingLead) {
-      isDuplicate = true;
-      duplicateReason = 'Số điện thoại đã gửi thông tin đăng ký tư vấn cho khóa học này trong vòng 90 ngày.';
-      if (existingLead.affiliate_id) {
-        assignedAffiliateId = existingLead.affiliate_id; // Giữ nguyên nguồn CTV ban đầu theo Attribution Window
-      }
-      // BẢO VỆ DỮ LIỆU: KHÔNG TẠO BẢN GHI LEAD MỚI KHI TRÙNG TRONG 90 NGÀY
-      insertedLead = {
-        id: existingLead.id,
-        created_at: existingLead.created_at,
-      };
-    } else {
-      const cleanProvince = (typeof province === 'string' && province.trim()) ? province.trim() : null;
-      const leadPayload = {
-        full_name: full_name.trim(),
-        phone: cleanPhone,
-        email: email ? email.trim() : null,
-        province: cleanProvince,
-        course_id: resolvedCourseDbId || (isUUID ? course_id : null),
-        affiliate_id: assignedAffiliateId,
-        affiliate_code_captured: capturedCode,
-        counseling_status: 'NEW',
-        reconciliation_status: 'NOT_RECONCILED',
-        reward_status: 'NONE',
-        is_duplicate: false,
-        duplicate_reason: null,
-        consent_accepted: true,
-        preferred_contact_time: preferred_contact_time || 'Giờ hành chính (08h - 17h)',
-        customer_note: customer_note || null,
-        utm_source: utm_source || 'direct',
-        utm_medium: utm_medium || (ref_code ? 'affiliate_link' : 'organic'),
-        utm_campaign: utm_campaign || 'tuyensinh_2026',
-      };
-
-      const { data: dbInserted, error: insertError } = await supabase
-        .from('leads')
-        .insert(leadPayload)
-        .select('id, created_at')
-        .single();
-
-      if (insertError) {
-        console.error('[LEAD INSERT ERROR]', insertError.message);
-      }
-      insertedLead = dbInserted || { id: `lead-${Date.now()}`, created_at: new Date().toISOString() };
-    }
-
-    let returnedCourseTitle: string | null = null;
-    let returnedOfficialUrl: string | null = null;
-    if (resolvedCourseDbId || course_id) {
-      try {
-        let q = supabase.from('courses').select('title, official_registration_url');
-        if (resolvedCourseDbId) {
-          q = q.eq('id', resolvedCourseDbId);
-        } else if (isUUID) {
-          q = q.or(`id.eq.${course_id},code.eq.${course_id},slug.eq.${course_id}`);
-        } else {
-          q = q.or(`code.eq.${course_id},slug.eq.${course_id}`);
-        }
-        const { data: cMeta } = await q.maybeSingle();
-        if (cMeta) {
-          returnedCourseTitle = cMeta.title || null;
-          returnedOfficialUrl = cMeta.official_registration_url || null;
-        }
-      } catch (e) {}
-    }
-
-    // Nếu không tìm thấy trong DB, bỏ qua targetCourse không tồn tại
-
-    let returnedAffiliateCode: string | null = null;
-    let returnedAffiliateName: string | null = null;
-    if (assignedAffiliateId) {
-      try {
-        const { data: affRec } = await supabase
-          .from('affiliate_profiles')
-          .select('affiliate_code, profile:profiles!affiliate_profiles_user_id_fkey(full_name)')
-          .eq('id', assignedAffiliateId)
-          .maybeSingle();
-        if (affRec) {
-          returnedAffiliateCode = affRec.affiliate_code || null;
-          returnedAffiliateName = (affRec.profile as any)?.full_name || null;
-        }
-      } catch (e) {}
-
-      // Fallback check demo state affiliates if not found in db or if demo id
-      if (!returnedAffiliateName) {
-        const demoList = [
-          demoState.activeAffiliate,
-          demoState.suspendedAffiliate,
-          demoState.pendingAffiliate,
-          demoState.pendingVerifiedAffiliate,
-          demoState.rejectedAffiliate,
-        ];
-        const foundDemo = demoList.find(d => d.id === assignedAffiliateId || d.affiliate_code === capturedCode);
-        if (foundDemo) {
-          returnedAffiliateCode = foundDemo.affiliate_code;
-          returnedAffiliateName = foundDemo.full_name;
-        }
-      }
-    }
-
-    // C3.6A: Phát sinh sự kiện LEAD_SUBMITTED thông báo cho CTV nếu là lead mới hợp lệ
-    if (!isDuplicate && insertedLead?.id && assignedAffiliateId) {
-      try {
-        await notificationEventService.emitLeadSubmittedEvent({
-          leadId: insertedLead.id,
-          affiliateId: assignedAffiliateId,
-          leadName: full_name.trim(),
-          courseId: targetCourseId,
-          courseName: returnedCourseTitle || 'Khóa học STHC',
-          affiliateCode: returnedAffiliateCode || capturedCode,
+        // BẢO VỆ NGUYÊN TẮC C3.10B:
+        // Tuyệt đối không fallback âm thầm về đường ghi lead cũ mà không có tác vụ email
+        return res.status(500).json({
+          success: false,
+          error: 'Hệ thống đang bảo trì dịch vụ tiếp nhận đăng ký nguyên tử. Vui lòng thử lại sau ít phút hoặc liên hệ Ban Tuyển sinh STHC.',
+          code: 'DATABASE_TRANSACTION_ERROR',
         });
-      } catch (e: any) {
-        console.warn('[LEAD NOTIFICATION EVENT NOTICE]', e?.message);
       }
-    }
 
-    // BẢO MẬT PII: Tuyệt đối không echo ngược lại họ tên, số điện thoại hay email trong response
-    res.status(201).json({
-      success: true,
-      message: 'Đăng ký tư vấn thành công! Ban Tuyển sinh Trường Trung cấp Du lịch & Khách sạn Saigontourist sẽ liên hệ tư vấn trong thời gian sớm nhất.',
-      appointment_code: `STHC-TS-${Math.floor(100000 + Math.random() * 900000)}`,
-      course_title: returnedCourseTitle,
-      official_registration_url: returnedOfficialUrl,
-      affiliate_code: returnedAffiliateCode,
-      affiliate_name: returnedAffiliateName,
-      received_at: new Date().toISOString(),
-    });
+      if (!rpcResult || !rpcResult.success) {
+        const errCode = rpcResult?.code || 'SUBMISSION_FAILED';
+        const errMsg = rpcResult?.error || 'Đăng ký không thành công. Vui lòng thử lại.';
+        const httpStatus = ['COURSE_NOT_PUBLISHED', 'AFFILIATE_SUSPENDED', 'AFFILIATE_NOT_ACTIVE', 'CONSENT_REQUIRED', 'EMAIL_REQUIRED', 'INVALID_EMAIL_FORMAT', 'INVALID_PHONE'].includes(errCode) ? 400 : 500;
+        return res.status(httpStatus).json({
+          success: false,
+          error: errMsg,
+          code: errCode,
+        });
+      }
+
+      // 5. C3.6A: Phát sinh sự kiện thông báo LEAD_SUBMITTED cho CTV (chỉ khi là lead mới hợp lệ)
+      if (!rpcResult.is_duplicate && rpcResult.lead_id) {
+        try {
+          // Tra cứu affiliate_id từ lead vừa tạo để emit event nếu có
+          const { data: createdLead } = await supabase
+            .from('leads')
+            .select('affiliate_id')
+            .eq('id', rpcResult.lead_id)
+            .maybeSingle();
+
+          if (createdLead?.affiliate_id) {
+            await notificationEventService.emitLeadSubmittedEvent({
+              leadId: rpcResult.lead_id,
+              affiliateId: createdLead.affiliate_id,
+              leadName: String(full_name).trim(),
+              courseId: resolvedCourseDbId,
+              courseName: rpcResult.course_title || 'Khóa học STHC',
+              affiliateCode: rpcResult.affiliate_code || cleanRef || undefined,
+            });
+          }
+        } catch (e: any) {
+          console.warn('[LEAD NOTIFICATION EVENT NOTICE]', e?.message);
+        }
+      }
+
+      // 6. BẢO MẬT PII: Tuyệt đối không echo ngược lại họ tên, số điện thoại hay email trong response
+      return res.status(201).json({
+        success: true,
+        message: rpcResult.message || 'Đăng ký tư vấn thành công! Ban Tuyển sinh Trường Trung cấp Du lịch & Khách sạn Saigontourist sẽ liên hệ tư vấn trong thời gian sớm nhất.',
+        appointment_code: `STHC-TS-${Math.floor(100000 + Math.random() * 900000)}`,
+        course_title: rpcResult.course_title,
+        official_registration_url: rpcResult.official_registration_url,
+        affiliate_code: rpcResult.affiliate_code,
+        affiliate_name: rpcResult.affiliate_name,
+        received_at: rpcResult.received_at || new Date().toISOString(),
+      });
+    } catch (err: any) {
+      console.error('[ATOMIC LEAD SUBMISSION EXCEPTION]', err);
+      return res.status(500).json({
+        success: false,
+        error: 'Lỗi máy chủ khi tiếp nhận đăng ký.',
+        code: 'INTERNAL_SERVER_ERROR',
+      });
+    }
   });
 
   // ----------------------------------------------------------------------------
@@ -10479,6 +10433,14 @@ async function startServer() {
         registration_closed_message: 'Hệ thống hiện đang tạm ngưng tiếp nhận hồ sơ cộng tác viên mới.',
         affiliate_code_prefix: 'STHCCTV',
         affiliate_code_min_digits: 6,
+        email_business_enabled: DEFAULT_EMAIL_SERVICE_SETTINGS.email_business_enabled,
+        smtp_host: DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_host,
+        smtp_port: DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_port,
+        smtp_secure_mode: DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_secure_mode,
+        smtp_sender_name: DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_sender_name,
+        smtp_sender_email: DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_sender_email,
+        smtp_reply_to: DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_reply_to,
+        smtp_timeout_ms: DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_timeout_ms,
         revision: 1,
         updated_at: new Date().toISOString(),
         updated_by: null,
@@ -10943,15 +10905,20 @@ async function startServer() {
         faviconDisplayUrl = `/api/v1/public/branding/asset?path=${encodeURIComponent(faviconDisplayUrl)}&v=${settings.revision || 1}`;
       }
 
+      const emailCreds = getSmtpCredentials();
+      const completeSettings = {
+        ...DEFAULT_EMAIL_SERVICE_SETTINGS,
+        ...settings,
+        logo_backend_display_url: logoDisplayUrl,
+        favicon_display_url: faviconDisplayUrl,
+      };
+
       return res.json({
         success: true,
         data: {
-          settings: {
-            ...settings,
-            logo_backend_display_url: logoDisplayUrl,
-            favicon_display_url: faviconDisplayUrl,
-          },
+          settings: completeSettings,
           code_generator_stats: previewStats,
+          email_credentials_status: emailCreds.status,
         },
       });
     } catch (err: any) {
@@ -11277,7 +11244,7 @@ async function startServer() {
       }
 
       const cleanGroup = group.trim().toLowerCase();
-      const validGroups = ['branding', 'operation', 'registration', 'affiliate_code'];
+      const validGroups = ['branding', 'operation', 'registration', 'affiliate_code', 'email_service'];
       if (!validGroups.includes(cleanGroup)) {
         return res.status(400).json({ success: false, error: `Nhóm cấu hình không hợp lệ: '${group}'. Chỉ chấp nhận: ${validGroups.join(', ')}.` });
       }
@@ -11296,6 +11263,16 @@ async function startServer() {
         operation: ['public_base_url', 'support_email', 'support_phone', 'timezone'],
         registration: ['allow_affiliate_registration', 'registration_closed_message'],
         affiliate_code: ['affiliate_code_prefix', 'affiliate_code_min_digits'],
+        email_service: [
+          'email_business_enabled',
+          'smtp_host',
+          'smtp_port',
+          'smtp_secure_mode',
+          'smtp_sender_name',
+          'smtp_sender_email',
+          'smtp_reply_to',
+          'smtp_timeout_ms',
+        ],
       };
 
       const allowedKeys = groupAllowlists[cleanGroup];
@@ -11403,6 +11380,27 @@ async function startServer() {
           }
           sanitizedData.affiliate_code_min_digits = minDigits;
         }
+      } else if (cleanGroup === 'email_service') {
+        const val = validateEmailServiceConfig({
+          smtp_host: payloadData.smtp_host,
+          smtp_port: payloadData.smtp_port,
+          smtp_secure_mode: payloadData.smtp_secure_mode,
+          smtp_sender_name: payloadData.smtp_sender_name,
+          smtp_sender_email: payloadData.smtp_sender_email,
+          smtp_reply_to: payloadData.smtp_reply_to,
+          smtp_timeout_ms: payloadData.smtp_timeout_ms,
+        });
+        if (!val.valid) {
+          return res.status(400).json({ success: false, error: val.errors[0] || 'Cấu hình email không hợp lệ.' });
+        }
+        sanitizedData.email_business_enabled = Boolean(payloadData.email_business_enabled);
+        sanitizedData.smtp_host = String(payloadData.smtp_host).trim();
+        sanitizedData.smtp_port = Number(payloadData.smtp_port);
+        sanitizedData.smtp_secure_mode = String(payloadData.smtp_secure_mode).trim().toUpperCase();
+        sanitizedData.smtp_sender_name = String(payloadData.smtp_sender_name).trim();
+        sanitizedData.smtp_sender_email = String(payloadData.smtp_sender_email).trim();
+        sanitizedData.smtp_reply_to = payloadData.smtp_reply_to ? String(payloadData.smtp_reply_to).trim() : null;
+        sanitizedData.smtp_timeout_ms = Number(payloadData.smtp_timeout_ms || 10000);
       }
 
       // Thử gọi RPC CSDL trước
@@ -11436,6 +11434,59 @@ async function startServer() {
               code: 'CONFIG_VERSION_CONFLICT',
             });
           }
+
+          // Fallback an toàn cho nhóm email_service khi migration CSDL từ xa chưa được áp dụng
+          if (cleanGroup === 'email_service') {
+            console.warn('[EMAIL SERVICE RPC FALLBACK] Remote DB migration pending, saving locally:', rpcErr.message);
+            const currentData = loadSystemSettingsData();
+            if (currentData.settings.revision !== expected_revision) {
+              return res.status(409).json({
+                success: false,
+                error: 'Xung đột phiên bản: Cấu hình đã được thay đổi bởi quản trị viên khác. Vui lòng tải lại trang.',
+                code: 'CONFIG_VERSION_CONFLICT',
+              });
+            }
+            const newRevision = currentData.settings.revision + 1;
+            const updatedSettings = {
+              ...currentData.settings,
+              ...sanitizedData,
+              revision: newRevision,
+              updated_at: new Date().toISOString(),
+              updated_by: adminId,
+            };
+            const historyEntry = {
+              id: Date.now().toString(),
+              setting_group: 'EMAIL_SERVICE',
+              action_type: 'UPDATE',
+              revision: newRevision,
+              previous_data: {
+                email_business_enabled: currentData.settings.email_business_enabled,
+                smtp_host: currentData.settings.smtp_host,
+                smtp_port: currentData.settings.smtp_port,
+                smtp_secure_mode: currentData.settings.smtp_secure_mode,
+                smtp_sender_name: currentData.settings.smtp_sender_name,
+                smtp_sender_email: currentData.settings.smtp_sender_email,
+                smtp_reply_to: currentData.settings.smtp_reply_to,
+                smtp_timeout_ms: currentData.settings.smtp_timeout_ms,
+              },
+              new_data: sanitizedData,
+              changed_by: adminId,
+              changed_at: new Date().toISOString(),
+              change_reason: reason || null,
+            };
+            saveSystemSettingsData({
+              settings: updatedSettings,
+              history: [historyEntry, ...(currentData.history || [])],
+            });
+            return res.json({
+              success: true,
+              message: `Cập nhật nhóm ${cleanGroup} thành công (Lưu cấu hình an toàn).`,
+              new_revision: newRevision,
+              data: updatedSettings,
+              db_status: 'PENDING_DEPLOYMENT',
+            });
+          }
+
           return res.status(400).json({
             success: false,
             error: rpcErr.message || 'Lỗi khi lưu cấu hình vào cơ sở dữ liệu Supabase.',
@@ -11457,6 +11508,742 @@ async function startServer() {
     } catch (err: any) {
       console.error('[ADMIN UPDATE SYSTEM SETTINGS EXCEPTION]', err);
       return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi cập nhật cấu hình hệ thống.' });
+    }
+  });
+
+  // ----------------------------------------------------------------------------
+  // C3.11A — DỊCH VỤ EMAIL NGHIỆP VỤ (KIỂM TRA KẾT NỐI & GỬI EMAIL THỬ NGHIỆM)
+  // ----------------------------------------------------------------------------
+
+  // 8.1. ADMIN: POST /api/v1/admin/email-service/verify-connection (Kiểm tra kết nối máy chủ SMTP)
+  app.post('/api/v1/admin/email-service/verify-connection', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const adminId = (req as any).user?.id || demoState.adminUser.id;
+      const adminEmail = (req as any).user?.email || 'admin@sthc.edu.vn';
+
+      let config: EmailServiceSettings;
+      if (req.body?.config) {
+        config = {
+          ...DEFAULT_EMAIL_SERVICE_SETTINGS,
+          ...req.body.config,
+        };
+      } else {
+        let dbSettings: any = null;
+        try {
+          const { data } = await supabase.from('system_settings').select('*').eq('id', 1).maybeSingle();
+          if (data) dbSettings = data;
+        } catch (e) {}
+
+        const settings = dbSettings || loadSystemSettingsData().settings;
+        config = {
+          email_business_enabled: settings.email_business_enabled ?? DEFAULT_EMAIL_SERVICE_SETTINGS.email_business_enabled,
+          smtp_host: settings.smtp_host || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_host,
+          smtp_port: settings.smtp_port || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_port,
+          smtp_secure_mode: settings.smtp_secure_mode || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_secure_mode,
+          smtp_sender_name: settings.smtp_sender_name || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_sender_name,
+          smtp_sender_email: settings.smtp_sender_email || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_sender_email,
+          smtp_reply_to: settings.smtp_reply_to || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_reply_to,
+          smtp_timeout_ms: settings.smtp_timeout_ms || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_timeout_ms,
+        };
+      }
+
+      const result = await verifySmtpConnection(config);
+
+      // Ghi log kiểm tra an toàn (không ghi mật khẩu)
+      try {
+        await supabase.from('email_service_test_logs').insert({
+          admin_id: adminId,
+          action_type: 'VERIFY_CONNECTION',
+          recipient_masked: null,
+          status: result.success ? 'SUCCESS' : 'FAILED',
+          error_code: result.code || null,
+          error_message: result.error || null,
+          technical_details: {
+            host: config.smtp_host,
+            port: config.smtp_port,
+            secure_mode: config.smtp_secure_mode,
+            round_trip_ms: result.details?.round_trip_ms,
+          },
+        });
+      } catch (logErr) {
+        // Bỏ qua nếu bảng test logs chưa được migrate
+      }
+
+      console.log(`[EMAIL VERIFY CONNECTION] Admin: ${maskEmailAddress(adminEmail)}, Status: ${result.success ? 'SUCCESS' : 'FAILED'}, Code: ${result.code}`);
+
+      return res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      console.error('[EMAIL VERIFY CONNECTION EXCEPTION]', err);
+      return res.status(500).json({
+        success: false,
+        code: 'INTERNAL_ERROR',
+        message: 'Lỗi máy chủ khi kiểm tra kết nối SMTP.',
+        error: err.message,
+      });
+    }
+  });
+
+  // 8.2. ADMIN: POST /api/v1/admin/email-service/send-test-email (Gửi email thử nghiệm chủ động)
+  app.post('/api/v1/admin/email-service/send-test-email', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const adminId = (req as any).user?.id || demoState.adminUser.id;
+      const adminEmail = (req as any).user?.email || 'admin@sthc.edu.vn';
+      const adminName = (req as any).user?.full_name || 'Quản trị viên STHC';
+
+      const recipientEmail = (req.body?.recipient_email || adminEmail || '').trim();
+      if (!recipientEmail || !isValidEmail(recipientEmail)) {
+        return res.status(400).json({
+          success: false,
+          code: 'INVALID_RECIPIENT_EMAIL',
+          message: 'Địa chỉ email nhận thử không hợp lệ hoặc để trống.',
+        });
+      }
+
+      let config: EmailServiceSettings;
+      if (req.body?.config) {
+        config = {
+          ...DEFAULT_EMAIL_SERVICE_SETTINGS,
+          ...req.body.config,
+        };
+      } else {
+        let dbSettings: any = null;
+        try {
+          const { data } = await supabase.from('system_settings').select('*').eq('id', 1).maybeSingle();
+          if (data) dbSettings = data;
+        } catch (e) {}
+
+        const settings = dbSettings || loadSystemSettingsData().settings;
+        config = {
+          email_business_enabled: settings.email_business_enabled ?? DEFAULT_EMAIL_SERVICE_SETTINGS.email_business_enabled,
+          smtp_host: settings.smtp_host || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_host,
+          smtp_port: settings.smtp_port || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_port,
+          smtp_secure_mode: settings.smtp_secure_mode || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_secure_mode,
+          smtp_sender_name: settings.smtp_sender_name || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_sender_name,
+          smtp_sender_email: settings.smtp_sender_email || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_sender_email,
+          smtp_reply_to: settings.smtp_reply_to || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_reply_to,
+          smtp_timeout_ms: settings.smtp_timeout_ms || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_timeout_ms,
+        };
+      }
+
+      const result = await sendSmtpTestEmail({
+        recipientEmail,
+        adminName,
+        adminEmail,
+        config,
+      });
+
+      const maskedRecipient = maskEmailAddress(recipientEmail);
+
+      // Ghi log kiểm tra an toàn (che email, không lưu secrets)
+      try {
+        await supabase.from('email_service_test_logs').insert({
+          admin_id: adminId,
+          action_type: 'SEND_TEST_EMAIL',
+          recipient_masked: maskedRecipient,
+          status: result.success ? 'SUCCESS' : 'FAILED',
+          error_code: result.code || null,
+          error_message: result.error || null,
+          technical_details: {
+            host: config.smtp_host,
+            port: config.smtp_port,
+            secure_mode: config.smtp_secure_mode,
+            message_id: result.message_id || null,
+          },
+        });
+      } catch (logErr) {
+        // Bỏ qua nếu bảng test logs chưa được migrate
+      }
+
+      console.log(`[EMAIL SEND TEST] Admin: ${maskEmailAddress(adminEmail)}, Recipient: ${maskedRecipient}, Status: ${result.success ? 'SUCCESS' : 'FAILED'}, Code: ${result.code}`);
+
+      return res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      console.error('[EMAIL SEND TEST EXCEPTION]', err);
+      return res.status(500).json({
+        success: false,
+        code: 'INTERNAL_ERROR',
+        message: 'Lỗi máy chủ khi gửi email thử nghiệm.',
+        error: err.message,
+      });
+    }
+  });
+
+  // ----------------------------------------------------------------------------
+  // C3.11A — DỊCH VỤ EMAIL NGHIỆP VỤ (KIỂM TRA KẾT NỐI & GỬI EMAIL THỬ NGHIỆM)
+  // ----------------------------------------------------------------------------
+
+  // 8.1. ADMIN: POST /api/v1/admin/email-service/verify-connection (Kiểm tra kết nối máy chủ SMTP)
+  app.post('/api/v1/admin/email-service/verify-connection', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const adminId = (req as any).user?.id || demoState.adminUser.id;
+      const adminEmail = (req as any).user?.email || 'admin@sthc.edu.vn';
+
+      let config: EmailServiceSettings;
+      if (req.body?.config) {
+        config = {
+          ...DEFAULT_EMAIL_SERVICE_SETTINGS,
+          ...req.body.config,
+        };
+      } else {
+        let dbSettings: any = null;
+        try {
+          const { data } = await supabase.from('system_settings').select('*').eq('id', 1).maybeSingle();
+          if (data) dbSettings = data;
+        } catch (e) {}
+
+        const settings = dbSettings || loadSystemSettingsData().settings;
+        config = {
+          email_business_enabled: settings.email_business_enabled ?? DEFAULT_EMAIL_SERVICE_SETTINGS.email_business_enabled,
+          smtp_host: settings.smtp_host || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_host,
+          smtp_port: settings.smtp_port || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_port,
+          smtp_secure_mode: settings.smtp_secure_mode || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_secure_mode,
+          smtp_sender_name: settings.smtp_sender_name || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_sender_name,
+          smtp_sender_email: settings.smtp_sender_email || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_sender_email,
+          smtp_reply_to: settings.smtp_reply_to || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_reply_to,
+          smtp_timeout_ms: settings.smtp_timeout_ms || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_timeout_ms,
+        };
+      }
+
+      const result = await verifySmtpConnection(config);
+
+      // Ghi log kiểm tra an toàn (không ghi mật khẩu)
+      try {
+        await supabase.from('email_service_test_logs').insert({
+          admin_id: adminId,
+          action_type: 'VERIFY_CONNECTION',
+          recipient_masked: null,
+          status: result.success ? 'SUCCESS' : 'FAILED',
+          error_code: result.code || null,
+          error_message: result.error || null,
+          technical_details: {
+            host: config.smtp_host,
+            port: config.smtp_port,
+            secure_mode: config.smtp_secure_mode,
+            round_trip_ms: result.details?.round_trip_ms,
+          },
+        });
+      } catch (logErr) {
+        // Bỏ qua nếu bảng test logs chưa được migrate
+      }
+
+      console.log(`[EMAIL VERIFY CONNECTION] Admin: ${maskEmailAddress(adminEmail)}, Status: ${result.success ? 'SUCCESS' : 'FAILED'}, Code: ${result.code}`);
+
+      return res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      console.error('[EMAIL VERIFY CONNECTION EXCEPTION]', err);
+      return res.status(500).json({
+        success: false,
+        code: 'INTERNAL_ERROR',
+        message: 'Lỗi máy chủ khi kiểm tra kết nối SMTP.',
+        error: err.message,
+      });
+    }
+  });
+
+  // 8.2. ADMIN: POST /api/v1/admin/email-service/send-test-email (Gửi email thử nghiệm chủ động)
+  app.post('/api/v1/admin/email-service/send-test-email', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const adminId = (req as any).user?.id || demoState.adminUser.id;
+      const adminEmail = (req as any).user?.email || 'admin@sthc.edu.vn';
+      const adminName = (req as any).user?.full_name || 'Quản trị viên STHC';
+
+      const recipientEmail = (req.body?.recipient_email || adminEmail || '').trim();
+      if (!recipientEmail || !isValidEmail(recipientEmail)) {
+        return res.status(400).json({
+          success: false,
+          code: 'INVALID_RECIPIENT_EMAIL',
+          message: 'Địa chỉ email nhận thử không hợp lệ hoặc để trống.',
+        });
+      }
+
+      let config: EmailServiceSettings;
+      if (req.body?.config) {
+        config = {
+          ...DEFAULT_EMAIL_SERVICE_SETTINGS,
+          ...req.body.config,
+        };
+      } else {
+        let dbSettings: any = null;
+        try {
+          const { data } = await supabase.from('system_settings').select('*').eq('id', 1).maybeSingle();
+          if (data) dbSettings = data;
+        } catch (e) {}
+
+        const settings = dbSettings || loadSystemSettingsData().settings;
+        config = {
+          email_business_enabled: settings.email_business_enabled ?? DEFAULT_EMAIL_SERVICE_SETTINGS.email_business_enabled,
+          smtp_host: settings.smtp_host || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_host,
+          smtp_port: settings.smtp_port || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_port,
+          smtp_secure_mode: settings.smtp_secure_mode || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_secure_mode,
+          smtp_sender_name: settings.smtp_sender_name || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_sender_name,
+          smtp_sender_email: settings.smtp_sender_email || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_sender_email,
+          smtp_reply_to: settings.smtp_reply_to || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_reply_to,
+          smtp_timeout_ms: settings.smtp_timeout_ms || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_timeout_ms,
+        };
+      }
+
+      const result = await sendSmtpTestEmail({
+        recipientEmail,
+        adminName,
+        adminEmail,
+        config,
+      });
+
+      const maskedRecipient = maskEmailAddress(recipientEmail);
+
+      // Ghi log kiểm tra an toàn (che email, không lưu secrets)
+      try {
+        await supabase.from('email_service_test_logs').insert({
+          admin_id: adminId,
+          action_type: 'SEND_TEST_EMAIL',
+          recipient_masked: maskedRecipient,
+          status: result.success ? 'SUCCESS' : 'FAILED',
+          error_code: result.code || null,
+          error_message: result.error || null,
+          technical_details: {
+            host: config.smtp_host,
+            port: config.smtp_port,
+            secure_mode: config.smtp_secure_mode,
+            message_id: result.message_id || null,
+          },
+        });
+      } catch (logErr) {
+        // Bỏ qua nếu bảng test logs chưa được migrate
+      }
+
+      console.log(`[EMAIL SEND TEST] Admin: ${maskEmailAddress(adminEmail)}, Recipient: ${maskedRecipient}, Status: ${result.success ? 'SUCCESS' : 'FAILED'}, Code: ${result.code}`);
+
+      return res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      console.error('[EMAIL SEND TEST EXCEPTION]', err);
+      return res.status(500).json({
+        success: false,
+        code: 'INTERNAL_ERROR',
+        message: 'Lỗi máy chủ khi gửi email thử nghiệm.',
+        error: err.message,
+      });
+    }
+  });
+
+  // ----------------------------------------------------------------------------
+  // C3.11B — QUẢN LÝ MẪU EMAIL (EMAIL TEMPLATES & VERSIONS API)
+  // ----------------------------------------------------------------------------
+
+  // 8.3. ADMIN: GET /api/v1/admin/email-templates (Danh sách mẫu email & phiên bản)
+  app.get('/api/v1/admin/email-templates', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      let templates: any[] = [];
+      try {
+        const { data: tData, error: tErr } = await supabase
+          .from('email_templates')
+          .select('*')
+          .order('template_code', { ascending: true });
+        if (!tErr && tData) templates = tData;
+      } catch (e) {}
+
+      if (templates.length === 0) {
+        templates = [
+          {
+            id: 'template-lead-reg-01',
+            template_code: 'LEAD_REGISTRATION_CONFIRMATION',
+            name: 'Xác nhận đăng ký tuyển sinh & Hướng dẫn EGOV',
+            description: 'Mẫu email gửi tự động cho khách hàng khi đăng ký khóa học qua cổng tuyển sinh STHC',
+            is_active: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        ];
+      }
+
+      const resultList = [];
+      for (const t of templates) {
+        let versions: any[] = [];
+        try {
+          const { data: vData, error: vErr } = await supabase
+            .from('email_template_versions')
+            .select('*, creator:profiles!email_template_versions_created_by_fkey(id, full_name, email), publisher:profiles!email_template_versions_published_by_fkey(id, full_name, email)')
+            .eq('template_id', t.id)
+            .order('revision', { ascending: false });
+          if (!vErr && vData) versions = vData;
+        } catch (e) {}
+
+        if (versions.length === 0) {
+          versions = [
+            {
+              id: 'version-v1-default',
+              template_id: t.id,
+              version_code: 'v1',
+              status: 'PUBLISHED',
+              subject: 'Xác nhận tiếp nhận hồ sơ đăng ký khóa học - {{course_title}}',
+              body_html: '<div style="font-family:sans-serif;padding:20px;color:#1f2937;"><h2 style="color:#1e3a8a;">Xin chào {{full_name}},</h2><p>Trường Trung cấp Du lịch & Khách sạn Saigontourist (STHC) trân trọng cảm ơn bạn đã quan tâm và đăng ký khóa học <strong>{{course_title}}</strong>.</p><p>Mã đăng ký của bạn đã được ghi nhận vào hệ thống vào lúc {{registered_at}}.</p>{{#if affiliate_name}}<p>Bạn được giới thiệu bởi Đại sứ tuyển sinh: <strong>{{affiliate_name}}</strong> (Mã: {{affiliate_code}}).</p>{{/if}}<p>Để hoàn tất thủ tục xét tuyển chính thức, vui lòng nhấn vào nút bên dưới để truy cập cổng thông tin tuyển sinh trực tuyến (EGOV):</p><div style="text-align:center;margin:30px 0;"><a href="{{official_registration_url}}" style="background-color:#1e3a8a;color:#ffffff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">{{button_label}}</a></div><p>Nếu bạn cần hỗ trợ, vui lòng liên hệ hotline: {{support_hotline}} hoặc email: {{support_email}}.</p><hr style="border:0;border-top:1px solid #e5e7eb;margin:20px 0;"/><p style="font-size:12px;color:#6b7280;">{{unit_name}} • Trân trọng kính chào.</p></div>',
+              body_text: 'Xin chào {{full_name}},\n\nTrường Trung cấp Du lịch & Khách sạn Saigontourist (STHC) trân trọng cảm ơn bạn đã đăng ký khóa học {{course_title}} vào lúc {{registered_at}}.\n\nĐể hoàn tất hồ sơ, vui lòng truy cập đường dẫn chính thức sau:\n{{official_registration_url}}\n\nHỗ trợ tuyển sinh:\n- Hotline: {{support_hotline}}\n- Email: {{support_email}}\n\n{{unit_name}}',
+              button_label: 'Hoàn tất hồ sơ đăng ký',
+              footer_text: 'Trường Trung cấp Du lịch & Khách sạn Saigontourist (STHC) • Cổng Tuyển sinh & Đại sứ',
+              revision: 1,
+              published_at: new Date().toISOString(),
+              change_reason: 'Phiên bản mặc định tương thích C3.10B',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          ];
+        }
+
+        const activePub = versions.find((v: any) => v.status === 'PUBLISHED') || versions[0];
+        resultList.push({
+          template: t,
+          versions,
+          active_published_version: activePub,
+        });
+      }
+
+      return res.json({
+        success: true,
+        data: resultList,
+      });
+    } catch (err: any) {
+      console.error('[ADMIN GET EMAIL TEMPLATES EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi khi tải danh sách mẫu email.' });
+    }
+  });
+
+  // 8.4. ADMIN: POST /api/v1/admin/email-templates/:code/versions (Lưu nháp phiên bản mẫu email)
+  app.post('/api/v1/admin/email-templates/:code/versions', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const adminId = (req as any).user?.id || demoState.adminUser.id;
+      const { code } = req.params;
+      const { version_code, subject, body_html, body_text, button_label, footer_text, expected_revision, change_reason } = req.body;
+
+      if (!code || !version_code || !subject || !body_html) {
+        return res.status(400).json({ success: false, error: 'Thiếu thông tin bắt buộc (code, version_code, subject, body_html).' });
+      }
+
+      const cleanCode = code.trim().toUpperCase();
+      const cleanVerCode = version_code.trim();
+
+      // Kiểm tra bảo mật chống XSS / Script / Iframe độc hại
+      const dangerousPatterns = /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>|<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>|javascript:|onerror\s*=/i;
+      if (dangerousPatterns.test(body_html) || dangerousPatterns.test(subject)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bị từ chối: Phát hiện đoạn mã HTML không hợp lệ hoặc nguy hiểm (script, iframe, javascript:).',
+        });
+      }
+
+      // Thử gọi RPC CSDL
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('fn_save_email_template_draft', {
+          p_admin_id: adminId,
+          p_template_code: cleanCode,
+          p_version_code: cleanVerCode,
+          p_subject: subject.trim(),
+          p_body_html: body_html.trim(),
+          p_body_text: (body_text || '').trim(),
+          p_button_label: (button_label || 'Hoàn tất hồ sơ đăng ký').trim(),
+          p_footer_text: (footer_text || '').trim(),
+          p_expected_revision: expected_revision !== undefined ? Number(expected_revision) : null,
+          p_change_reason: (change_reason || '').trim() || null,
+        });
+
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          return res.json({
+            success: true,
+            message: 'Lưu nháp mẫu email thành công.',
+            version: rpcRes.version,
+          });
+        }
+
+        if (rpcErr) {
+          if (rpcErr.code === 'P0004') {
+            return res.status(409).json({
+              success: false,
+              error: 'Xung đột phiên bản: Mẫu email đã được chỉnh sửa bởi quản trị viên khác.',
+              code: 'CONFIG_VERSION_CONFLICT',
+            });
+          }
+          return res.status(400).json({ success: false, error: rpcErr.message });
+        }
+      } catch (rpcEx: any) {
+        console.warn('[RPC SAVE TEMPLATE DRAFT WARN]', rpcEx?.message);
+      }
+
+      return res.status(500).json({ success: false, error: 'Cơ sở dữ liệu không thể hoàn tất lưu nháp mẫu email.' });
+    } catch (err: any) {
+      console.error('[ADMIN SAVE TEMPLATE DRAFT EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi lưu nháp mẫu email.' });
+    }
+  });
+
+  // 8.5. ADMIN: POST /api/v1/admin/email-templates/versions/:id/publish (Xuất bản phiên bản mẫu email)
+  app.post('/api/v1/admin/email-templates/versions/:id/publish', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const adminId = (req as any).user?.id || demoState.adminUser.id;
+      const { id } = req.params;
+      const { change_reason } = req.body;
+
+      if (!id) {
+        return res.status(400).json({ success: false, error: 'Thiếu định danh phiên bản mẫu (:id).' });
+      }
+
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('fn_publish_email_template_version', {
+          p_admin_id: adminId,
+          p_version_id: id,
+          p_change_reason: (change_reason || '').trim() || null,
+        });
+
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          return res.json({
+            success: true,
+            message: 'Xuất bản phiên bản mẫu email thành công.',
+            published_version: rpcRes.published_version,
+          });
+        }
+
+        if (rpcErr) {
+          return res.status(400).json({ success: false, error: rpcErr.message });
+        }
+      } catch (rpcEx: any) {
+        console.warn('[RPC PUBLISH TEMPLATE WARN]', rpcEx?.message);
+      }
+
+      return res.status(500).json({ success: false, error: 'Cơ sở dữ liệu không thể hoàn tất xuất bản mẫu email.' });
+    } catch (err: any) {
+      console.error('[ADMIN PUBLISH TEMPLATE EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi máy chủ khi xuất bản mẫu email.' });
+    }
+  });
+
+  // ----------------------------------------------------------------------------
+  // C3.13B — GIÁM SÁT & QUẢN LÝ HÀNG ĐỢI EMAIL (ADMIN EMAIL JOBS API)
+  // ----------------------------------------------------------------------------
+
+  // 1. GET /api/v1/admin/email-jobs (Danh sách tác vụ email)
+  app.get('/api/v1/admin/email-jobs', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const q = (req.query.q as string || '').trim();
+      const type = (req.query.type as string || 'ALL').trim();
+      const status = (req.query.status as string || 'ALL').trim();
+      const page = Math.max(1, parseInt(req.query.page as string || '1', 10));
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string || '20', 10)));
+      const offset = (page - 1) * limit;
+
+      let query = supabase.from('email_jobs').select('*', { count: 'exact' });
+
+      if (q) {
+        query = query.or(`recipient_email.ilike.%${q}%,idempotency_key.ilike.%${q}%,recipient_name.ilike.%${q}%`);
+      }
+      if (type && type !== 'ALL') {
+        query = query.eq('email_type', type);
+      }
+      if (status && status !== 'ALL') {
+        query = query.eq('status', status);
+      }
+
+      const { data, count, error } = await query
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      if (error) {
+        console.error('[ADMIN GET EMAIL JOBS DB ERROR]', error);
+        return res.status(500).json({ success: false, error: error.message || 'Lỗi truy vấn danh sách tác vụ email.' });
+      }
+
+      const total = count || 0;
+      const totalPages = Math.ceil(total / limit) || 1;
+
+      return res.json({
+        success: true,
+        data: data || [],
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+        },
+      });
+    } catch (err: any) {
+      console.error('[ADMIN GET EMAIL JOBS EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi khi tải danh sách tác vụ email.' });
+    }
+  });
+
+  // 2. GET /api/v1/admin/email-jobs/:id (Chi tiết tác vụ & lịch sử attempts)
+  app.get('/api/v1/admin/email-jobs/:id', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const jobId = req.params.id;
+      const { data: job, error: jobErr } = await supabase
+        .from('email_jobs')
+        .select('*')
+        .eq('id', jobId)
+        .single();
+
+      if (jobErr || !job) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy tác vụ email.' });
+      }
+
+      const { data: attempts, error: attErr } = await supabase
+        .from('email_job_attempts')
+        .select('*')
+        .eq('email_job_id', jobId)
+        .order('attempt_number', { ascending: false });
+
+      return res.json({
+        success: true,
+        job,
+        attempts: attempts || [],
+      });
+    } catch (err: any) {
+      console.error('[ADMIN GET EMAIL JOB DETAIL EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi khi tải chi tiết tác vụ email.' });
+    }
+  });
+
+  // 3. POST /api/v1/admin/email-jobs/:id/retry (Thử lại tác vụ FAILED/BLOCKED)
+  app.post('/api/v1/admin/email-jobs/:id/retry', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const jobId = req.params.id;
+      const adminId = (req as any).user?.id || demoState.adminUser.id;
+      const adminEmail = (req as any).user?.email || 'admin@sthc.edu.vn';
+
+      const { data: job, error: jobErr } = await supabase
+        .from('email_jobs')
+        .select('*')
+        .eq('id', jobId)
+        .single();
+
+      if (jobErr || !job) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy tác vụ email.' });
+      }
+
+      if (!['FAILED', 'BLOCKED', 'RETRY_WAIT', 'DEAD_LETTER'].includes(job.status)) {
+        return res.status(400).json({
+          success: false,
+          error: `Không thể thử lại tác vụ ở trạng thái hiện tại (${job.status}). Chỉ hỗ trợ các tác vụ FAILED, BLOCKED, RETRY_WAIT hoặc DEAD_LETTER.`,
+        });
+      }
+
+      const newMaxAttempts = Math.max(job.max_attempts, job.attempt_count + 3);
+      const { data: updated, error: updErr } = await supabase
+        .from('email_jobs')
+        .update({
+          status: 'PENDING',
+          next_attempt_at: new Date().toISOString(),
+          blocked_reason: null,
+          last_error_code: null,
+          last_error_message: null,
+          max_attempts: newMaxAttempts,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', jobId)
+        .select()
+        .single();
+
+      if (updErr || !updated) {
+        return res.status(500).json({ success: false, error: updErr?.message || 'Không thể cập nhật trạng thái tác vụ.' });
+      }
+
+      // Ghi audit log
+      try {
+        await supabase.from('audit_logs').insert({
+          action: 'RETRY_EMAIL_JOB',
+          entity_type: 'email_job',
+          entity_id: jobId,
+          actor_id: adminId,
+          changes: { previous_status: job.status, new_status: 'PENDING', email_type: job.email_type, recipient: job.recipient_email },
+        });
+      } catch (e) {}
+
+      console.log(`[EMAIL JOB RETRY] Admin ${adminEmail} retried email job ${jobId} (${job.email_type})`);
+
+      return res.json({
+        success: true,
+        message: 'Đã đưa tác vụ email về trạng thái chờ xử lý lại thành công.',
+        job: updated,
+      });
+    } catch (err: any) {
+      console.error('[ADMIN RETRY EMAIL JOB EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi khi thử lại tác vụ email.' });
+    }
+  });
+
+  // 4. POST /api/v1/admin/email-jobs/:id/resend (Gửi lại có chủ đích email đã SENT)
+  app.post('/api/v1/admin/email-jobs/:id/resend', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const jobId = req.params.id;
+      const adminId = (req as any).user?.id || demoState.adminUser.id;
+      const adminEmail = (req as any).user?.email || 'admin@sthc.edu.vn';
+
+      const { data: job, error: jobErr } = await supabase
+        .from('email_jobs')
+        .select('*')
+        .eq('id', jobId)
+        .single();
+
+      if (jobErr || !job) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy tác vụ email gốc.' });
+      }
+
+      const newIdempotencyKey = `manual-resend:${jobId}:${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const newMetadata = {
+        ...(job.metadata || {}),
+        resend_by_admin_id: adminId,
+        resend_by_admin_email: adminEmail,
+        resend_at: new Date().toISOString(),
+        original_job_id: jobId,
+      };
+
+      const newJobRecord = {
+        email_type: job.email_type,
+        idempotency_key: newIdempotencyKey,
+        recipient_email: job.recipient_email,
+        recipient_name: job.recipient_name,
+        recipient_user_id: job.recipient_user_id,
+        lead_id: job.lead_id,
+        notification_id: job.notification_id,
+        notification_recipient_id: job.notification_recipient_id,
+        original_job_id: jobId,
+        template_code: job.template_code,
+        template_version: job.template_version,
+        payload: job.payload,
+        status: 'PENDING',
+        priority: job.priority + 10,
+        next_attempt_at: new Date().toISOString(),
+        attempt_count: 0,
+        max_attempts: job.max_attempts,
+        metadata: newMetadata,
+      };
+
+      const { data: inserted, error: insErr } = await supabase
+        .from('email_jobs')
+        .insert(newJobRecord)
+        .select()
+        .single();
+
+      if (insErr || !inserted) {
+        return res.status(500).json({ success: false, error: insErr?.message || 'Không thể tạo tác vụ gửi lại email mới.' });
+      }
+
+      // Ghi audit log
+      try {
+        await supabase.from('audit_logs').insert({
+          action: 'RESEND_EMAIL_JOB',
+          entity_type: 'email_job',
+          entity_id: inserted.id,
+          actor_id: adminId,
+          changes: { original_job_id: jobId, email_type: job.email_type, recipient: job.recipient_email },
+        });
+      } catch (e) {}
+
+      console.log(`[EMAIL JOB RESEND] Admin ${adminEmail} initiated resend of job ${jobId} -> new job ${inserted.id}`);
+
+      return res.json({
+        success: true,
+        message: 'Đã tạo tác vụ gửi lại email thành công vào hàng đợi.',
+        new_job: inserted,
+      });
+    } catch (err: any) {
+      console.error('[ADMIN RESEND EMAIL JOB EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi khi gửi lại email.' });
     }
   });
 
@@ -14149,7 +14936,22 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[STHC CTV SYSTEM] Server running at http://0.0.0.0:${PORT}`);
+    // Khởi động email worker (C3.12A)
+    startEmailWorker();
   });
 }
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('[STHC CTV SYSTEM] Nhận tín hiệu SIGTERM, đang dừng worker và server...');
+  stopEmailWorker();
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('[STHC CTV SYSTEM] Nhận tín hiệu SIGINT, đang dừng worker và server...');
+  stopEmailWorker();
+  process.exit(0);
+});
 
 startServer();

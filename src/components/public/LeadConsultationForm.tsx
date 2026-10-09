@@ -13,7 +13,14 @@ interface LeadConsultationFormProps {
   badge?: string | null;
   submitButtonText?: string;
   defaultConsent?: boolean;
-  onSuccess: (result: { appointment_code?: string; message: string }) => void;
+  onSuccess: (result: {
+    appointment_code?: string;
+    message: string;
+    course_title?: string | null;
+    official_registration_url?: string | null;
+    affiliate_code?: string | null;
+    affiliate_name?: string | null;
+  }) => void;
   onCancel?: () => void;
 }
 
@@ -99,6 +106,10 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
         onSuccess({
           appointment_code: res.appointment_code,
           message: res.message,
+          course_title: res.course_title,
+          official_registration_url: res.official_registration_url,
+          affiliate_code: res.affiliate_code,
+          affiliate_name: res.affiliate_name,
         });
       } else {
         setErrorMessage(res.error || 'Có lỗi xảy ra khi gửi đăng ký. Vui lòng thử lại.');

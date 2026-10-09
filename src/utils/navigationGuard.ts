@@ -123,6 +123,18 @@ export const APP_ROUTES: Record<string, RouteDefinition> = {
     isPublic: false,
     allowedRoles: ['admin'],
   },
+  '/admin/email-templates': {
+    path: '/admin/email-templates',
+    name: 'Quản lý Mẫu Email',
+    isPublic: false,
+    allowedRoles: ['admin'],
+  },
+  '/admin/email-jobs': {
+    path: '/admin/email-jobs',
+    name: 'Giám sát Hàng đợi Email',
+    isPublic: false,
+    allowedRoles: ['admin'],
+  },
   '/admin/permissions': {
     path: '/admin/permissions',
     name: 'Quản lý Phân quyền & Nhóm quyền A5',
@@ -325,8 +337,8 @@ export function checkRouteAccess(path: string, auth: AuthSessionData | null): Ro
     };
   }
 
-  // 7.1. Tuyến đường Admin đặc thù: /admin/system-settings chỉ dành riêng cho Admin
-  if (cleanPath === '/admin/system-settings') {
+  // 7.1. Tuyến đường Admin đặc thù: /admin/system-settings, /admin/email-templates và /admin/email-jobs chỉ dành riêng cho Admin
+  if (cleanPath === '/admin/system-settings' || cleanPath === '/admin/email-templates' || cleanPath === '/admin/email-jobs') {
     if (role === 'admin') {
       return { allowed: true };
     }
@@ -335,7 +347,7 @@ export function checkRouteAccess(path: string, auth: AuthSessionData | null): Ro
       allowed: false,
       reason: 'FORBIDDEN',
       defaultRoute,
-      message: 'Chỉ Quản trị viên (Admin) mới có quyền truy cập module Quản trị hệ thống.',
+      message: 'Chỉ Quản trị viên (Admin) mới có quyền truy cập module Quản trị hệ thống, Mẫu Email và Hàng đợi Email.',
     };
   }
 

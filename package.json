@@ -19,7 +19,9 @@
     "test:affiliate-code": "tsx scripts/verify_a7_7_affiliate_code.ts",
     "test:c3-6a": "tsx scripts/verify_c3_6a_affiliate_and_lead_events.ts",
     "test:c3-6b": "tsx scripts/verify_c3_6b_enrollment_and_reward_events.ts",
-    "test:c3-7": "tsx scripts/verify_c3_7_affiliate_notification_screen.ts"
+    "test:c3-7": "tsx scripts/verify_c3_7_affiliate_notification_screen.ts",
+    "test:c3-10a": "tsx scripts/verify_c3_10a_email_queue_data.ts",
+    "test:c3-10b": "tsx scripts/verify_c3_10b_atomic_lead_email_job.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -31,6 +33,7 @@
     "lucide-react": "^0.546.0",
     "marked": "^18.0.14",
     "motion": "^12.23.24",
+    "nodemailer": "^10.0.16",
     "qrcode": "^1.5.4",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
@@ -42,6 +45,7 @@
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
+    "@types/nodemailer": "^8.0.2",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
