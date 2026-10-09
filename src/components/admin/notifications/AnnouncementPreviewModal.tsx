@@ -261,7 +261,7 @@ export const AnnouncementPreviewModal: React.FC<AnnouncementPreviewModalProps> =
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                          {previewData.sample_recipients.map((s, idx) => (
+                          {(Array.isArray(previewData.sample_recipients) ? previewData.sample_recipients : []).map((s, idx) => (
                             <tr key={s.affiliate_profile_id || idx} className="hover:bg-slate-50/80">
                               <td className="py-2 px-3 font-mono font-medium text-blue-600">
                                 {s.affiliate_code}

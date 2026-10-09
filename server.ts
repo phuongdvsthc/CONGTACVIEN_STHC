@@ -13057,18 +13057,19 @@ async function startServer() {
 
       return res.json({
         success: true,
-        data: {
-          items,
-          pagination: {
-            page: pageNum,
-            limit: limitNum,
-            total_items: totalItems,
-            total_pages: totalPages,
-            has_next: pageNum < totalPages,
-            has_prev: pageNum > 1,
-          },
-          server_time: new Date().toISOString(),
+        data: items,
+        items,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalItems,
+          total_items: totalItems,
+          totalPages,
+          total_pages: totalPages,
+          has_next: pageNum < totalPages,
+          has_prev: pageNum > 1,
         },
+        server_time: new Date().toISOString(),
       });
     } catch (err: any) {
       console.error('[GET /announcements ERROR]', err);
@@ -13335,16 +13336,17 @@ async function startServer() {
 
       return res.json({
         success: true,
-        data: {
-          items,
-          pagination: {
-            page: pageNum,
-            limit: limitNum,
-            total_items: totalItems,
-            total_pages: totalPages,
-            has_next: pageNum < totalPages,
-            has_prev: pageNum > 1,
-          },
+        data: items,
+        items,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalItems,
+          total_items: totalItems,
+          totalPages,
+          total_pages: totalPages,
+          has_next: pageNum < totalPages,
+          has_prev: pageNum > 1,
         },
       });
     } catch (err: any) {
@@ -14041,16 +14043,17 @@ async function startServer() {
 
       return res.json({
         success: true,
-        data: {
-          items,
-          pagination: {
-            page: pageNum,
-            limit: limitNum,
-            total_items: totalItems,
-            total_pages: totalPages,
-            has_next: pageNum < totalPages,
-            has_prev: pageNum > 1,
-          },
+        data: items,
+        items,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: totalItems,
+          total_items: totalItems,
+          totalPages,
+          total_pages: totalPages,
+          has_next: pageNum < totalPages,
+          has_prev: pageNum > 1,
         },
       });
     } catch (err: any) {

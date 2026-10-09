@@ -163,10 +163,25 @@ export const AdminNotificationsView: React.FC<AdminNotificationsViewProps> = ({
 
       if (currentSeq !== fetchSeqRef.current) return;
 
-      if (res.success && res.data) {
-        setAnnouncements(res.data || []);
-        if (res.pagination) {
-          setPagination(res.pagination);
+      if (res.success) {
+        let rawItems: AdminNotificationListItemDTO[] = [];
+        if (Array.isArray(res.data)) {
+          rawItems = res.data;
+        } else if (Array.isArray(res.data?.items)) {
+          rawItems = res.data.items;
+        } else if (Array.isArray((res as any).items)) {
+          rawItems = (res as any).items;
+        }
+        setAnnouncements(rawItems);
+
+        const pag = res.pagination || res.data?.pagination;
+        if (pag) {
+          setPagination({
+            page: pag.page || page,
+            limit: pag.limit || pag.page_size || limit,
+            total: pag.total ?? pag.total_items ?? rawItems.length,
+            totalPages: pag.totalPages ?? pag.total_pages ?? 1,
+          });
         }
       } else {
         if (res.error?.includes('403') || res.code === 'FORBIDDEN') {
@@ -585,7 +600,7 @@ export const AdminNotificationsView: React.FC<AdminNotificationsViewProps> = ({
                     {listError}
                   </td>
                 </tr>
-              ) : announcements.length === 0 ? (
+              ) : (!Array.isArray(announcements) || announcements.length === 0) ? (
                 <tr>
                   <td colSpan={9} className="py-16 text-center text-slate-400">
                     <FileText className="w-8 h-8 mx-auto text-slate-300 mb-2" />
@@ -598,7 +613,7 @@ export const AdminNotificationsView: React.FC<AdminNotificationsViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                announcements.map((item, idx) => {
+                (Array.isArray(announcements) ? announcements : []).map((item, idx) => {
                   const stt = (pagination.page - 1) * pagination.limit + idx + 1;
                   const isOwner = currentUser?.id && item.created_by === currentUser.id;
                   const isDraft = item.status === 'DRAFT';

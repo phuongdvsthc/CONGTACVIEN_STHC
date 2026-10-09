@@ -102,10 +102,24 @@ export const AnnouncementDetailModal: React.FC<AnnouncementDetailModalProps> = (
       limit: 20,
     })
       .then((res) => {
-        if (res.success && res.data) {
-          setRecipients(res.data || []);
-          if (res.pagination) {
-            setRecipientsPagination(res.pagination);
+        if (res.success) {
+          let recList: AnnouncementRecipientItemDTO[] = [];
+          if (Array.isArray(res.data)) {
+            recList = res.data;
+          } else if (Array.isArray(res.data?.items)) {
+            recList = res.data.items;
+          } else if (Array.isArray((res as any).items)) {
+            recList = (res as any).items;
+          }
+          setRecipients(recList);
+          const pag = res.pagination || res.data?.pagination;
+          if (pag) {
+            setRecipientsPagination({
+              page: pag.page || recipientsPage,
+              limit: pag.limit || pag.page_size || 20,
+              total: pag.total ?? pag.total_items ?? recList.length,
+              totalPages: pag.totalPages ?? pag.total_pages ?? 1,
+            });
           }
         }
       })
@@ -477,14 +491,14 @@ export const AnnouncementDetailModal: React.FC<AnnouncementDetailModalProps> = (
                               Đang tải danh sách người nhận...
                             </td>
                           </tr>
-                        ) : recipients.length === 0 ? (
+                        ) : (!Array.isArray(recipients) || recipients.length === 0) ? (
                           <tr>
                             <td colSpan={6} className="py-8 text-center text-slate-400">
                               Không có người nhận nào khớp với bộ lọc.
                             </td>
                           </tr>
                         ) : (
-                          recipients.map((rec, idx) => {
+                          (Array.isArray(recipients) ? recipients : []).map((rec, idx) => {
                             const indexNumber = (recipientsPage - 1) * 20 + idx + 1;
                             return (
                               <tr key={rec.recipient_id} className="hover:bg-slate-50/70">

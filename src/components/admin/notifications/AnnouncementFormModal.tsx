@@ -116,8 +116,15 @@ export const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
         // Fetch or prefill specific affiliates
         api.searchAdminAnnouncementRecipients({ limit: 50 })
           .then((res) => {
-            if (res.success && res.data) {
-              const matched = res.data.filter((opt: RecipientOptionItemDTO) =>
+            if (res.success) {
+              const list: RecipientOptionItemDTO[] = Array.isArray(res.data)
+                ? res.data
+                : Array.isArray(res.data?.items)
+                ? res.data.items
+                : Array.isArray((res as any).items)
+                ? (res as any).items
+                : [];
+              const matched = list.filter((opt: RecipientOptionItemDTO) =>
                 affiliateIds.includes(opt.affiliate_profile_id)
               );
               // For any ID not in top search, create placeholder option
@@ -175,8 +182,15 @@ export const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
           search: affiliateSearchQuery.trim(),
           limit: 10,
         });
-        if (res.success && res.data) {
-          setAffiliateSearchResults(res.data);
+        if (res.success) {
+          const list: RecipientOptionItemDTO[] = Array.isArray(res.data)
+            ? res.data
+            : Array.isArray(res.data?.items)
+            ? res.data.items
+            : Array.isArray((res as any).items)
+            ? (res as any).items
+            : [];
+          setAffiliateSearchResults(list);
           setIsComboboxOpen(true);
         }
       } catch {
@@ -707,10 +721,10 @@ export const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
                     </div>
 
                     {/* Dropdown Results */}
-                    {isComboboxOpen && affiliateSearchResults.length > 0 && (
+                    {isComboboxOpen && Array.isArray(affiliateSearchResults) && affiliateSearchResults.length > 0 && (
                       <div className="absolute left-0 right-0 mt-1 max-h-56 overflow-y-auto bg-white rounded-xl border border-slate-200 shadow-xl z-20 divide-y divide-slate-100">
                         {affiliateSearchResults.map((opt) => {
-                          const isAlreadySelected = selectedAffiliates.some(
+                          const isAlreadySelected = (Array.isArray(selectedAffiliates) ? selectedAffiliates : []).some(
                             (a) => a.affiliate_profile_id === opt.affiliate_profile_id
                           );
                           return (
@@ -746,7 +760,7 @@ export const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
                   </div>
 
                   {/* Selected Affiliates Chips */}
-                  {selectedAffiliates.length > 0 ? (
+                  {Array.isArray(selectedAffiliates) && selectedAffiliates.length > 0 ? (
                     <div className="flex flex-wrap gap-2 max-h-36 overflow-y-auto pt-1">
                       {selectedAffiliates.map((item) => (
                         <div
