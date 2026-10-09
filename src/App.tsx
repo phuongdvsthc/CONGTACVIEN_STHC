@@ -23,6 +23,7 @@ import { AffiliatePendingScreen } from './components/affiliate/AffiliatePendingS
 import { AffiliateRegisterModal } from './components/affiliate/AffiliateRegisterModal';
 import { AffiliateLeadsView } from './components/affiliate/AffiliateLeadsView';
 import { AffiliateLeadDetailView } from './components/affiliate/AffiliateLeadDetailView';
+import { AffiliateNotificationsView } from './components/affiliate/AffiliateNotificationsView';
 import { AdminPortal } from './components/admin/AdminPortal';
 import { AdminDashboardView } from './components/admin/AdminDashboardView';
 import { AdminLeadDetailView } from './components/admin/AdminLeadDetailView';
@@ -30,11 +31,13 @@ import { AdminPlaceholderPage } from './components/admin/AdminPlaceholderPage';
 import { AdminHomepageConfigView } from './components/admin/AdminHomepageConfigView';
 import { AdminSystemSettingsView } from './components/admin/AdminSystemSettingsView';
 import { AdminPermissionsView } from './components/admin/AdminPermissionsView';
+import { AdminNotificationsView } from './components/admin/AdminNotificationsView';
 import { AppLayout } from './components/common/AppLayout';
 import { AccessNoticeScreen } from './components/common/AccessNoticeScreen';
 import { ProfileDetailView } from './components/common/ProfileDetailView';
 import { SystemBrandingProvider } from './contexts/SystemBrandingContext';
 import { PortalHeaderProvider } from './contexts/PortalHeaderContext';
+import { PortalNotificationProvider } from './contexts/PortalNotificationContext';
 import {
   AuthSessionData,
   checkRouteAccess,
@@ -462,9 +465,9 @@ export default function App() {
   const getActiveTabForHeader = () => {
     if (currentPath === '/catalog') return 'public_catalog';
     if (currentPath === '/policy') return 'affiliate_policy';
-    if (currentPath === '/portal') return 'affiliate_portal';
-    if (currentPath === '/pending') return 'affiliate_portal';
-    if (currentPath === '/admin') return 'admin_portal';
+    if (currentPath === '/portal' || currentPath.startsWith('/portal/')) return 'affiliate_portal';
+    if (currentPath === '/pending' || currentPath.startsWith('/pending/')) return 'affiliate_portal';
+    if (currentPath === '/admin' || currentPath.startsWith('/admin/')) return 'admin_portal';
     return 'affiliate_landing';
   };
 
@@ -475,62 +478,67 @@ export default function App() {
   return (
     <SystemBrandingProvider currentPath={currentPath}>
       <PortalHeaderProvider>
-        {isInternalPortal ? (
-          /* A0.4: KHU VỰC NỘI BỘ DÙNG CHUNG APPLAYOUT (HEADER + SIDEBAR + WORKSPACE) */
-          <AppLayout
-            role={authSession.role}
-            user={authSession.user}
-            affiliate={authSession.affiliate}
-            currentPath={currentPath}
-            onNavigate={(targetPath) => navigate(targetPath)}
-            onLogout={handleLogout}
-            brandConfig={defaultLandingConfig}
-          >
-            {/* AFFILIATE PORTAL ROUTING */}
-            {(currentPath === '/portal' ||
-              currentPath === '/portal/' ||
-              currentPath === '/portal/dashboard' ||
-              currentPath === '/portal/overview') && (
-              <AffiliateDashboard
-                key={authSession.affiliate?.id || authSession.affiliate?.affiliate_code || 'active_affiliate'}
-                affiliateCode={authSession.affiliate?.affiliate_code || 'STHCCTV1088'}
-                fullName={authSession.affiliate?.full_name || authSession.user?.full_name || 'Trần Thị Thu Thảo'}
-                onNavigate={(path) => navigate(path)}
-              />
-            )}
+        <PortalNotificationProvider userId={authSession.role === 'affiliate_active' ? authSession.user?.id : null}>
+          {isInternalPortal ? (
+            /* A0.4: KHU VỰC NỘI BỘ DÙNG CHUNG APPLAYOUT (HEADER + SIDEBAR + WORKSPACE) */
+            <AppLayout
+              role={authSession.role}
+              user={authSession.user}
+              affiliate={authSession.affiliate}
+              currentPath={currentPath}
+              onNavigate={(targetPath) => navigate(targetPath)}
+              onLogout={handleLogout}
+              brandConfig={defaultLandingConfig}
+            >
+              {/* AFFILIATE PORTAL ROUTING */}
+              {(currentPath === '/portal' ||
+                currentPath === '/portal/' ||
+                currentPath === '/portal/dashboard' ||
+                currentPath === '/portal/overview') && (
+                <AffiliateDashboard
+                  key={authSession.affiliate?.id || authSession.affiliate?.affiliate_code || 'active_affiliate'}
+                  affiliateCode={authSession.affiliate?.affiliate_code || 'STHCCTV1088'}
+                  fullName={authSession.affiliate?.full_name || authSession.user?.full_name || 'Trần Thị Thu Thảo'}
+                  onNavigate={(path) => navigate(path)}
+                />
+              )}
 
-            {currentPath === '/portal/profile' && (
-              <ProfileDetailView
-                currentUser={authSession.user}
-                currentRole={authSession.role}
-                onBack={() => navigate('/portal')}
-                onAvatarUpdated={loadSession}
-              />
-            )}
+              {currentPath === '/portal/profile' && (
+                <ProfileDetailView
+                  currentUser={authSession.user}
+                  currentRole={authSession.role}
+                  onBack={() => navigate('/portal')}
+                  onAvatarUpdated={loadSession}
+                />
+              )}
 
-            {currentPath.match(/^\/portal\/courses\/.+/) ? (
-              <AffiliateCourseDetailView
-                courseId={currentPath.replace('/portal/courses/', '')}
-                onBack={() => navigate('/portal/courses')}
-              />
-            ) : currentPath.startsWith('/portal/courses') && (
-              <AffiliateCourseListView
-                onNavigateToOverview={() => navigate('/portal')}
-                onSelectCourse={(courseSlug) => navigate(`/portal/courses/${courseSlug}`)}
-              />
-            )}
+              {currentPath.match(/^\/portal\/courses\/.+/) ? (
+                <AffiliateCourseDetailView
+                  courseId={currentPath.replace('/portal/courses/', '')}
+                  onBack={() => navigate('/portal/courses')}
+                />
+              ) : currentPath.startsWith('/portal/courses') && (
+                <AffiliateCourseListView
+                  onNavigateToOverview={() => navigate('/portal')}
+                  onSelectCourse={(courseSlug) => navigate(`/portal/courses/${courseSlug}`)}
+                />
+              )}
 
-            {currentPath.match(/^\/portal\/leads\/([a-f0-9-]+)$/i) ? (
-              <AffiliateLeadDetailView
-                leadId={currentPath.replace('/portal/leads/', '')}
-                onBack={() => {
-                  window.history.pushState({}, '', '/portal/leads');
-                  window.dispatchEvent(new PopStateEvent('popstate'));
-                }}
-              />
-            ) : currentPath.startsWith('/portal/leads') && (
-              <AffiliateLeadsView onNavigateToOverview={() => navigate('/portal')} />
-            )}
+              {currentPath.match(/^\/portal\/leads\/([a-f0-9-]+)$/i) ? (
+                <AffiliateLeadDetailView
+                  leadId={currentPath.replace('/portal/leads/', '')}
+                  onBack={() => {
+                    window.history.pushState({}, '', '/portal/leads');
+                    window.dispatchEvent(new PopStateEvent('popstate'));
+                  }}
+                />
+              ) : currentPath.startsWith('/portal/leads') && (
+                <AffiliateLeadsView onNavigateToOverview={() => navigate('/portal')} />
+              )}
+
+              {currentPath.startsWith('/portal/notifications') && (
+                <AffiliateNotificationsView onNavigate={(path) => navigate(path)} />
+              )}
 
             {/* ADMIN & STAFF PORTAL ROUTING */}
             {currentPath === '/admin/profile' && (
@@ -571,6 +579,13 @@ export default function App() {
 
             {currentPath === '/admin/homepage' && (
               <AdminHomepageConfigView currentUser={authSession.user} />
+            )}
+
+            {(currentPath === '/admin/notifications' || currentPath.startsWith('/admin/notifications/')) && (
+              <AdminNotificationsView
+                currentUser={authSession.user}
+                onNavigate={(path) => navigate(path)}
+              />
             )}
 
             {currentPath === '/admin/staff-accounts' && (
@@ -795,6 +810,7 @@ export default function App() {
           handleOpenLogin();
         }}
       />
+        </PortalNotificationProvider>
       </PortalHeaderProvider>
     </SystemBrandingProvider>
   );

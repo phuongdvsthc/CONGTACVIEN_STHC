@@ -1723,6 +1723,333 @@ Tài liệu này ghi nhận toàn bộ quá trình thiết kế, triển khai, k
   - `/docs/A9_8B_ADMIN_DASHBOARD_RECENT_LEADS_LEADERBOARD_UI_REPORT.md`.
 - **Kết luận bước A9.8B**: **HOÀN THÀNH 100% VÀ ĐÃ KIỂM CHỨNG GIAO DIỆN & BUILD**. Sẵn sàng chuyển sang bước tiếp theo (A9.9 — Kiểm thử tự động E2E toàn diện và nghiệm thu phân hệ Tổng quan quản trị). Dừng lại theo đúng yêu cầu sau bước A9.8B.
 
+---
+
+### 64. Triển khai C3.1 — Kiểm kê nền thông báo, email và các điểm phát sinh sự kiện
+- **Mã bước**: C3.1
+- **Phạm vi thực hiện**:
+  1. **Thao tác tuân thủ nghiêm ngặt**:
+     - 100% Read-only: Chỉ đọc mã nguồn, cấu hình và siêu dữ liệu cần thiết.
+     - Không chạy migration, không sửa schema, không can thiệp dữ liệu nghiệp vụ.
+     - Không gửi email thử hoặc email thực tế ra bên ngoài.
+     - Không làm lộ khóa bí mật, mật khẩu SMTP, token hay dữ liệu cá nhân.
+     - Dừng lại sau C3.1, không tự ý triển khai mã nguồn chức năng C3.2.
+  2. **Kết quả kiểm kê giao diện & điều hướng**:
+     - Nút chuông (Bell) đã hiện diện trên `src/components/common/AppLayout.tsx` (dùng chung CTV và Admin/Staff).
+     - Chưa có badge đếm số thông báo chưa đọc trên Bell; popover dropdown hiện là khung mẫu tĩnh.
+     - Chưa có route `/portal/notifications` (2 tab: "Ban quản trị" và "Hệ thống"); chưa có mục menu trên sidebar CTV và Admin.
+     - Đã xác minh tất cả các route deep-link đang chạy tốt: `/portal/leads/:id`, `/portal/courses/:id`, `/portal`, `/pending`, `/portal/profile`.
+  3. **Kết quả kiểm kê dữ liệu & quyền**:
+     - Hiện tại trong database: 0 bảng thông báo, 0 bảng email logs, 0 bảng cấu hình SMTP.
+     - Hệ thống phân quyền RBAC `public.permissions` đã sẵn sàng, dễ dàng mở rộng thêm các quyền `notifications.*`.
+  4. **Ánh xạ 11 điểm phát sinh sự kiện tự động (A1, A3, A4, A5) vào Tab 2 (Hệ thống)**:
+     - A1: Đăng ký CTV mới, duyệt hồ sơ (APPROVE), từ chối (REJECT), tạm ngưng (SUSPEND), mở lại (REACTIVATE).
+     - A3: Khách hàng mới nộp đơn qua link CTV, cập nhật tiến độ tư vấn / chăm sóc.
+     - A4: Đối soát nhập học thành công (MATCHED_VALID), hủy kết quả đối soát (VOID).
+     - A5: Thù lao 500k được duyệt (APPROVE), từ chối (REJECT), thu hồi (VOID).
+  5. **Kiểm kê nền tảng Email & SMTP**:
+     - Đang dùng mailer mặc định của Supabase Auth cho forgot-password và kích hoạt tài khoản.
+     - Bảng `system_settings` chỉ có `support_email` hiển thị, chưa có thông tin SMTP hay mật khẩu.
+     - Đề xuất kiến trúc Outbox pattern (hàng đợi bất đồng bộ) cho giai đoạn sau nhằm chống nghẽn và đảm bảo tính nguyên tử của giao dịch.
+  6. **Bản thiết kế C3.2**:
+     - Thiết kế 2 bảng CSDL cốt lõi: `public.admin_announcements` (Tab 1 BQT) và `public.user_notifications` (Tab 1 + Tab 2 cá nhân hóa, tối ưu đếm chưa đọc O(1)).
+     - Thiết kế các RPC helpers: `fn_get_unread_notification_count`, `fn_mark_notifications_read`, `fn_create_system_notification`.
+- **Tài liệu bàn giao**:
+  - `/docs/C3_1_NOTIFICATION_EMAIL_EVENT_AUDIT_REPORT.md`.
+- **Kết luận bước C3.1**: **HOÀN THÀNH 100% (READ-ONLY AUDIT & ARCHITECTURE BLUEPRINT)**. Dừng sau C3.1 theo đúng yêu cầu, sẵn sàng chuyển sang bước tiếp theo (C3.2).
+
+### 65. TRIỂN KHAI C3.2 — CHỐT ĐẶC TẢ CHUNG PHÂN HỆ THÔNG BÁO VÀ BẢN TIN CTV (STHC_CTV)
+- **Thời gian hoàn thành**: 08/10/2026.
+- **Mục tiêu**: Ban hành tài liệu đặc tả thống nhất, toàn diện và chính thức cho Phân hệ C3: màn hình CTV 2 tab, chuông header CTV O(1), phân quyền và quản lý bản tin cho Admin/Staff, ma trận 11 điểm sự kiện tự động A1/A3/A4/A5, và kiến trúc mở rộng Email Transactional Outbox Pattern.
+- **Giới hạn tuân thủ**:
+  - Không sửa đổi mã nguồn chức năng hay thêm logic giả lập.
+  - Không chạy migration, không tác động cơ sở dữ liệu Supabase.
+  - Không gửi email thử nghiệm hay thay đổi cấu hình hạ tầng mạng.
+- **Nội dung đặc tả đã được chốt và phê duyệt**:
+  1. **Trải nghiệm CTV & Điều hướng**:
+     - Màn hình `/portal/notifications` với đúng 2 tab:
+       - **Tab 1: "Thông báo từ Ban quản trị"** (`category = 'ADMIN'`).
+       - **Tab 2: "Thông báo từ hệ thống"** (`category = 'SYSTEM'`).
+     - Bổ sung mục "Thông báo" vào sidebar CTV (`AFFILIATE_NAV_ITEMS`).
+     - Header Bell: Đếm số lượng chưa đọc của chính CTV, badge hiển thị trực quan (1–99, 99+), popover 5 thông báo mới nhất kèm thao tác đọc nhanh. Đối với Admin/Staff, Bell giữ trạng thái trung tính, tuyệt đối không gọi API hòm thư của CTV.
+     - Quy định một deep-link duy nhất và hợp lệ cho từng loại sự kiện, không bao giờ điều hướng CTV vào các trang quản trị nội bộ.
+  2. **Bản tin Ban quản trị & Quản lý Admin/Staff**:
+     - Quy trình vòng đời bản tin: `DRAFT` -> `PUBLISHED` -> `REVOKED`.
+     - 3 phạm vi người nhận: Toàn bộ CTV (`ALL`), theo trạng thái (`STATUS_FILTER`), hoặc đích danh (`SPECIFIC`).
+     - Giao diện dự kiến tại `/admin/notifications` cho phép soạn nháp Markdown, xem trước, xuất bản (phân phối tự động fan-out vào hòm thư CTV) và thu hồi khi có sai sót.
+  3. **Phân quyền nhân viên (RBAC)**:
+     - Bổ sung 4 mã quyền mới trong bảng `public.permissions`: `notifications.view`, `notifications.create`, `notifications.publish`, `notifications.revoke`.
+     - Phân định thẩm quyền rõ ràng giữa Admin và các vai trò Staff.
+  4. **Ma trận sự kiện tự động (11 điểm sự kiện từ A1, A3, A4, A5)**:
+     - Định danh mã `event_type`, điểm trigger trong code/RPC, đối tượng nhận, mẫu tiêu đề, nội dung và khóa chống trùng lặp (`uq_user_notifications_idempotency`).
+  5. **Cơ sở dữ liệu & API Contract**:
+     - Thiết kế chuẩn DDL 2 bảng: `public.admin_announcements` và `public.user_notifications`.
+     - 4 chỉ mục tối ưu hóa, đảm bảo truy vấn số đếm chưa đọc trên Bell đạt độ phức tạp O(1).
+     - RLS policies bảo mật theo vai trò và quyền hạn.
+     - Contracts cho các endpoints CTV, endpoints Admin và 4 hàm RPC helpers (bao gồm `fn_create_system_notification` bọc `SECURITY DEFINER` và cơ chế chống sập giao dịch gốc).
+  6. **Thiết kế mở rộng Email & SMTP**:
+     - Mô hình Transactional Outbox Pattern qua bảng `email_outbox_queue`.
+     - Thiết kế nhóm tham số SMTP trong Quản trị hệ thống (A7), phân định rõ giữa email hiển thị liên hệ và tài khoản SMTP thực tế.
+- **Tài liệu bàn giao**:
+  - `/docs/C3_2_NOTIFICATION_MODULE_SPEC.md`.
+- **Kết luận bước C3.2**: **HOÀN THÀNH 100% ĐẶC TẢ CHÍNH THỨC**. Đã dừng lại theo đúng quy trình; sẵn sàng chuyển sang bước tiếp theo: **C3.3A — Triển khai Dữ liệu thông báo & Phân quyền (Migrations & RPCs)**.
+
+### 66. TRIỂN KHAI C3.3A — DỮ LIỆU THÔNG BÁO VÀ PHÂN QUYỀN (08/10/2026)
+- **Mục tiêu**: Xây dựng nền tảng cơ sở dữ liệu cho phân hệ Thông báo CTV (C3), tách biệt nội dung thông báo và trạng thái đọc, thiết lập các chỉ mục hiệu năng, 4 mã quyền RBAC và cấu hình Row Level Security (RLS) bảo vệ dữ liệu.
+- **Kết quả thực hiện**:
+  1. **Phụ lục sửa các điểm chưa chuẩn xác trong C3.2**:
+     - Tách nội dung (`public.notifications`) và người nhận (`public.notification_recipients`), loại bỏ sao chép nội dung lặp lại.
+     - `read_at TIMESTAMPTZ` là nguồn duy nhất xác định đã đọc (`read_at IS NOT NULL`); không lưu song song `is_read BOOLEAN`.
+     - Chống trùng sự kiện bằng `idempotency_key` duy nhất có điều kiện gắn với từng lần chuyển trạng thái, thay thế ràng buộc cứng `(user_id, event_type, source_entity_id)`.
+     - Không dùng `EXCEPTION WHEN OTHERS THEN NULL` để nuốt lỗi âm thầm.
+     - Bảo vệ RLS: CTV chỉ đọc thông báo `PUBLISHED` khi được phân phối đích danh trong `notification_recipients`.
+     - Thu hồi giữ dữ liệu lịch sử vĩnh viễn (`status = 'REVOKED'`), không xóa cứng bản ghi.
+     - Đính chính kỹ thuật: Partial index giúp tối ưu Index Scan, không phải độ phức tạp O(1) như bộ đếm counter.
+     - Không hardcode 500.000 VNĐ và không cam kết thời điểm thanh toán; lấy số tiền động từ bản ghi thù lao.
+     - Không tạo mặc định thông báo chào mừng và cập nhật tư vấn để chống spam và chống rò rỉ ghi chú nội bộ.
+     - Phân tách rõ ràng giữa `REWARD_REJECTED` (từ chối khoản chờ duyệt) và `REWARD_VOIDED` (hủy khoản đã duyệt).
+     - Mặc định tắt email khi có lead mới.
+     - Bấm Bell phải mở nội dung thông báo trước (đánh dấu đã đọc), không tự nhảy trang làm mất ngữ cảnh.
+  2. **Migration cơ sở dữ liệu (`/supabase/migrations/20261008000001_c3_notification_schema_and_permissions.sql`)**:
+     - Bảng `public.notifications` (20 cột, CHECK constraints, trigger `trg_notifications_updated_at`).
+     - Bảng `public.notification_recipients` (5 cột, UNIQUE constraint `(notification_id, user_id)`).
+     - Hệ thống chỉ mục: `uq_notifications_idempotency_key`, `idx_notifications_admin_filter`, `idx_notifications_event_source`, `idx_notifications_event_type`, `idx_notification_recipients_unread`, `idx_notification_recipients_user_inbox`, `idx_notification_recipients_notification_id`.
+  3. **Phân quyền Staff (RBAC)**:
+     - Bổ sung 4 mã quyền: `notifications.view`, `notifications.create`, `notifications.publish`, `notifications.revoke`.
+     - Tạo nhóm quyền `notification_manager` và gán 4 quyền tương ứng.
+     - Admin tự động kế thừa đầy đủ 4 quyền qua hàm `fn_get_user_permissions`.
+  4. **Row Level Security (RLS)**:
+     - Thiết lập đầy đủ policies cho cả 2 bảng đảm bảo CTV chỉ đọc thông báo và sửa trạng thái đọc của chính mình; Staff thao tác theo quyền; Admin toàn quyền.
+  5. **TypeScript Contracts**:
+     - Cập nhật đầy đủ các types, interfaces và DTOs trong `/src/types/index.ts`.
+     - Linting (`tsc --noEmit`) và Build (`npm run build`) vượt qua 100% không phát sinh lỗi.
+- **Tài liệu bàn giao**:
+  - `/supabase/migrations/20261008000001_c3_notification_schema_and_permissions.sql`
+  - `/src/types/index.ts`
+  - `/docs/C3_3A_NOTIFICATION_DATA_REPORT.md`
+- **Kết luận bước C3.3A**: **HOÀN THÀNH 100% NỀN TẢNG DỮ LIỆU & PHÂN QUYỀN**. Đã dừng lại theo đúng yêu cầu; sẵn sàng chuyển giao cho bước tiếp theo: **C3.3B — Hoàn thiện quyền và nền sự kiện nghiệp vụ (Event Queue & Helper RPCs)**.
+
+---
+
+### 67. Triển khai C3.3B — Quyền và nền sự kiện nghiệp vụ (08/10/2026)
+- **Mục tiêu**:
+  - Hoàn thiện kiểm tra thực tế hệ thống quyền, sửa chữa thiếu sót dữ liệu của C3.3A qua migration bổ sung (không sửa migration cũ).
+  - Thiết lập bảng hàng đợi sự kiện bền vững `public.notification_events` (Outbox Pattern) chống trùng theo `idempotency_key`, hỗ trợ thử lại và dead-letter queue, minh bạch lỗi (không nuốt lỗi).
+  - Chuẩn bị đầy đủ 6 hàm Helper và RPC tái sử dụng phục vụ tích hợp nghiệp vụ tự động và hòm thư CTV.
+- **Kết quả triển khai**:
+  1. **Kiểm tra hiện trạng**:
+     - Xác nhận cơ chế `fn_get_user_permissions` cấp quyền tự động cho Admin đối với 4 quyền `notifications.*`.
+     - Xác nhận nhóm quyền `notification_manager` chưa được gán mặc định cho Staff nào (cần phân quyền qua `staff_permission_groups`).
+     - Xác nhận trạng thái migration duy trì an toàn trong mã nguồn, ghi chú rõ ràng quy trình áp dụng live database.
+  2. **Bổ sung ràng buộc dữ liệu & bảo vệ bất biến**:
+     - Bổ sung ràng buộc `chk_notifications_title_valid`, `chk_notifications_content_valid`, `chk_notifications_summary_valid` (ngăn chặn khoảng trắng rỗng, giới hạn ký tự).
+     - Bổ sung ràng buộc an toàn metadata `chk_notifications_metadata_security` ngăn chặn khóa nhạy cảm.
+     - Tạo trigger `trg_protect_notification_recipients` cấm sửa đổi `user_id`/`notification_id` và cấm un-read.
+  3. **Bảng hàng đợi sự kiện `public.notification_events` (Outbox Pattern)**:
+     - Ghi nhận sự kiện cùng transaction với nghiệp vụ.
+     - Khóa duy nhất `uq_notification_events_idempotency` chống trùng lặp theo `idempotency_key`.
+     - Hỗ trợ trạng thái `PENDING`, `PROCESSING`, `PROCESSED`, `FAILED`, `DEAD_LETTER`, quản lý `retry_count`, `max_retries`, `last_error`.
+  4. **Các hàm Helper & RPC tái sử dụng**:
+     - `fn_create_notification_event`: Ghi nhận sự kiện có idempotency_key an toàn.
+     - `fn_dispatch_notification`: Phân phối thông báo tới người nhận (Fan-out an toàn, hỗ trợ 1 người, nhóm lọc hoặc toàn bộ CTV active).
+     - `fn_process_notification_event`: Xử lý sự kiện hàng đợi sang thông báo hệ thống theo mẫu nghiệp vụ A1/A3/A4/A5, bắt lỗi minh bạch.
+     - `fn_mark_notification_as_read`: Đánh dấu đã đọc một thông báo (kiểm tra chặt chính chủ).
+     - `fn_mark_all_notifications_as_read`: Đánh dấu đã đọc toàn bộ hoặc theo tab (kiểm tra chặt chính chủ).
+     - `fn_get_unread_notification_counts`: Đếm chưa đọc theo 2 tab và tổng hợp cho Bell header tối ưu cực cao bằng partial index.
+  5. **TypeScript Contracts**:
+     - Cập nhật `/src/types/index.ts` đầy đủ các interfaces `NotificationEvent`, `NotificationEventStatus`, `CreateNotificationEventParams`, và các kết quả RPC.
+     - Lint (`tsc --noEmit`) và Build (`npm run build`) vượt qua 100% không phát sinh lỗi.
+- **Tài liệu bàn giao**:
+  - `/supabase/migrations/20261008000002_c3_event_queue_and_notification_helpers.sql`
+  - `/src/types/index.ts`
+  - `/docs/C3_3B_PERMISSION_AND_EVENT_FOUNDATION_REPORT.md`
+- **Kết luận bước C3.3B**: **HOÀN THÀNH 100% QUYỀN VÀ NỀN SỰ KIỆN NGHIỆP VỤ**. Đã dừng lại theo đúng yêu cầu; sẵn sàng chuyển giao cho các bước tiếp theo: **C3.4A — Triển khai API hộp thư CTV** và **C3.4B — Triển khai API quản lý thông báo Admin/Staff**.
+
+---
+
+### 68. TIẾN ĐỘ BƯỚC C3.4A — API ĐỌC THÔNG BÁO VÀ HÒM THƯ DÀNH CHO CỘNG TÁC VIÊN (CTV) (08/10/2026)
+- **Mục tiêu**:
+  - Triển khai nhóm API đọc thông báo hòm thư CTV, số lượng chưa đọc cho Bell và Tab, danh sách ngắn cho Bell header.
+  - Triển khai API xem chi tiết thông báo (bảo đảm nguyên tắc GET chỉ đọc, TUYỆT ĐỐI KHÔNG tự động chuyển trạng thái đã đọc).
+  - Triển khai API đánh dấu đã đọc một thông báo và đánh dấu đã đọc tất cả/theo từng tab thông qua các RPC an toàn.
+  - Tích hợp và đồng bộ phương thức gọi trong client SDK `src/services/api.ts`.
+- **Kết quả triển khai**:
+  1. **Nhóm API Express trong `server.ts`**:
+     - `GET /api/v1/portal/notifications`: Lấy danh sách thông báo phân trang (`page`, `limit`), lọc 2 tab (`ANNOUNCEMENT`, `SYSTEM`), lọc trạng thái đọc (`is_read`), danh mục (`category`), tìm kiếm (`search`).
+     - `GET /api/v1/portal/notifications/unread-count`: Lấy số lượng thông báo chưa đọc tổng hợp và theo 2 tab (`total_unread`, `announcement_unread`, `system_unread`), sử dụng RPC tối ưu `fn_get_unread_notification_counts`.
+     - `GET /api/v1/portal/notifications/bell-recent`: Lấy danh sách 5 thông báo mới nhất cho Popover chuông thông báo kèm số đếm chưa đọc.
+     - `GET /api/v1/portal/notifications/:id`: Lấy chi tiết thông báo (hỗ trợ theo cả ID người nhận hoặc ID thông báo), chỉ đọc, không tự ý đánh dấu đã đọc.
+     - `POST /api/v1/portal/notifications/:id/read`: Đánh dấu đã đọc một thông báo cụ thể (gọi RPC `fn_mark_notification_as_read`, kiểm tra chặt quyền sở hữu cá nhân của CTV).
+     - `POST /api/v1/portal/notifications/read-all`: Đánh dấu đã đọc toàn bộ hoặc theo tab chỉ định (gọi RPC `fn_mark_all_notifications_as_read`).
+  2. **Đồng bộ Client SDK `src/services/api.ts`**:
+     - Bổ sung 6 phương thức: `getPortalNotifications`, `getPortalUnreadNotificationCounts`, `getPortalBellRecentNotifications`, `getPortalNotificationDetail`, `markPortalNotificationAsRead`, `markAllPortalNotificationsAsRead`.
+  3. **Kiểm thử tích hợp (Integration Tests)**:
+     - Đã chạy kiểm thử tự động toàn diện qua Node.js fetch script: xác thực quyền (401 khi không đăng nhập), số lượng chưa đọc (2 -> 1 -> 0), kiểm tra xem chi tiết không thay đổi trạng thái đọc, đánh dấu đã đọc một thông báo và đánh dấu đã đọc theo tab. Dọn dẹp sạch sẽ dữ liệu kiểm thử.
+  4. **Kiểm tra chất lượng mã nguồn**:
+     - `npm run lint` (`tsc --noEmit`) đạt kết quả 100% sạch sẽ, không có lỗi cú pháp hoặc thiếu type.
+     - `compile_applet` biên dịch thành công ứng dụng Vite.
+- **Tài liệu bàn giao**:
+  - `/server.ts` (Khối API C3.4A cho CTV)
+  - `/src/services/api.ts` (Client API methods)
+  - `/docs/C3_4A_CTV_NOTIFICATION_READ_API_REPORT.md`
+- **Kết luận bước C3.4A**: **HOÀN THÀNH 100% API ĐỌC THÔNG BÁO DÀNH CHO CTV**. Tuân thủ đúng giới hạn: không triển khai UI màn hình CTV C3.7, không làm Bell UI C3.8, không can thiệp API Admin C3.4B hay nghiệp vụ C3.6A/B; dừng lại an toàn sau bước C3.4A.
+
+---
+
+### 69. TIẾN ĐỘ BƯỚC C3.4B — API TRẠNG THÁI ĐỌC THÔNG BÁO CTV & HOÀN THIỆN ĐẶC TẢ (08/10/2026)
+- **Mục tiêu**:
+  - Hoàn thiện và củng cố toàn diện 2 API thay đổi trạng thái đọc của CTV: `POST /api/v1/portal/notifications/:id/read` và `POST /api/v1/portal/notifications/read-all`.
+  - Thống nhất `:id` là `notification_id` (`notifications.id`), bổ sung trường `recipient_id` rõ ràng vào DTO trả về, duy trì `id` để tương thích ngược.
+  - Thiết lập quy tắc danh tính nghiêm ngặt: lấy từ token đã xác thực, không cho phép client gửi `user_id` giả mạo, không cho Admin/Staff đọc thay CTV qua portal API.
+  - Bắt buộc tham số `cutoff_at` (ISO UTC không ở tương lai) đối với `read-all`, đảm bảo tính lũy đẳng (idempotency) khi gọi lại giữ nguyên `read_at` và trả về `updated_count: 0`.
+  - Cung cấp migration bổ sung `20261008000003_c3_read_state_rpc_hardening.sql`, thu hồi quyền thực thi từ `PUBLIC`/`anon`, giới hạn `SECURITY DEFINER` an toàn.
+  - Cập nhật chuẩn hóa lộ trình kế tiếp của Module C3.
+- **Kết quả triển khai**:
+  1. **Mã nguồn Backend (`server.ts`)**:
+     - `POST /api/v1/portal/notifications/:id/read`: Validation UUID chặt chẽ, kiểm tra trạng thái PUBLISHED (chặn DRAFT/REVOKED và trả 404), gọi RPC với danh tính backend xác thực, idempotent khi gọi lại (trả `updated_count: 0` và giữ nguyên `read_at` ban đầu).
+     - `POST /api/v1/portal/notifications/read-all`: Bắt buộc `tab` (`ANNOUNCEMENT` hoặc `SYSTEM`) và `cutoff_at` (ISO UTC, không ở tương lai so với server time), chỉ cập nhật bản ghi có `created_at <= cutoff_at`, idempotent khi gọi lại cùng cutoff.
+     - `GET /api/v1/portal/notifications`: Bổ sung `server_time` và trường `recipient_id`.
+     - `GET /api/v1/portal/notifications/:id`: Bổ sung `server_time`, `recipient_id`, tuân thủ nguyên tắc GET chỉ đọc, không tự ý đánh dấu đã đọc.
+  2. **Migration bổ sung**:
+     - `/supabase/migrations/20261008000003_c3_read_state_rpc_hardening.sql`: Cập nhật signature chuẩn của `fn_mark_notification_as_read` và `fn_mark_all_notifications_as_read(p_user_id, p_type, p_cutoff_at)` với `SET search_path = public, pg_temp`, `REVOKE FROM PUBLIC, anon`.
+  3. **Đồng bộ Contracts & Client SDK**:
+     - `/src/types/index.ts`: Bổ sung `recipient_id` vào `NotificationItemDTO`, cập nhật `MarkNotificationAsReadResult` và `MarkAllNotificationsAsReadResult` theo đúng envelope mới.
+     - `/src/services/api.ts`: Cập nhật `markPortalNotificationAsRead(notificationId)` và `markAllPortalNotificationsAsRead(tab, cutoffAt)`.
+  4. **Kiểm thử tích hợp (Integration Tests)**:
+     - Thực thi thành công toàn bộ 16 kịch bản kiểm thử (16/16 PASSED): UUID validation (400), Not found (404), Single read (`updated_count: 1`), Idempotent re-read (`updated_count: 0`, cùng `read_at`), Cách ly dữ liệu CTV A và B, Unread count giảm chính xác theo tab, Chặn đọc DRAFT (404), Chặn read-all thiếu tab/cutoff/future cutoff (400), Read-all theo cutoff (`updated_count: 1`), Idempotent read-all (`updated_count: 0`), Tổng unread sau read-all về 0, GET detail không gây tác dụng phụ, và Chặn client giả mạo user_id. Dọn dẹp sạch sẽ toàn bộ fixtures dữ liệu.
+  5. **Chất lượng mã nguồn**:
+     - `npm run lint` (`tsc --noEmit`): **PASSED** (100% không lỗi).
+     - `compile_applet`: **PASSED** (Biên dịch Vite thành công).
+- **Chuẩn hóa Roadmap Module C3**:
+  - **C3.4B**: API trạng thái đọc thông báo CTV (*Đã hoàn thành 100%*).
+  - **Kế tiếp -> C3.5A**: API Quản lý thông báo dành cho Ban quản trị (Admin/Staff soạn nháp, sửa, phân phối người nhận, xuất bản, thu hồi).
+  - **C3.5B**: Giao diện Quản lý thông báo Ban quản trị Admin/Staff.
+  - **C3.6A & C3.6B**: Tích hợp sự kiện nghiệp vụ tự động A1/A3/A4/A5.
+  - **C3.7**: Giao diện Màn hình hòm thư CTV 2 Tab.
+  - **C3.8**: Bell Header Icon & Popover thông báo CTV.
+  - **Email/SMTP**: Thiết kế và triển khai sau.
+- **Tài liệu bàn giao**:
+  - `/server.ts`
+  - `/src/services/api.ts`
+  - `/src/types/index.ts`
+  - `/supabase/migrations/20261008000003_c3_read_state_rpc_hardening.sql`
+  - `/docs/C3_4B_CTV_NOTIFICATION_READ_STATE_API_REPORT.md`
+- **Kết luận bước C3.4B**: **HOÀN THÀNH 100% API TRẠNG THÁI ĐỌC THÔNG BÁO CTV**. Hệ thống sẵn sàng cho bước tiếp theo: **C3.5A — API Quản lý thông báo Ban quản trị**.
+
+---
+
+### 70. TIẾN ĐỘ BƯỚC C3.5A — API QUẢN LÝ THÔNG BÁO BAN QUẢN TRỊ (ADMIN / STAFF) (08/10/2026)
+- **Mục tiêu**:
+  - Triển khai nhóm API quản lý thông báo và bản tin Ban Quản trị (`notifications.type = 'ANNOUNCEMENT'`) dành cho Admin và Staff.
+  - Hỗ trợ các chức năng: Xem danh sách bản tin (lọc status, category, search, khoảng thời gian, phân trang), xem chi tiết kèm thống kê người nhận (tổng, đã đọc, chưa đọc) và cờ phân quyền thao tác.
+  - Soạn thảo và lưu nháp (`DRAFT`), chỉnh sửa bản nháp (`PUT` & `PATCH`), xóa bản nháp (`DELETE`) với kiểm tra quyền sở hữu Staff và Optimistic Concurrency.
+  - Xem trước phạm vi người nhận (`recipient-preview`) theo `ALL`, `STATUS_FILTER`, `SPECIFIC` qua cả `POST` và `GET`; tìm kiếm CTV chọn đích danh (`search-recipients`) trả về dữ liệu tối thiểu.
+  - Xuất bản bản tin (`publish`): Kiểm tra quyền `notifications.publish`, snapshot người nhận sang `notification_recipients`, rollback an toàn nếu lỗi, lũy đẳng khi gọi lại.
+  - Thu hồi bản tin (`revoke`): Bắt buộc lý do thu hồi (`revoke_reason`), bảo toàn lịch sử người nhận (không xóa recipient), chặn xuất bản lại bản tin đã thu hồi.
+  - Cách ly thông báo `SYSTEM`: Chặn tuyệt đối việc xem/sửa/xuất bản/thu hồi thông báo hệ thống qua API `/announcements`.
+- **Kết quả triển khai**:
+  1. **Nhóm API Express trong `server.ts`**:
+     - `GET /api/v1/admin/notifications/announcements`: Danh sách bản tin kèm lọc `status`, `category`, `search`, `from_date`, `to_date`, phân trang và `server_time`.
+     - `POST /api/v1/admin/notifications/announcements`: Tạo mới bản nháp (kiểm tra tiêu đề 3..255 ký tự, nội dung 5..50000 ký tự).
+     - `GET & POST /api/v1/admin/notifications/announcements/recipient-preview`: Xem trước số lượng CTV và danh sách mẫu theo bộ lọc phạm vi.
+     - `GET /api/v1/admin/notifications/announcements/search-recipients`: Tìm kiếm CTV theo tên, email, mã giới thiệu để chọn đích danh người nhận.
+     - `GET /api/v1/admin/notifications/announcements/:id`: Chi tiết bản tin kèm thống kê số người nhận, đã đọc, chưa đọc và các cờ phân quyền tương ứng.
+     - `PUT & PATCH /api/v1/admin/notifications/announcements/:id`: Chỉnh sửa bản nháp (chỉ DRAFT, kiểm tra ownership Staff).
+     - `DELETE /api/v1/admin/notifications/announcements/:id`: Xóa bản nháp (chỉ DRAFT, chặn xóa bản tin PUBLISHED/REVOKED).
+     - `POST /api/v1/admin/notifications/announcements/:id/publish`: Xuất bản bản tin, snapshot danh sách người nhận vào `notification_recipients` (lũy đẳng khi gọi lại).
+     - `POST /api/v1/admin/notifications/announcements/:id/revoke`: Thu hồi bản tin đã xuất bản kèm lý do (bảo toàn lịch sử người nhận, lũy đẳng khi gọi lại).
+     - `GET /api/v1/admin/notifications/announcements/:id/recipients`: Danh sách người nhận chi tiết kèm trạng thái đã đọc (`read_at`, `is_read`, `delivered_at`).
+  2. **Đồng bộ Client SDK `src/services/api.ts` & Types `src/types/index.ts`**:
+     - Bổ sung 10 phương thức trong `api` object: `getAdminAnnouncements`, `getAdminAnnouncementDetail`, `createAdminAnnouncement`, `updateAdminAnnouncement`, `deleteAdminAnnouncement`, `publishAdminAnnouncement`, `revokeAdminAnnouncement`, `getAdminAnnouncementRecipients`, `previewAdminAnnouncementRecipients`, `searchAdminAnnouncementRecipients`.
+     - Cập nhật interfaces DTO: `AnnouncementRecipientItemDTO`, `RecipientOptionItemDTO`, `RecipientPreviewResult`, `CreateAnnouncementParams`, `UpdateAnnouncementParams`.
+  3. **Kiểm thử tích hợp tự động**:
+     - Chạy kịch bản kiểm thử tích hợp 13 test cases đạt 100% (13/13 PASS): Kiểm tra xác thực & vai trò (401 unauth, 403 affiliate, 403 staff không có quyền view), danh sách bản tin kèm date filter & server_time, preview người nhận qua POST và GET, tìm kiếm CTV, tạo nháp & validate tiêu đề, chi tiết nháp, cập nhật PUT/PATCH, xuất bản snapshot & idempotent publish, chặn sửa/xóa bản tin PUBLISHED (409), danh sách người nhận, thu hồi kèm lý do & idempotent revoke & chặn republish, xóa nháp DRAFT, và cách ly hoàn toàn thông báo SYSTEM (404). Toàn bộ dữ liệu kiểm thử đã được dọn dẹp sạch sẽ.
+  4. **Kiểm tra chất lượng mã nguồn**:
+     - `npm run lint` (`tsc --noEmit`): **PASSED** (0 lỗi).
+     - `compile_applet`: **PASSED** (Build Vite thành công).
+- **Tài liệu bàn giao**:
+  - `/server.ts`
+  - `/src/services/api.ts`
+  - `/src/types/index.ts`
+  - `/docs/C3_5A_ADMIN_NOTIFICATION_MANAGEMENT_API_REPORT.md`
+- **Kết luận bước C3.5A**: **HOÀN THÀNH 100% API QUẢN LÝ THÔNG BÁO BAN QUẢN TRỊ**. Sẵn sàng chuyển tiếp sang bước tiếp theo: **C3.5B — Giao diện Quản lý thông báo Ban Quản trị (Admin/Staff UI)**.
+
+### 71. TIẾN ĐỘ BƯỚC C3.5B — GIAO DIỆN QUẢN LÝ THÔNG BÁO ADMIN / STAFF UI (08/10/2026)
+- **Mục tiêu**:
+  - Xây dựng hoàn chỉnh giao diện quản trị tại `/admin/notifications` dành cho Quản trị viên (Admin) và Cán bộ Tuyển sinh (Staff).
+  - Tích hợp menu "Quản lý thông báo" trên Sidebar chung (`AppLayout`).
+  - Kiểm tra phân quyền truy cập: Admin có toàn quyền; Staff cần quyền `notifications.view` để vào màn hình (nếu thiếu quyền, hiển thị thông báo thân thiện và không gọi API liên tục).
+  - Triển khai danh sách bản tin quản trị kèm bộ lọc (tìm kiếm debounce, trạng thái, danh mục, khoảng ngày), phân trang thực tế từ backend, chống race condition bằng `fetchSeqRef`.
+  - Triển khai form soạn thảo & chỉnh sửa bản nháp (`AnnouncementFormModal`) với tabs Markdown & xem trước, validation độ dài và khoảng trắng, kiểm tra dirty state trước khi đóng form, xử lý Optimistic Concurrency 409 Conflict.
+  - Hỗ trợ lựa chọn phạm vi người nhận: `ALL` (toàn bộ CTV), `STATUS_FILTER` (lọc theo các trạng thái hồ sơ tuyển sinh `ACTIVE`, `PENDING_REVIEW`, `SUSPENDED`, `REJECTED`), `SPECIFIC` (tìm kiếm CTV chọn đích danh, hiển thị mã/tên/email/trạng thái, gắn chips loại bỏ, chống trùng lặp, bảo toàn danh sách khi đổi từ khóa).
+  - Triển khai modal xem trước nội dung & ước tính người nhận (`AnnouncementPreviewModal`) qua API preview.
+  - Triển khai modal chi tiết bản tin & thống kê tỷ lệ đọc (`AnnouncementDetailModal`) hiển thị người tạo/xuất bản/thu hồi, tiến độ đọc tin, tab danh sách người nhận phân trang.
+  - Triển khai modal thu hồi bản tin (`AnnouncementRevokeModal`) bắt buộc lý do từ 5 đến 500 ký tự và cảnh báo không thể hoàn tác.
+  - Hộp thoại xác nhận Xuất bản và Xóa nháp an toàn.
+- **Kết quả triển khai**:
+  - Đã thêm `admin_notifications` vào `ADMIN_NAV_ITEMS` trong `/src/config/navConfig.ts`.
+  - Đã khai báo route `/admin/notifications` trong `APP_ROUTES` (`/src/utils/navigationGuard.ts`).
+  - Đã cập nhật `/src/App.tsx` mount component `AdminNotificationsView`.
+  - Đã hoàn thiện bộ components tại `/src/components/admin/notifications/`:
+    - `AdminNotificationsView.tsx`: Màn hình danh sách chính, bộ lọc, bảng dữ liệu, phân trang, toast thông báo.
+    - `AnnouncementFormModal.tsx`: Form soạn/sửa nháp, validation, Markdown tabs, scope selector.
+    - `AnnouncementPreviewModal.tsx`: Xem trước nội dung và số lượng CTV ước tính.
+    - `AnnouncementDetailModal.tsx`: Chi tiết bản tin, thống kê đọc tin, tab danh sách CTV nhận tin.
+    - `AnnouncementRevokeModal.tsx`: Modal thu hồi với xác thực lý do thu hồi.
+  - Đã cập nhật proxy export tại `/src/components/admin/AdminNotificationsView.tsx`.
+  - Đã lập báo cáo kỹ thuật nghiệm thu tại `/docs/C3_5B_ADMIN_NOTIFICATION_MANAGEMENT_UI_REPORT.md`.
+- **Chất lượng mã nguồn**:
+  - `npm run lint` (`tsc --noEmit`): **PASSED** (0 lỗi, 0 cảnh báo).
+  - `compile_applet`: **PASSED** (Biên dịch Vite thành công).
+### 72. TIẾN ĐỘ BƯỚC C3.6B — SỰ KIỆN NHẬP HỌC VÀ THÙ LAO (08/10/2026)
+- **Mục tiêu**:
+  - Tích hợp 5 sự kiện SYSTEM mới vào luồng nghiệp vụ A4/A5: `ENROLLMENT_MATCHED`, `ENROLLMENT_VOIDED`, `REWARD_APPROVED`, `REWARD_REJECTED`, `REWARD_VOIDED`.
+  - Tái sử dụng bảng `notification_events` và consumer dùng chung của C3.6A, không tạo hàng đợi/worker thứ hai.
+  - Xử lý snapshot payload tối thiểu an toàn, bảo vệ thông tin cá nhân.
+- **Tình trạng nghiệm thu**:
+  - Script kiểm thử tự động: `/scripts/verify_c3_6b_enrollment_and_reward_events.ts`.
+  - Kết quả kiểm thử: Đạt 10/10 ca kiểm thử chức năng nghiệp vụ, phân quyền và chống trùng lặp.
+  - **Trạng thái ghi nhận:** **PARTIAL** (Do sự kiện hiện được ghi sau khi RPC commit trong Node.js, chưa đạt tính nguyên tử tuyệt đối cấp độ giao dịch SQL). Đã lập báo cáo tại `/docs/C3_6B_ENROLLMENT_AND_REWARD_EVENT_NOTIFICATION_REPORT.md` và giữ tồn đọng này để tối ưu hóa trước C3.9A.
+
+---
+
+### 73. TIẾN ĐỘ BƯỚC C3.7 — MÀN HÌNH THÔNG BÁO CỘNG TÁC VIÊN /portal/notifications (09/10/2026)
+- **Mục tiêu & Thiết kế**:
+  - Hoàn thiện toàn diện màn hình `/portal/notifications` cho Cộng tác viên (CTV) tích hợp với layout dùng chung (`AppLayout`).
+  - Phân chia đúng 2 tab độc lập với nhãn chuẩn: "Thông báo từ Ban quản trị" (`ANNOUNCEMENT`) và "Thông báo từ hệ thống" (`SYSTEM`).
+  - Tích hợp số đếm chưa đọc độc lập cho từng tab từ API `unread-count`, không phụ thuộc vào bộ lọc hay trang hiện tại, xử lý không hiển thị số 0 giả khi gặp lỗi máy chủ.
+  - Thanh công cụ bộ lọc: Phân loại trạng thái đọc (`Tất cả`, `Chưa đọc`, `Đã đọc`), tìm kiếm tiêu đề thời gian thực (debounced), nút làm mới dữ liệu.
+  - Phân trang thực tế từ backend: Quản lý đầy đủ `page`, `limit`, `total_items`, `total_pages` từ CSDL; tự động trở về trang 1 khi chuyển tab hoặc đổi bộ lọc.
+  - Xem chi tiết & Xử lý đọc: Modal xem nội dung đầy đủ (hỗ trợ Markdown và sanitize HTML an toàn), tự động đánh dấu đã đọc khi xem, cung cấp nút đọc nhanh trên danh sách thẻ.
+  - Đánh dấu tất cả đã đọc (Read-All): Thực hiện độc lập trên tab đang chọn, truyền mốc thời gian máy chủ `cutoff_at` chuẩn xác, cập nhật số đếm optimistic và re-fetch đồng bộ.
+  - Điều hướng đối tượng liên quan: Nút CTA mở hồ sơ học viên (`/portal/leads/:id`), danh sách học viên (`/portal/leads`), khóa học (`/portal/courses`), hoặc tổng quan portal. Chặn tuyệt đối mọi liên kết trỏ sang khu vực Admin.
+  - Bảo mật & Phân quyền: Chỉ cho phép tài khoản CTV `ACTIVE` truy cập; tài khoản chờ duyệt hoặc tạm ngưng chuyển hướng về `/pending`; tài khoản Admin/Staff bị từ chối 401 khi gọi API hộp thư CTV qua màn hình này.
+  - Tuân thủ Frontend Design: Loại bỏ hoàn toàn đường viền đậm `border-l-4`, áp dụng kỷ luật Zero-Pill cho metadata typography với dấu ngăn cách `·`, chữ số bảng `tabular-nums` cho số đếm và ngày giờ.
+- **Kết quả triển khai**:
+  - `src/App.tsx`: Bọc `PortalNotificationProvider` kèm `userId` theo phiên CTV `affiliate_active`, mount route `/portal/notifications`.
+  - `src/config/navConfig.ts`: Đã có mục `notifications` trên Sidebar CTV với logic active URL chuẩn xác.
+  - `src/utils/navigationGuard.ts`: Bảo vệ route `/portal/notifications` nghiêm ngặt theo vai trò và trạng thái.
+  - `src/components/affiliate/AffiliateNotificationsView.tsx`: Hoàn thiện component giao diện 2 tab, toolbar, quick read, phân trang backend.
+  - `src/components/affiliate/AffiliateNotificationDetailModal.tsx`: Hoàn thiện modal chi tiết an toàn, CTA đối tượng liên quan.
+  - `src/services/notificationEventService.ts`: Bổ sung đầy đủ 5 phương thức phát sinh sự kiện C3.6B.
+  - `server.ts`: Tăng cường bảo vệ `resolvePortalNotificationUserId` chặn Admin/Staff và CTV không active.
+- **Kiểm thử tự động**:
+  - Script: `/scripts/verify_c3_7_affiliate_notification_screen.ts` (`npm run test:c3-7`).
+  - Kết quả: **10/10 PASS (100%)**.
+  - `npm run lint` (`tsc --noEmit`): **PASSED** (0 lỗi).
+  - `compile_applet`: **PASSED** (Build Vite thành công).
+- **Tài liệu bàn giao**:
+  - `/docs/C3_7_AFFILIATE_NOTIFICATION_SCREEN_REPORT.md`
+  - `/scripts/verify_c3_7_affiliate_notification_screen.ts`
+- **Kết luận bước C3.7**: **HOÀN THÀNH 100% MÀN HÌNH THÔNG BÁO CỘNG TÁC VIÊN**. Sẵn sàng cho bước **C3.8 (Header Bell & Popover)** tiếp theo.
+
+
+
+
+
+
+
+
 
 
 

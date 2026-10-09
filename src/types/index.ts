@@ -628,5 +628,343 @@ export interface AdminDashboardSummaryResponse {
   code?: string;
 }
 
+// ----------------------------------------------------------------------------
+// C3 — NOTIFICATION & ANNOUNCEMENT MODULE TYPES
+// ----------------------------------------------------------------------------
+
+export type NotificationType = 'ANNOUNCEMENT' | 'SYSTEM';
+
+export type NotificationCategory = 
+  | 'GENERAL' 
+  | 'POLICY' 
+  | 'URGENT' 
+  | 'EVENT' 
+  | 'LEAD' 
+  | 'RECONCILIATION' 
+  | 'REWARD' 
+  | 'ACCOUNT';
+
+export type NotificationStatus = 'DRAFT' | 'PUBLISHED' | 'REVOKED';
+
+export type NotificationRecipientScope = 'ALL' | 'STATUS_FILTER' | 'SPECIFIC';
+
+export type NotificationEventType =
+  | 'AFFILIATE_REGISTERED'
+  | 'AFFILIATE_APPROVED'
+  | 'AFFILIATE_REJECTED'
+  | 'AFFILIATE_SUSPENDED'
+  | 'AFFILIATE_REACTIVATED'
+  | 'LEAD_SUBMITTED'
+  | 'LEAD_COUNSELING_UPDATED'
+  | 'ENROLLMENT_MATCHED'
+  | 'ENROLLMENT_VOIDED'
+  | 'REWARD_APPROVED'
+  | 'REWARD_REJECTED'
+  | 'REWARD_VOIDED';
+
+export type NotificationPermissionCode =
+  | 'notifications.view'
+  | 'notifications.create'
+  | 'notifications.publish'
+  | 'notifications.revoke';
+
+export interface NotificationRecipientFilter {
+  status?: AffiliateStatus[];
+  affiliate_ids?: string[];
+  [key: string]: any;
+}
+
+/**
+ * Entity bảng public.notifications
+ * Lưu trữ nội dung gốc của thông báo / bản tin
+ */
+export interface Notification {
+  id: string;
+  type: NotificationType;
+  category: NotificationCategory;
+  title: string;
+  summary?: string | null;
+  content: string;
+  action_url?: string | null;
+  recipient_scope: NotificationRecipientScope;
+  recipient_filter: NotificationRecipientFilter;
+  status: NotificationStatus;
+  published_at?: string | null;
+  published_by?: string | null;
+  revoked_at?: string | null;
+  revoked_by?: string | null;
+  event_type?: NotificationEventType | string | null;
+  source_entity_type?: string | null;
+  source_entity_id?: string | null;
+  idempotency_key?: string | null;
+  metadata?: Record<string, any>;
+  created_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Entity bảng public.notification_recipients
+ * Lưu trữ liên kết người nhận và mốc thời gian đọc
+ * Nguồn duy nhất xác định đã đọc: read_at IS NOT NULL
+ */
+export interface NotificationRecipient {
+  id: string;
+  notification_id: string;
+  user_id: string;
+  read_at?: string | null;
+  created_at: string;
+}
+
+/**
+ * DTO dữ liệu hiển thị hòm thư CTV (Tab 1 BQT & Tab 2 Hệ thống)
+ * is_read được suy ra từ (read_at !== null)
+ */
+export interface NotificationItemDTO {
+  id: string; // ID bản ghi phân phối người nhận (recipient id) - giữ tương thích
+  recipient_id: string; // Tường minh định danh bản ghi người nhận
+  notification_id: string; // Định danh thông báo gốc
+  type: NotificationType;
+  category: NotificationCategory;
+  title: string;
+  summary?: string | null;
+  content: string;
+  action_url?: string | null;
+  read_at: string | null;
+  is_read: boolean;
+  event_type?: string | null;
+  created_at: string;
+  published_at?: string | null;
+}
+
+/**
+ * DTO số đếm chưa đọc cho Bell Header và Badge Tab
+ */
+export interface NotificationUnreadCountDTO {
+  total: number;
+  announcement_count: number;
+  system_count: number;
+}
+
+/**
+ * DTO phục vụ danh sách quản trị bản tin dành cho Admin / Staff
+ */
+export interface AdminNotificationListItemDTO {
+  id: string;
+  type: NotificationType;
+  category: NotificationCategory;
+  title: string;
+  summary?: string | null;
+  recipient_scope: NotificationRecipientScope;
+  status: NotificationStatus;
+  published_at?: string | null;
+  published_by?: string | null;
+  publisher_name?: string | null;
+  created_by?: string | null;
+  creator_name?: string | null;
+  created_at: string;
+  updated_at?: string;
+  total_recipients?: number;
+  read_recipients?: number;
+  unread_recipients?: number;
+}
+
+/**
+ * Chi tiết bản tin thông báo Ban quản trị dành cho Admin / Staff (C3.5A)
+ */
+export interface AdminAnnouncementDetailDTO {
+  id: string;
+  type: NotificationType;
+  category: NotificationCategory;
+  title: string;
+  summary?: string | null;
+  content: string;
+  action_url?: string | null;
+  recipient_scope: NotificationRecipientScope;
+  recipient_filter: NotificationRecipientFilter;
+  status: NotificationStatus;
+  published_at?: string | null;
+  published_by?: string | null;
+  publisher_name?: string | null;
+  revoked_at?: string | null;
+  revoked_by?: string | null;
+  revoker_name?: string | null;
+  revoke_reason?: string | null;
+  created_by?: string | null;
+  creator_name?: string | null;
+  created_at: string;
+  updated_at: string;
+  stats: {
+    recipient_count: number;
+    read_count: number;
+    unread_count: number;
+  };
+  permissions?: {
+    can_edit: boolean;
+    can_delete: boolean;
+    can_publish: boolean;
+    can_revoke: boolean;
+  };
+}
+
+/**
+ * Kết quả xem trước phạm vi người nhận (C3.5A)
+ */
+export interface RecipientPreviewResult {
+  recipient_scope: NotificationRecipientScope;
+  recipient_filter: NotificationRecipientFilter;
+  total_eligible: number;
+  excluded_count: number;
+  sample_recipients: Array<{
+    affiliate_profile_id: string;
+    user_id: string;
+    affiliate_code: string;
+    full_name: string;
+    status: string;
+  }>;
+}
+
+/**
+ * Dữ liệu tạo bản nháp thông báo (C3.5A)
+ */
+export interface CreateAnnouncementParams {
+  title: string;
+  summary?: string | null;
+  content: string;
+  category: 'GENERAL' | 'POLICY' | 'URGENT' | 'EVENT';
+  recipient_scope: NotificationRecipientScope;
+  recipient_filter?: NotificationRecipientFilter;
+  action_url?: string | null;
+}
+
+/**
+ * Dữ liệu cập nhật bản nháp thông báo (C3.5A)
+ */
+export interface UpdateAnnouncementParams {
+  title?: string;
+  summary?: string | null;
+  content?: string;
+  category?: 'GENERAL' | 'POLICY' | 'URGENT' | 'EVENT';
+  recipient_scope?: NotificationRecipientScope;
+  recipient_filter?: NotificationRecipientFilter;
+  action_url?: string | null;
+  expected_updated_at?: string;
+}
+
+/**
+ * DTO đại diện một người nhận trong danh sách thống kê người nhận bản tin
+ */
+export interface AnnouncementRecipientItemDTO {
+  recipient_id: string;
+  user_id: string;
+  full_name: string;
+  email: string;
+  affiliate_code: string;
+  read_at: string | null;
+  is_read: boolean;
+  delivered_at: string;
+}
+
+/**
+ * DTO đại diện kết quả tìm kiếm CTV để chọn đích danh người nhận
+ */
+export interface RecipientOptionItemDTO {
+  affiliate_profile_id: string;
+  user_id: string;
+  affiliate_code: string;
+  full_name: string;
+  email: string;
+  status: string;
+}
+
+/**
+ * Vòng đời sự kiện trong hàng đợi public.notification_events
+ */
+export type NotificationEventStatus = 
+  | 'PENDING' 
+  | 'PROCESSING' 
+  | 'PROCESSED' 
+  | 'FAILED' 
+  | 'DEAD_LETTER';
+
+/**
+ * Entity bảng public.notification_events (Outbox Pattern)
+ */
+export interface NotificationEvent {
+  id: string;
+  event_type: NotificationEventType | string;
+  source_entity_type: string;
+  source_entity_id: string;
+  transition_state?: string | null;
+  idempotency_key: string;
+  recipient_user_id?: string | null;
+  payload: Record<string, any>;
+  status: NotificationEventStatus;
+  retry_count: number;
+  max_retries: number;
+  last_error?: string | null;
+  notification_id?: string | null;
+  processed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Tham số ghi nhận sự kiện thông báo fn_create_notification_event
+ */
+export interface CreateNotificationEventParams {
+  event_type: NotificationEventType | string;
+  source_entity_type: string;
+  source_entity_id: string;
+  idempotency_key: string;
+  recipient_user_id?: string | null;
+  payload?: Record<string, any>;
+  transition_state?: string | null;
+}
+
+/**
+ * Kết quả trả về của fn_create_notification_event / fn_process_notification_event
+ */
+export interface NotificationEventOperationResult {
+  success: boolean;
+  event_id?: string;
+  is_duplicate?: boolean;
+  status?: NotificationEventStatus;
+  notification_id?: string | null;
+  message?: string;
+  error?: string;
+}
+
+/**
+ * Kết quả đánh dấu đã đọc một thông báo fn_mark_notification_as_read (C3.4B)
+ */
+export interface MarkNotificationAsReadResult {
+  notification_id: string;
+  recipient_id: string;
+  is_read: boolean;
+  read_at: string;
+  updated_count: number;
+}
+
+/**
+ * Kết quả đánh dấu đã đọc tất cả thông báo trong một tab fn_mark_all_notifications_as_read (C3.4B)
+ */
+export interface MarkAllNotificationsAsReadResult {
+  tab: NotificationType;
+  cutoff_at: string;
+  updated_count: number;
+  marked_at: string;
+}
+
+/**
+ * Kết quả đếm số lượng chưa đọc trả về từ fn_get_unread_notification_counts
+ */
+export interface NotificationUnreadCountsResult {
+  total_unread: number;
+  announcement_unread: number;
+  system_unread: number;
+}
+
+
 
 

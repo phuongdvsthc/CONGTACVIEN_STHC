@@ -1,0 +1,5 @@
+{
+  "summary":  "Báo cáo nghiệm thu kỹ thuật và kết quả kiểm thử tự động 10/10 PASS cho phân hệ C3.7: Màn hình thông báo Cộng tác viên (/portal/notifications). Bao gồm đối chiếu 2 tab, số đếm chưa đọc, phân trang backend, bộ lọc, đọc thông báo, read-all, điều hướng đối tượng liên quan và phân quyền bảo mật.",
+  "updatedAt":  "2026-10-09T09:56:14.421958804Z",
+  "userFacing":  true
+}

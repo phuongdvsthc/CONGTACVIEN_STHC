@@ -2,7 +2,7 @@
  * Client API Service for STHC Affiliate & Admission Management System
  */
 
-import { Course, AffiliateProfile, UserProfile, Lead, Reward, AuditLog, AffiliateDashboardSummaryData, AdminDashboardSummaryResponse } from '../types';
+import { Course, AffiliateProfile, UserProfile, Lead, Reward, AuditLog, AffiliateDashboardSummaryData, AdminDashboardSummaryResponse, CreateAnnouncementParams, UpdateAnnouncementParams, NotificationRecipientScope, NotificationRecipientFilter } from '../types';
 
 export function getAuthHeaders(): Record<string, string> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('sthc_auth_token') : null;
@@ -1039,6 +1039,155 @@ export const api = {
     if (params?.affiliate_id && params.affiliate_id !== 'ALL') q.set('affiliate_id', params.affiliate_id);
     const qs = q.toString();
     return apiFetch(`/api/v1/admin/dashboard/summary${qs ? `?${qs}` : ''}`);
+  },
+
+  // --------------------------------------------------------------------------
+  // C3.4A: API HỘP THƯ VÀ THÔNG BÁO DÀNH CHO CỘNG TÁC VIÊN (CTV)
+  // --------------------------------------------------------------------------
+  async getPortalNotifications(params?: {
+    tab?: 'ANNOUNCEMENT' | 'SYSTEM';
+    type?: 'ANNOUNCEMENT' | 'SYSTEM';
+    is_read?: boolean | 'all';
+    category?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const q = new URLSearchParams();
+    if (params?.tab) q.set('tab', params.tab);
+    if (params?.type) q.set('type', params.type);
+    if (params?.is_read !== undefined && params?.is_read !== 'all') q.set('is_read', String(params.is_read));
+    if (params?.category) q.set('category', params.category);
+    if (params?.search) q.set('search', params.search);
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return apiFetch(`/api/v1/portal/notifications${qs ? `?${qs}` : ''}`);
+  },
+
+  async getPortalUnreadNotificationCounts() {
+    return apiFetch('/api/v1/portal/notifications/unread-count');
+  },
+
+  async getPortalBellRecentNotifications(limit = 5) {
+    return apiFetch(`/api/v1/portal/notifications/bell-recent?limit=${encodeURIComponent(limit)}`);
+  },
+
+  async getPortalNotificationDetail(id: string) {
+    return apiFetch(`/api/v1/portal/notifications/${encodeURIComponent(id)}`);
+  },
+
+  async markPortalNotificationAsRead(notificationId: string) {
+    return apiFetch(`/api/v1/portal/notifications/${encodeURIComponent(notificationId)}/read`, {
+      method: 'POST',
+    });
+  },
+
+  async markAllPortalNotificationsAsRead(tab: 'ANNOUNCEMENT' | 'SYSTEM', cutoffAt?: string) {
+    const finalCutoff = cutoffAt || new Date().toISOString();
+    return apiFetch('/api/v1/portal/notifications/read-all', {
+      method: 'POST',
+      body: JSON.stringify({ tab, cutoff_at: finalCutoff }),
+    });
+  },
+
+  // --------------------------------------------------------------------------
+  // C3.5A: API QUẢN LÝ BẢN TIN THÔNG BÁO BAN QUẢN TRỊ (ADMIN & STAFF)
+  // --------------------------------------------------------------------------
+  async getAdminAnnouncements(params?: {
+    status?: string;
+    category?: string;
+    search?: string;
+    from_date?: string;
+    to_date?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const q = new URLSearchParams();
+    if (params?.status) q.set('status', params.status);
+    if (params?.category) q.set('category', params.category);
+    if (params?.search) q.set('search', params.search);
+    if (params?.from_date) q.set('from_date', params.from_date);
+    if (params?.to_date) q.set('to_date', params.to_date);
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return apiFetch(`/api/v1/admin/notifications/announcements${qs ? `?${qs}` : ''}`);
+  },
+
+  async getAdminAnnouncementDetail(id: string) {
+    return apiFetch(`/api/v1/admin/notifications/announcements/${encodeURIComponent(id)}`);
+  },
+
+  async createAdminAnnouncement(data: CreateAnnouncementParams) {
+    return apiFetch('/api/v1/admin/notifications/announcements', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async updateAdminAnnouncement(id: string, data: UpdateAnnouncementParams) {
+    return apiFetch(`/api/v1/admin/notifications/announcements/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminAnnouncement(id: string) {
+    return apiFetch(`/api/v1/admin/notifications/announcements/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async publishAdminAnnouncement(id: string) {
+    return apiFetch(`/api/v1/admin/notifications/announcements/${encodeURIComponent(id)}/publish`, {
+      method: 'POST',
+    });
+  },
+
+  async revokeAdminAnnouncement(id: string, reason: string) {
+    return apiFetch(`/api/v1/admin/notifications/announcements/${encodeURIComponent(id)}/revoke`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async getAdminAnnouncementRecipients(id: string, params?: {
+    status?: 'ALL' | 'READ' | 'UNREAD';
+    page?: number;
+    limit?: number;
+  }) {
+    const q = new URLSearchParams();
+    if (params?.status) q.set('status', params.status);
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return apiFetch(`/api/v1/admin/notifications/announcements/${encodeURIComponent(id)}/recipients${qs ? `?${qs}` : ''}`);
+  },
+
+  async previewAdminAnnouncementRecipients(params: {
+    recipient_scope: NotificationRecipientScope;
+    recipient_filter?: NotificationRecipientFilter;
+  }) {
+    return apiFetch('/api/v1/admin/notifications/announcements/recipient-preview', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  },
+
+  async searchAdminAnnouncementRecipients(params?: {
+    search?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const q = new URLSearchParams();
+    if (params?.search) q.set('search', params.search);
+    if (params?.status) q.set('status', params.status);
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return apiFetch(`/api/v1/admin/notifications/announcements/search-recipients${qs ? `?${qs}` : ''}`);
   },
 };
 

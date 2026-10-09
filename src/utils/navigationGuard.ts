@@ -91,6 +91,13 @@ export const APP_ROUTES: Record<string, RouteDefinition> = {
     allowedRoles: ['affiliate'],
     allowedAffiliateStatuses: ['ACTIVE'],
   },
+  '/portal/notifications': {
+    path: '/portal/notifications',
+    name: 'Cổng CTV - Thông báo',
+    isPublic: false,
+    allowedRoles: ['affiliate'],
+    allowedAffiliateStatuses: ['ACTIVE'],
+  },
   '/pending': {
     path: '/pending',
     name: 'Trang Trạng thái Hồ sơ CTV',
@@ -101,6 +108,12 @@ export const APP_ROUTES: Record<string, RouteDefinition> = {
   '/admin': {
     path: '/admin',
     name: 'Cổng Quản trị / Cán bộ Tuyển sinh',
+    isPublic: false,
+    allowedRoles: ['staff', 'admin'],
+  },
+  '/admin/notifications': {
+    path: '/admin/notifications',
+    name: 'Quản lý thông báo Ban quản trị',
     isPublic: false,
     allowedRoles: ['staff', 'admin'],
   },

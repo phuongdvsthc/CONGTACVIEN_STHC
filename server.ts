@@ -7,6 +7,8 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
 import * as XLSX from 'xlsx';
+import { NotificationEventConsumer } from './src/services/notificationEventConsumer';
+import { NotificationEventService } from './src/services/notificationEventService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +28,14 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
+
+// Khởi tạo Notification Event Consumer & Service (C3.6A)
+const notificationConsumer = new NotificationEventConsumer(supabase, {
+  pollIntervalMs: 5000,
+  batchSize: 10,
+});
+const notificationEventService = new NotificationEventService(supabase, notificationConsumer);
+notificationConsumer.start();
 
 // Initial academic courses of STHC
 const INITIAL_COURSES = [
@@ -676,18 +686,21 @@ async function startServer() {
   app.get('/api/v1/auth/permissions', requireStaffOrAdmin, async (req: Request, res: Response) => {
     const user = (req as any).user;
     let permissions: string[] = [];
-    if (user.role === 'admin' || user.id === demoState.adminUser.id) {
-      permissions = ['rewards.view', 'rewards.view_detail', 'rewards.approve', 'rewards.reject', 'rewards.void', 'rewards.summary', 'rewards.export'];
-    } else if (user.role === 'staff') {
-      try {
-        const { data: perms } = await supabase.rpc('fn_get_user_permissions', { p_user_id: user.id });
-        if (perms && Array.isArray(perms)) {
-          permissions = perms.map((p: any) => p.permission_code || p);
-        }
-      } catch (e) {}
-      if (user.id === demoState.staffUser.id && permissions.length === 0) {
-        permissions = ['rewards.view', 'rewards.view_detail', 'rewards.approve', 'rewards.reject', 'rewards.void', 'rewards.summary', 'rewards.export'];
+    try {
+      const { data: perms } = await supabase.rpc('fn_get_user_permissions', { p_user_id: user.id });
+      if (perms && Array.isArray(perms)) {
+        permissions = perms.map((p: any) => p.permission_code || p);
       }
+    } catch (e) {}
+
+    if (user.role === 'admin' || user.id === demoState.adminUser.id) {
+      const adminDefaults = [
+        'rewards.view', 'rewards.view_detail', 'rewards.approve', 'rewards.reject', 'rewards.void', 'rewards.summary', 'rewards.export',
+        'notifications.view', 'notifications.create', 'notifications.publish', 'notifications.revoke'
+      ];
+      permissions = Array.from(new Set([...permissions, ...adminDefaults]));
+    } else if (user.role === 'staff' && user.id === demoState.staffUser.id && permissions.length === 0) {
+      permissions = ['rewards.view', 'rewards.view_detail', 'rewards.approve', 'rewards.reject', 'rewards.void', 'rewards.summary', 'rewards.export'];
     }
     res.json({ success: true, data: { permissions } });
   });
@@ -2226,6 +2239,22 @@ async function startServer() {
           returnedAffiliateCode = foundDemo.affiliate_code;
           returnedAffiliateName = foundDemo.full_name;
         }
+      }
+    }
+
+    // C3.6A: Phát sinh sự kiện LEAD_SUBMITTED thông báo cho CTV nếu là lead mới hợp lệ
+    if (!isDuplicate && insertedLead?.id && assignedAffiliateId) {
+      try {
+        await notificationEventService.emitLeadSubmittedEvent({
+          leadId: insertedLead.id,
+          affiliateId: assignedAffiliateId,
+          leadName: full_name.trim(),
+          courseId: targetCourseId,
+          courseName: returnedCourseTitle || 'Khóa học STHC',
+          affiliateCode: returnedAffiliateCode || capturedCode,
+        });
+      } catch (e: any) {
+        console.warn('[LEAD NOTIFICATION EVENT NOTICE]', e?.message);
       }
     }
 
@@ -4306,7 +4335,7 @@ async function startServer() {
           return next();
         }
 
-        if (user.id === demoState.staffUser.id) {
+        if (user.id === demoState.staffUser.id && !permissionCode.startsWith('notifications.')) {
           return next();
         }
       } catch (err) {
@@ -6451,6 +6480,16 @@ async function startServer() {
           console.warn('[AUDIT LOG INSERT NOTICE]:', auditErr?.message);
         }
 
+        // C3.6A: Phát sinh sự kiện thông báo cho CTV
+        notificationEventService.emitAffiliateLifecycleEvent({
+          action: action === 'APPROVE' ? 'AFFILIATE_APPROVED' : 'AFFILIATE_REJECTED',
+          auditId: auditEntry.id,
+          affiliateId: targetDemo.id,
+          actorId,
+          reason: cleanReason,
+          affiliateCode: targetDemo.affiliate_code,
+        }).catch((e) => console.warn('[REVIEW NOTIFICATION EVENT NOTICE]', e?.message));
+
         return res.json({
           success: true,
           message: action === 'APPROVE' ? 'Phê duyệt hồ sơ CTV thành công!' : 'Từ chối hồ sơ CTV thành công!',
@@ -6590,8 +6629,9 @@ async function startServer() {
       }
 
       // Ghi nhật ký kiểm toán vào audit_logs
+      let insertedAuditId = `audit-${Date.now()}`;
       try {
-        await supabase.from('audit_logs').insert({
+        const { data: auditIns } = await supabase.from('audit_logs').insert({
           actor_id: actorId,
           action: action === 'APPROVE' ? 'AFFILIATE_APPROVED' : 'AFFILIATE_REJECTED',
           entity_name: 'affiliate_profiles',
@@ -6606,10 +6646,23 @@ async function startServer() {
           reason: cleanReason,
           ip_address: req.ip || null,
           user_agent: req.headers['user-agent'] || null,
-        });
+        }).select('id').maybeSingle();
+        if (auditIns?.id) {
+          insertedAuditId = auditIns.id;
+        }
       } catch (auditErr: any) {
         console.warn('[AUDIT LOG INSERT NOTICE]:', auditErr?.message);
       }
+
+      // C3.6A: Phát sinh sự kiện thông báo cho CTV
+      notificationEventService.emitAffiliateLifecycleEvent({
+        action: action === 'APPROVE' ? 'AFFILIATE_APPROVED' : 'AFFILIATE_REJECTED',
+        auditId: insertedAuditId,
+        affiliateId: id,
+        actorId,
+        reason: cleanReason,
+        affiliateCode: updatedAff.affiliate_code,
+      }).catch((e) => console.warn('[REVIEW NOTIFICATION EVENT NOTICE]', e?.message));
 
       return res.json({
         success: true,
@@ -6712,6 +6765,16 @@ async function startServer() {
           console.warn('[AUDIT LOG INSERT NOTICE]:', err?.message);
         }
 
+        // C3.6A: Phát sinh sự kiện thông báo cho CTV
+        notificationEventService.emitAffiliateLifecycleEvent({
+          action: 'AFFILIATE_SUSPENDED',
+          auditId: auditEntry.id,
+          affiliateId: targetDemo.id,
+          actorId,
+          reason: cleanReason,
+          affiliateCode: targetDemo.affiliate_code,
+        }).catch((e) => console.warn('[SUSPEND NOTIFICATION EVENT NOTICE]', e?.message));
+
         return res.json({
           success: true,
           message: 'Tạm ngưng hoạt động của CTV thành công!',
@@ -6811,8 +6874,9 @@ async function startServer() {
       }
 
       // Insert audit log
+      let insertedAuditId = `audit-${Date.now()}`;
       try {
-        await supabase.from('audit_logs').insert({
+        const { data: auditIns } = await supabase.from('audit_logs').insert({
           actor_id: actorId,
           action: 'AFFILIATE_SUSPENDED',
           entity_name: 'affiliate_profiles',
@@ -6827,10 +6891,23 @@ async function startServer() {
           reason: cleanReason,
           ip_address: req.ip || null,
           user_agent: req.headers['user-agent'] || null,
-        });
+        }).select('id').maybeSingle();
+        if (auditIns?.id) {
+          insertedAuditId = auditIns.id;
+        }
       } catch (err: any) {
         console.warn('[AUDIT LOG INSERT NOTICE]:', err?.message);
       }
+
+      // C3.6A: Phát sinh sự kiện thông báo cho CTV
+      notificationEventService.emitAffiliateLifecycleEvent({
+        action: 'AFFILIATE_SUSPENDED',
+        auditId: insertedAuditId,
+        affiliateId: id,
+        actorId,
+        reason: cleanReason,
+        affiliateCode: updatedAff.affiliate_code,
+      }).catch((e) => console.warn('[SUSPEND NOTIFICATION EVENT NOTICE]', e?.message));
 
       return res.json({
         success: true,
@@ -6938,6 +7015,16 @@ async function startServer() {
         } catch (err: any) {
           console.warn('[AUDIT LOG INSERT NOTICE]:', err?.message);
         }
+
+        // C3.6A: Phát sinh sự kiện thông báo cho CTV
+        notificationEventService.emitAffiliateLifecycleEvent({
+          action: 'AFFILIATE_REACTIVATED',
+          auditId: auditEntry.id,
+          affiliateId: targetDemo.id,
+          actorId,
+          reason: cleanNote,
+          affiliateCode: targetDemo.affiliate_code,
+        }).catch((e) => console.warn('[REACTIVATE NOTIFICATION EVENT NOTICE]', e?.message));
 
         return res.json({
           success: true,
@@ -7065,8 +7152,9 @@ async function startServer() {
       }
 
       // Insert audit log
+      let insertedAuditId = `audit-${Date.now()}`;
       try {
-        await supabase.from('audit_logs').insert({
+        const { data: auditIns } = await supabase.from('audit_logs').insert({
           actor_id: actorId,
           action: 'AFFILIATE_REACTIVATED',
           entity_name: 'affiliate_profiles',
@@ -7081,10 +7169,23 @@ async function startServer() {
           reason: cleanNote,
           ip_address: req.ip || null,
           user_agent: req.headers['user-agent'] || null,
-        });
+        }).select('id').maybeSingle();
+        if (auditIns?.id) {
+          insertedAuditId = auditIns.id;
+        }
       } catch (err: any) {
         console.warn('[AUDIT LOG INSERT NOTICE]:', err?.message);
       }
+
+      // C3.6A: Phát sinh sự kiện thông báo cho CTV
+      notificationEventService.emitAffiliateLifecycleEvent({
+        action: 'AFFILIATE_REACTIVATED',
+        auditId: insertedAuditId,
+        affiliateId: id,
+        actorId,
+        reason: cleanNote,
+        affiliateCode: updatedAff.affiliate_code,
+      }).catch((e) => console.warn('[REACTIVATE NOTIFICATION EVENT NOTICE]', e?.message));
 
       return res.json({
         success: true,
@@ -8722,6 +8823,23 @@ async function startServer() {
           created_at: nowIso,
         });
 
+        // Phát sinh sự kiện ENROLLMENT_MATCHED nếu chuyển sang MATCHED_VALID và có CTV giới thiệu
+        if (cleanReconStatus === 'MATCHED_VALID' && lead.affiliate_id) {
+          notificationEventService.emitEnrollmentMatchedEvent({
+            auditId: `recon-${rpcResult.reconciliation_id || leadId}`,
+            leadId,
+            affiliateId: lead.affiliate_id,
+            leadName: lead.full_name,
+            courseId: targetCourseId,
+            reconciliationId: rpcResult.reconciliation_id,
+            rewardId: rpcResult.reward_id,
+            actorId,
+          }).catch(() => {});
+        } else {
+          // Đánh thức consumer xử lý sự kiện đối soát sau khi RPC commit thành công
+          notificationConsumer.processBatch().catch(() => {});
+        }
+
         return res.json(responseData);
       }
 
@@ -8883,6 +9001,22 @@ async function startServer() {
       created_at: nowIso,
     });
 
+    // Fallback: Đánh thức consumer hoặc emit ENROLLMENT_MATCHED nếu có CTV giới thiệu
+    if (cleanReconStatus === 'MATCHED_VALID' && lead.affiliate_id) {
+      notificationEventService.emitEnrollmentMatchedEvent({
+        auditId: `recon-${newRecon.id}`,
+        leadId,
+        affiliateId: lead.affiliate_id,
+        leadName: lead.full_name,
+        courseId: targetCourseId,
+        reconciliationId: newRecon.id,
+        rewardId: newRewardId,
+        actorId,
+      }).catch(() => {});
+    } else {
+      notificationConsumer.processBatch().catch(() => {});
+    }
+
     return res.json(responseData);
   });
 
@@ -9016,6 +9150,40 @@ async function startServer() {
           created_at: nowIso,
         });
 
+        // Phát sinh sự kiện ENROLLMENT_VOIDED & REWARD_VOIDED nếu có CTV giới thiệu
+        if (lead.affiliate_id) {
+          const targetReconId = rpcResult.voided_reconciliation_id || rpcResult.reconciliation_id || target_reconciliation_id;
+          const targetRewardId = rpcResult.voided_reward_id || rpcResult.reward_id;
+
+          notificationEventService.emitEnrollmentVoidedEvent({
+            auditId: `void-recon-${targetReconId || leadId}`,
+            leadId,
+            affiliateId: lead.affiliate_id,
+            leadName: lead.full_name,
+            courseId: lead.course_id,
+            reconciliationId: targetReconId,
+            reason: cleanReason,
+            actorId,
+          }).catch(() => {});
+
+          if (targetRewardId) {
+            notificationEventService.emitRewardVoidedEvent({
+              auditId: `void-reward-${targetRewardId}`,
+              rewardId: targetRewardId,
+              affiliateId: lead.affiliate_id,
+              leadId,
+              leadName: lead.full_name,
+              courseId: lead.course_id,
+              amount: 500000,
+              reason: cleanReason,
+              actorId,
+            }).catch(() => {});
+          }
+        } else {
+          // Đánh thức consumer sau khi RPC void reconciliation commit thành công
+          notificationConsumer.processBatch().catch(() => {});
+        }
+
         return res.json(responseData);
       }
     } catch (e: any) {
@@ -9119,6 +9287,36 @@ async function startServer() {
       response_data: responseData,
       created_at: nowIso,
     });
+
+    // Fallback: Đánh thức consumer hoặc emit ENROLLMENT_VOIDED & REWARD_VOIDED
+    if (lead.affiliate_id) {
+      notificationEventService.emitEnrollmentVoidedEvent({
+        auditId: `void-recon-${targetRecon.id}`,
+        leadId,
+        affiliateId: lead.affiliate_id,
+        leadName: lead.full_name,
+        courseId: lead.course_id,
+        reconciliationId: targetRecon.id,
+        reason: cleanReason,
+        actorId,
+      }).catch(() => {});
+
+      if (linkedRewards && linkedRewards.length > 0) {
+        notificationEventService.emitRewardVoidedEvent({
+          auditId: `void-reward-${linkedRewards[0].id}`,
+          rewardId: linkedRewards[0].id,
+          affiliateId: lead.affiliate_id,
+          leadId,
+          leadName: lead.full_name,
+          courseId: lead.course_id,
+          amount: 500000,
+          reason: cleanReason,
+          actorId,
+        }).catch(() => {});
+      }
+    } else {
+      notificationConsumer.processBatch().catch(() => {});
+    }
 
     return res.json(responseData);
   });
@@ -9872,6 +10070,13 @@ async function startServer() {
     const { id: rewardId } = req.params;
     const actorUser = (req as any).user;
 
+    // Lấy thông tin reward trước khi gọi RPC (để lấy affiliate_id, lead_id, amount)
+    const { data: targetReward } = await supabase
+      .from('rewards')
+      .select('id, affiliate_id, lead_id, amount, status')
+      .eq('id', rewardId)
+      .maybeSingle();
+
     const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_approve_reward', {
       p_reward_id: rewardId,
       p_admin_id: actorUser?.id || demoState.adminUser.id,
@@ -9884,9 +10089,23 @@ async function startServer() {
       });
     }
 
+    // Phát sinh sự kiện REWARD_APPROVED bền vững sau commit
+    if (targetReward && targetReward.affiliate_id) {
+      notificationEventService.emitRewardApprovedEvent({
+        auditId: `approve-reward-${rewardId}`,
+        rewardId,
+        affiliateId: targetReward.affiliate_id,
+        leadId: targetReward.lead_id,
+        amount: Number(targetReward.amount) || 500000,
+        actorId: actorUser?.id || demoState.adminUser.id,
+      }).catch(() => {});
+    } else {
+      notificationConsumer.processBatch().catch(() => {});
+    }
+
     res.json({
       success: true,
-      message: 'Phê duyệt khoản thưởng 500.000 VNĐ thành công!',
+      message: 'Phê duyệt khoản thù lao thành công!',
       data: rpcResult,
     });
   });
@@ -9903,6 +10122,12 @@ async function startServer() {
       });
     }
 
+    const { data: targetReward } = await supabase
+      .from('rewards')
+      .select('id, affiliate_id, lead_id, amount, status')
+      .eq('id', rewardId)
+      .maybeSingle();
+
     const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_reject_reward', {
       p_reward_id: rewardId,
       p_admin_id: actorUser?.id || demoState.adminUser.id,
@@ -9914,6 +10139,21 @@ async function startServer() {
         success: false,
         error: `Không thể từ chối khoản thưởng: ${rpcError.message}`,
       });
+    }
+
+    // Phát sinh sự kiện REWARD_REJECTED bền vững sau commit
+    if (targetReward && targetReward.affiliate_id) {
+      notificationEventService.emitRewardRejectedEvent({
+        auditId: `reject-reward-${rewardId}`,
+        rewardId,
+        affiliateId: targetReward.affiliate_id,
+        leadId: targetReward.lead_id,
+        amount: Number(targetReward.amount) || 500000,
+        reason: rejection_reason.trim(),
+        actorId: actorUser?.id || demoState.adminUser.id,
+      }).catch(() => {});
+    } else {
+      notificationConsumer.processBatch().catch(() => {});
     }
 
     res.json({
@@ -9935,6 +10175,12 @@ async function startServer() {
       });
     }
 
+    const { data: targetReward } = await supabase
+      .from('rewards')
+      .select('id, affiliate_id, lead_id, amount, status')
+      .eq('id', rewardId)
+      .maybeSingle();
+
     const { data: rpcResult, error: rpcError } = await supabase.rpc('fn_void_reward', {
       p_reward_id: rewardId,
       p_admin_id: actorUser?.id || demoState.adminUser.id,
@@ -9946,6 +10192,21 @@ async function startServer() {
         success: false,
         error: `Không thể hủy khoản thù lao: ${rpcError.message}`,
       });
+    }
+
+    // Phát sinh sự kiện REWARD_VOIDED bền vững sau commit
+    if (targetReward && targetReward.affiliate_id) {
+      notificationEventService.emitRewardVoidedEvent({
+        auditId: `void-reward-${rewardId}`,
+        rewardId,
+        affiliateId: targetReward.affiliate_id,
+        leadId: targetReward.lead_id,
+        amount: Number(targetReward.amount) || 500000,
+        reason: void_reason.trim(),
+        actorId: actorUser?.id || demoState.adminUser.id,
+      }).catch(() => {});
+    } else {
+      notificationConsumer.processBatch().catch(() => {});
     }
 
     res.json({
@@ -11710,9 +11971,2097 @@ async function startServer() {
     }
   });
 
+  // ----------------------------------------------------------------------------
+  // MODULE C3.4A — API THÔNG BÁO VÀ HÒM THƯ DÀNH CHO CỘNG TÁC VIÊN (CTV)
+  // Các endpoint:
+  //   1. GET    /api/v1/portal/notifications              - Danh sách thông báo (phân trang, lọc tab, search, status)
+  //   2. GET    /api/v1/portal/notifications/unread-count - Số lượng chưa đọc tổng hợp và theo 2 tab
+  //   3. GET    /api/v1/portal/notifications/bell-recent  - Danh sách rút gọn 5 thông báo mới nhất cho Bell header
+  //   4. GET    /api/v1/portal/notifications/:id          - Chi tiết thông báo (KHÔNG tự động đánh dấu đã đọc)
+  //   5. POST   /api/v1/portal/notifications/:id/read     - Đánh dấu đã đọc 1 thông báo cụ thể
+  //   6. POST   /api/v1/portal/notifications/read-all     - Đánh dấu đã đọc toàn bộ hoặc theo tab
+  // ----------------------------------------------------------------------------
+
+  // Helper hàm giải quyết user_id của CTV cho Module C3
+  async function resolvePortalNotificationUserId(req: Request): Promise<{
+    userId: string | null;
+    status: 'ACTIVE' | 'PENDING_REVIEW' | 'SUSPENDED' | 'REJECTED' | 'UNAUTHORIZED';
+    error?: string;
+  }> {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.replace('Bearer ', '').trim();
+        let resolvedId: string | null = null;
+        if (token.startsWith('demo-session-token-')) {
+          resolvedId = token.replace('demo-session-token-', '').trim();
+        } else {
+          const { data: { user }, error: authErr } = await supabaseAuth.auth.getUser(token);
+          if (!authErr && user) {
+            resolvedId = user.id;
+          }
+        }
+
+        if (resolvedId) {
+          // Kiểm tra xem là tài khoản CTV demo nào
+          if (resolvedId === demoState.activeAffiliate.user_id || resolvedId === demoState.activeAffiliate.id) {
+            return { userId: resolvedId, status: 'ACTIVE' };
+          }
+          if (resolvedId === demoState.pendingAffiliate.user_id || resolvedId === demoState.pendingAffiliate.id) {
+            return { userId: null, status: 'UNAUTHORIZED', error: 'Chỉ Cộng tác viên ở trạng thái ACTIVE mới có quyền truy cập hộp thư.' };
+          }
+
+          // Truy vấn hồ sơ tài khoản từ CSDL
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('id, role, is_active')
+            .eq('id', resolvedId)
+            .maybeSingle();
+
+          if (prof) {
+            if (prof.role !== 'affiliate') {
+              return { userId: null, status: 'UNAUTHORIZED', error: 'Tài khoản Quản trị/Cán bộ không sử dụng hộp thư CTV.' };
+            }
+            if (prof.is_active === false) {
+              return { userId: null, status: 'UNAUTHORIZED', error: 'Tài khoản đã bị vô hiệu hóa.' };
+            }
+
+            // Kiểm tra trạng thái CTV trong affiliate_profiles
+            const { data: affProf } = await supabase
+              .from('affiliate_profiles')
+              .select('id, status')
+              .eq('user_id', prof.id)
+              .maybeSingle();
+
+            if (!affProf || affProf.status !== 'ACTIVE') {
+              return {
+                userId: null,
+                status: 'UNAUTHORIZED',
+                error: 'Chỉ Cộng tác viên ở trạng thái ACTIVE mới có quyền truy cập hộp thư.',
+              };
+            }
+
+            return { userId: prof.id, status: 'ACTIVE' };
+          }
+        }
+      } catch (tokenErr) {
+        console.error('[RESOLVE PORTAL NOTIF USER ERROR]', tokenErr);
+      }
+    }
+
+    // Fallback theo demoState switcher nếu không có Bearer token
+    if (demoState.currentRole === 'affiliate_active') {
+      const uId = demoState.activeAffiliate.user_id || '6dd7aff0-cba1-4b7f-8da1-c045db4c9880';
+      return { userId: uId, status: 'ACTIVE' };
+    }
+    if (demoState.currentRole === 'affiliate_pending') {
+      return { userId: null, status: 'UNAUTHORIZED', error: 'Tài khoản CTV chờ duyệt không có quyền truy cập hộp thư.' };
+    }
+
+    return { userId: null, status: 'UNAUTHORIZED', error: 'Yêu cầu đăng nhập tài khoản CTV để truy cập hộp thư.' };
+  }
+
+  // 1. GET /api/v1/portal/notifications - Danh sách thông báo phân trang và bộ lọc
+  app.get('/api/v1/portal/notifications', async (req: Request, res: Response) => {
+    try {
+      const auth = await resolvePortalNotificationUserId(req);
+      if (!auth.userId || auth.status === 'UNAUTHORIZED') {
+        return res.status(401).json({
+          success: false,
+          error: auth.error || 'Yêu cầu đăng nhập tài khoản để xem thông báo.',
+          code: 'UNAUTHORIZED',
+        });
+      }
+
+      const { tab, type, is_read, category, search, page, limit } = req.query;
+
+      // Chuẩn hóa loại thông báo: chấp nhận 'tab' hoặc 'type'
+      const rawType = (tab || type) ? String(tab || type).toUpperCase() : undefined;
+      const targetType = (rawType === 'ANNOUNCEMENT' || rawType === 'SYSTEM') ? rawType : undefined;
+
+      const pageNum = Math.max(1, parseInt(String(page || '1'), 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(String(limit || '20'), 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
+      // Xây dựng truy vấn từ notification_recipients kết hợp bảng notifications
+      let query = supabase
+        .from('notification_recipients')
+        .select(`
+          id,
+          notification_id,
+          user_id,
+          read_at,
+          created_at,
+          notification:notifications!inner (
+            id,
+            type,
+            category,
+            title,
+            summary,
+            content,
+            action_url,
+            status,
+            event_type,
+            published_at,
+            created_at
+          )
+        `, { count: 'exact' })
+        .eq('user_id', auth.userId)
+        .eq('notification.status', 'PUBLISHED');
+
+      // Lọc theo loại tab (ANNOUNCEMENT hoặc SYSTEM)
+      if (targetType) {
+        query = query.eq('notification.type', targetType);
+      }
+
+      // Lọc theo trạng thái đọc (is_read: true/false/all)
+      if (is_read !== undefined && is_read !== null && is_read !== '' && is_read !== 'all') {
+        const readFilter = String(is_read).toLowerCase();
+        if (readFilter === 'true' || readFilter === '1') {
+          query = query.not('read_at', 'is', null);
+        } else if (readFilter === 'false' || readFilter === '0') {
+          query = query.is('read_at', null);
+        }
+      }
+
+      // Lọc theo danh mục (category)
+      if (category && typeof category === 'string' && category.trim()) {
+        query = query.eq('notification.category', category.trim().toUpperCase());
+      }
+
+      // Tìm kiếm theo từ khóa trong tiêu đề
+      if (search && typeof search === 'string' && search.trim()) {
+        const searchKeyword = search.trim();
+        query = query.ilike('notification.title', `%${searchKeyword}%`);
+      }
+
+      // Sắp xếp: Mới nhất lên đầu theo thời điểm nhận vào hộp thư (recipient created_at)
+      query = query
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limitNum - 1);
+
+      const { data: rows, count, error: queryErr } = await query;
+
+      if (queryErr) {
+        console.error('[API /api/v1/portal/notifications ERROR]', queryErr);
+        return res.status(500).json({
+          success: false,
+          error: 'Lỗi truy vấn danh sách thông báo hộp thư.',
+          details: queryErr.message,
+        });
+      }
+
+      const serverTime = new Date().toISOString();
+
+      // Định dạng danh sách trả về chuẩn DTO
+      const items = (rows || []).map((row: any) => {
+        const n = row.notification || {};
+        return {
+          id: row.id, // Giữ tương thích
+          recipient_id: row.id, // Tường minh recipient ID
+          notification_id: row.notification_id, // Định danh thông báo gốc
+          type: n.type,
+          category: n.category,
+          title: n.title,
+          summary: n.summary || null,
+          content: n.content,
+          action_url: n.action_url || null,
+          read_at: row.read_at || null,
+          is_read: Boolean(row.read_at),
+          event_type: n.event_type || null,
+          created_at: row.created_at,
+          published_at: n.published_at || n.created_at,
+        };
+      });
+
+      const totalItems = count || 0;
+      const totalPages = Math.ceil(totalItems / limitNum) || 1;
+
+      return res.json({
+        success: true,
+        data: {
+          items,
+          server_time: serverTime,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total_items: totalItems,
+            total_pages: totalPages,
+            has_next: pageNum < totalPages,
+            has_prev: pageNum > 1,
+          },
+          filters: {
+            tab: targetType || null,
+            type: targetType || null,
+            is_read: is_read !== undefined && is_read !== null ? String(is_read) : null,
+            category: category ? String(category).trim().toUpperCase() : null,
+            search: search ? String(search).trim() : null,
+          },
+        },
+      });
+    } catch (err: any) {
+      console.error('[API /api/v1/portal/notifications EXCEPTION]', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Lỗi hệ thống khi tải danh sách thông báo.',
+      });
+    }
+  });
+
+  // 2. GET /api/v1/portal/notifications/unread-count - Số đếm chưa đọc tổng và theo 2 tab
+  app.get('/api/v1/portal/notifications/unread-count', async (req: Request, res: Response) => {
+    try {
+      const auth = await resolvePortalNotificationUserId(req);
+      if (!auth.userId || auth.status === 'UNAUTHORIZED') {
+        return res.status(401).json({
+          success: false,
+          error: auth.error || 'Yêu cầu đăng nhập tài khoản để lấy số lượng thông báo.',
+          code: 'UNAUTHORIZED',
+        });
+      }
+
+      // Sử dụng RPC đã tối ưu fn_get_unread_notification_counts
+      const { data: rpcCounts, error: rpcErr } = await supabase.rpc('fn_get_unread_notification_counts', {
+        p_user_id: auth.userId,
+      });
+
+      if (rpcErr) {
+        console.error('[API /api/v1/portal/notifications/unread-count RPC ERROR]', rpcErr);
+        // Fallback truy vấn trực tiếp nếu RPC gặp lỗi tạm thời
+        const { count: totalUnread } = await supabase
+          .from('notification_recipients')
+          .select('id, notifications!inner(id, status)', { count: 'exact', head: true })
+          .eq('user_id', auth.userId)
+          .is('read_at', null)
+          .eq('notifications.status', 'PUBLISHED');
+
+        const { count: annUnread } = await supabase
+          .from('notification_recipients')
+          .select('id, notifications!inner(id, type, status)', { count: 'exact', head: true })
+          .eq('user_id', auth.userId)
+          .is('read_at', null)
+          .eq('notifications.status', 'PUBLISHED')
+          .eq('notifications.type', 'ANNOUNCEMENT');
+
+        const { count: sysUnread } = await supabase
+          .from('notification_recipients')
+          .select('id, notifications!inner(id, type, status)', { count: 'exact', head: true })
+          .eq('user_id', auth.userId)
+          .is('read_at', null)
+          .eq('notifications.status', 'PUBLISHED')
+          .eq('notifications.type', 'SYSTEM');
+
+        return res.json({
+          success: true,
+          data: {
+            total_unread: Number(totalUnread || 0),
+            announcement_unread: Number(annUnread || 0),
+            system_unread: Number(sysUnread || 0),
+            server_time: new Date().toISOString(),
+          },
+        });
+      }
+
+      const counts = Array.isArray(rpcCounts) && rpcCounts.length > 0
+        ? rpcCounts[0]
+        : { total_unread: 0, announcement_unread: 0, system_unread: 0 };
+
+      return res.json({
+        success: true,
+        data: {
+          total_unread: Number(counts.total_unread || 0),
+          announcement_unread: Number(counts.announcement_unread || 0),
+          system_unread: Number(counts.system_unread || 0),
+          server_time: new Date().toISOString(),
+        },
+      });
+    } catch (err: any) {
+      console.error('[API /api/v1/portal/notifications/unread-count EXCEPTION]', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Lỗi hệ thống khi đếm thông báo chưa đọc.',
+      });
+    }
+  });
+
+  // 3. GET /api/v1/portal/notifications/bell-recent - Danh sách rút gọn 5 thông báo mới nhất cho Bell header
+  app.get('/api/v1/portal/notifications/bell-recent', async (req: Request, res: Response) => {
+    try {
+      const auth = await resolvePortalNotificationUserId(req);
+      if (!auth.userId || auth.status === 'UNAUTHORIZED') {
+        return res.status(401).json({
+          success: false,
+          error: auth.error || 'Yêu cầu đăng nhập tài khoản để lấy thông báo chuông.',
+          code: 'UNAUTHORIZED',
+        });
+      }
+
+      const limitQuery = Math.min(10, Math.max(1, parseInt(String(req.query.limit || '5'), 10) || 5));
+
+      // Lấy danh sách 5 thông báo mới nhất
+      const { data: rows, error: queryErr } = await supabase
+        .from('notification_recipients')
+        .select(`
+          id,
+          notification_id,
+          user_id,
+          read_at,
+          created_at,
+          notification:notifications!inner (
+            id,
+            type,
+            category,
+            title,
+            summary,
+            action_url,
+            status,
+            event_type,
+            published_at,
+            created_at
+          )
+        `)
+        .eq('user_id', auth.userId)
+        .eq('notification.status', 'PUBLISHED')
+        .order('created_at', { ascending: false })
+        .limit(limitQuery);
+
+      if (queryErr) {
+        console.error('[API /api/v1/portal/notifications/bell-recent ERROR]', queryErr);
+        return res.status(500).json({
+          success: false,
+          error: 'Lỗi tải danh sách thông báo cho thanh chuông.',
+          details: queryErr.message,
+        });
+      }
+
+      // Lấy song song số đếm chưa đọc để trả về cùng payload cho Bell header
+      const { data: rpcCounts } = await supabase.rpc('fn_get_unread_notification_counts', {
+        p_user_id: auth.userId,
+      });
+
+      const counts = Array.isArray(rpcCounts) && rpcCounts.length > 0
+        ? rpcCounts[0]
+        : { total_unread: 0, announcement_unread: 0, system_unread: 0 };
+
+      const items = (rows || []).map((row: any) => {
+        const n = row.notification || {};
+        return {
+          id: row.id, // Giữ tương thích
+          recipient_id: row.id,
+          notification_id: row.notification_id,
+          type: n.type,
+          category: n.category,
+          title: n.title,
+          summary: n.summary || null,
+          action_url: n.action_url || null,
+          read_at: row.read_at || null,
+          is_read: Boolean(row.read_at),
+          event_type: n.event_type || null,
+          created_at: row.created_at,
+          published_at: n.published_at || n.created_at,
+        };
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          items,
+          server_time: new Date().toISOString(),
+          unread_counts: {
+            total_unread: Number(counts.total_unread || 0),
+            announcement_unread: Number(counts.announcement_unread || 0),
+            system_unread: Number(counts.system_unread || 0),
+          },
+        },
+      });
+    } catch (err: any) {
+      console.error('[API /api/v1/portal/notifications/bell-recent EXCEPTION]', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Lỗi hệ thống khi tải dữ liệu chuông thông báo.',
+      });
+    }
+  });
+
+  // 4. GET /api/v1/portal/notifications/:id - Xem chi tiết một thông báo
+  // BẢO MẬT & ĐÚNG NGUYÊN TẮC C3.4A/B: Endpoint này là GET chỉ đọc, TUYỆT ĐỐI KHÔNG tự ý đánh dấu đã đọc
+  // :id là notification_id (notifications.id) của thông báo
+  app.get('/api/v1/portal/notifications/:id', async (req: Request, res: Response) => {
+    try {
+      const auth = await resolvePortalNotificationUserId(req);
+      if (!auth.userId || auth.status === 'UNAUTHORIZED') {
+        return res.status(401).json({
+          success: false,
+          error: auth.error || 'Yêu cầu đăng nhập tài khoản để xem chi tiết thông báo.',
+          code: 'UNAUTHORIZED',
+        });
+      }
+
+      const { id } = req.params;
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!id || typeof id !== 'string' || !uuidRegex.test(id)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Mã định danh thông báo không đúng định dạng UUID.',
+          code: 'INVALID_ID',
+        });
+      }
+
+      // Tra cứu ưu tiên theo notification_id, hỗ trợ fallback recipient_id để giữ tính tương thích client
+      let recipientRow: any = null;
+
+      // 1. Thử tra cứu theo notification_id của chính CTV đó
+      const { data: byNotifId } = await supabase
+        .from('notification_recipients')
+        .select(`
+          id,
+          notification_id,
+          user_id,
+          read_at,
+          created_at,
+          notification:notifications!inner (
+            id,
+            type,
+            category,
+            title,
+            summary,
+            content,
+            action_url,
+            status,
+            event_type,
+            published_at,
+            created_at
+          )
+        `)
+        .eq('notification_id', id)
+        .eq('user_id', auth.userId)
+        .eq('notification.status', 'PUBLISHED')
+        .maybeSingle();
+
+      if (byNotifId) {
+        recipientRow = byNotifId;
+      } else {
+        // 2. Fallback tra cứu theo recipient id (nếu client cũ gửi recipient id)
+        const { data: byRecId } = await supabase
+          .from('notification_recipients')
+          .select(`
+            id,
+            notification_id,
+            user_id,
+            read_at,
+            created_at,
+            notification:notifications!inner (
+              id,
+              type,
+              category,
+              title,
+              summary,
+              content,
+              action_url,
+              status,
+              event_type,
+              published_at,
+              created_at
+            )
+          `)
+          .eq('id', id)
+          .eq('user_id', auth.userId)
+          .eq('notification.status', 'PUBLISHED')
+          .maybeSingle();
+
+        if (byRecId) {
+          recipientRow = byRecId;
+        }
+      }
+
+      if (!recipientRow) {
+        return res.status(404).json({
+          success: false,
+          error: 'Không tìm thấy thông báo hoặc thông báo không khả dụng cho tài khoản của bạn.',
+          code: 'NOT_FOUND',
+        });
+      }
+
+      const n = recipientRow.notification || {};
+
+      return res.json({
+        success: true,
+        data: {
+          id: recipientRow.id, // Giữ tương thích
+          recipient_id: recipientRow.id, // Tường minh recipient ID
+          notification_id: recipientRow.notification_id, // Chuẩn notification_id
+          type: n.type,
+          category: n.category,
+          title: n.title,
+          summary: n.summary || null,
+          content: n.content,
+          action_url: n.action_url || null,
+          read_at: recipientRow.read_at || null,
+          is_read: Boolean(recipientRow.read_at),
+          event_type: n.event_type || null,
+          created_at: recipientRow.created_at,
+          published_at: n.published_at || n.created_at,
+          server_time: new Date().toISOString(),
+        },
+      });
+    } catch (err: any) {
+      console.error('[API /api/v1/portal/notifications/:id EXCEPTION]', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Lỗi hệ thống khi tải chi tiết thông báo.',
+      });
+    }
+  });
+
+  // 5. POST /api/v1/portal/notifications/:id/read - Đánh dấu đã đọc một thông báo cụ thể (C3.4B)
+  // :id là notification_id (notifications.id) của thông báo
+  app.post('/api/v1/portal/notifications/:id/read', async (req: Request, res: Response) => {
+    try {
+      const auth = await resolvePortalNotificationUserId(req);
+      if (!auth.userId || auth.status === 'UNAUTHORIZED') {
+        return res.status(401).json({
+          success: false,
+          error: auth.error || 'Yêu cầu đăng nhập tài khoản để đánh dấu đã đọc.',
+          code: 'UNAUTHORIZED',
+        });
+      }
+
+      const { id } = req.params;
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!id || typeof id !== 'string' || !uuidRegex.test(id)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Mã định danh thông báo không đúng định dạng UUID.',
+          code: 'INVALID_ID',
+        });
+      }
+
+      // Xác định notification_id thực tế (ưu tiên notification_id, hỗ trợ recipient_id nếu có)
+      let targetNotificationId = id;
+
+      const { data: recCheck } = await supabase
+        .from('notification_recipients')
+        .select(`
+          id,
+          notification_id,
+          read_at,
+          notifications!inner (
+            id,
+            status
+          )
+        `)
+        .or(`notification_id.eq.${id},id.eq.${id}`)
+        .eq('user_id', auth.userId)
+        .maybeSingle();
+
+      // Nếu không tìm thấy, hoặc thông báo chưa PUBLISHED/đã REVOKED -> trả 404 không tiết lộ thông tin
+      if (!recCheck || (recCheck as any).notifications?.status !== 'PUBLISHED') {
+        return res.status(404).json({
+          success: false,
+          error: 'Không tìm thấy thông báo hoặc thông báo không khả dụng cho tài khoản của bạn.',
+          code: 'NOT_FOUND',
+        });
+      }
+
+      targetNotificationId = recCheck.notification_id;
+      const recipientId = recCheck.id;
+
+      // Nếu đã đọc trước đó: Giữ nguyên read_at, updated_count = 0 (Idempotent)
+      if (recCheck.read_at) {
+        return res.json({
+          success: true,
+          data: {
+            notification_id: targetNotificationId,
+            recipient_id: recipientId,
+            is_read: true,
+            read_at: new Date(recCheck.read_at).toISOString(),
+            updated_count: 0,
+          },
+        });
+      }
+
+      // Gọi RPC fn_mark_notification_as_read với danh tính do backend truyền vào
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc('fn_mark_notification_as_read', {
+        p_notification_id: targetNotificationId,
+        p_user_id: auth.userId,
+      });
+
+      if (rpcErr) {
+        console.error('[API fn_mark_notification_as_read RPC ERROR]', rpcErr);
+
+        // Fallback update trực tiếp an toàn với service_role
+        const nowIso = new Date().toISOString();
+        const { data: updRows, error: updErr } = await supabase
+          .from('notification_recipients')
+          .update({ read_at: nowIso })
+          .eq('id', recipientId)
+          .eq('user_id', auth.userId)
+          .is('read_at', null)
+          .select('read_at');
+
+        if (updErr) {
+          return res.status(500).json({
+            success: false,
+            error: 'Không thể cập nhật trạng thái đã đọc.',
+            details: updErr.message,
+          });
+        }
+
+        const wasUpdated = Array.isArray(updRows) && updRows.length > 0;
+        const finalReadAt = wasUpdated ? new Date(updRows[0].read_at).toISOString() : (recCheck.read_at ? new Date(recCheck.read_at).toISOString() : nowIso);
+
+        return res.json({
+          success: true,
+          data: {
+            notification_id: targetNotificationId,
+            recipient_id: recipientId,
+            is_read: true,
+            read_at: finalReadAt,
+            updated_count: wasUpdated ? 1 : 0,
+          },
+        });
+      }
+
+      // Lấy bản ghi recipient sau khi cập nhật để bảo đảm chính xác 100% read_at từ CSDL
+      const { data: recFinal } = await supabase
+        .from('notification_recipients')
+        .select('read_at')
+        .eq('id', recipientId)
+        .maybeSingle();
+
+      const finalIso = recFinal?.read_at ? new Date(recFinal.read_at).toISOString() : new Date().toISOString();
+
+      // Trả về đúng envelope chuẩn C3.4B
+      return res.json({
+        success: true,
+        data: {
+          notification_id: targetNotificationId,
+          recipient_id: recipientId,
+          is_read: true,
+          read_at: finalIso,
+          updated_count: 1,
+        },
+      });
+    } catch (err: any) {
+      console.error('[API /api/v1/portal/notifications/:id/read EXCEPTION]', err);
+      return res.status(500).json({
+        success: false,
+        error: err?.message || 'Lỗi hệ thống khi đánh dấu đã đọc.',
+      });
+    }
+  });
+
+  // 6. POST /api/v1/portal/notifications/read-all - Đánh dấu đã đọc tất cả trong một tab (C3.4B)
+  app.post('/api/v1/portal/notifications/read-all', async (req: Request, res: Response) => {
+    try {
+      const auth = await resolvePortalNotificationUserId(req);
+      if (!auth.userId || auth.status === 'UNAUTHORIZED') {
+        return res.status(401).json({
+          success: false,
+          error: auth.error || 'Yêu cầu đăng nhập tài khoản để đánh dấu đã đọc.',
+          code: 'UNAUTHORIZED',
+        });
+      }
+
+      const { tab, cutoff_at } = req.body || {};
+
+      // 1. Kiểm tra tham số tab (Bắt buộc, chỉ ANNOUNCEMENT hoặc SYSTEM)
+      if (!tab || typeof tab !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'Tham số tab là bắt buộc (ANNOUNCEMENT hoặc SYSTEM).',
+          code: 'MISSING_TAB',
+        });
+      }
+
+      const normalizedTab = tab.trim().toUpperCase();
+      if (normalizedTab !== 'ANNOUNCEMENT' && normalizedTab !== 'SYSTEM') {
+        return res.status(400).json({
+          success: false,
+          error: 'Tham số tab không hợp lệ. Chỉ chấp nhận ANNOUNCEMENT hoặc SYSTEM.',
+          code: 'INVALID_TAB',
+        });
+      }
+
+      // 2. Kiểm tra tham số cutoff_at (Bắt buộc, hợp lệ và không ở tương lai so với server time)
+      if (!cutoff_at || typeof cutoff_at !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: 'Tham số cutoff_at là bắt buộc để xác định mốc thời gian đánh dấu đã đọc.',
+          code: 'MISSING_CUTOFF',
+        });
+      }
+
+      const cutoffDate = new Date(cutoff_at);
+      if (isNaN(cutoffDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Định dạng mốc thời gian cutoff_at không hợp lệ (yêu cầu ISO UTC).',
+          code: 'INVALID_CUTOFF_FORMAT',
+        });
+      }
+
+      const now = new Date();
+      // Cho phép sai lệch dung sai 5 giây do lệch clock
+      if (cutoffDate.getTime() > now.getTime() + 5000) {
+        return res.status(400).json({
+          success: false,
+          error: 'Mốc thời gian cutoff_at không được ở tương lai so với thời gian máy chủ.',
+          code: 'FUTURE_CUTOFF',
+        });
+      }
+
+      const cutoffIso = cutoffDate.toISOString();
+      const markedAtIso = now.toISOString();
+
+      // 3. Thử gọi RPC fn_mark_all_notifications_as_read với 3 tham số mới
+      let updatedCount = 0;
+      let rpcSucceeded = false;
+
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('fn_mark_all_notifications_as_read', {
+          p_user_id: auth.userId,
+          p_type: normalizedTab,
+          p_cutoff_at: cutoffIso,
+        });
+
+        if (!rpcErr && rpcRes) {
+          rpcSucceeded = true;
+          updatedCount = Number(rpcRes.updated_count || 0);
+        } else if (rpcErr) {
+          console.warn('[RPC fn_mark_all_notifications_as_read WARNING]', rpcErr.message);
+        }
+      } catch (rpcEx) {
+        console.warn('[RPC fn_mark_all_notifications_as_read EXCEPTION]', rpcEx);
+      }
+
+      // 4. Fallback truy vấn trực tiếp an toàn với service_role nếu RPC chưa nạp overload mới
+      if (!rpcSucceeded) {
+        // Lấy danh sách ID các recipient thỏa mãn điều kiện
+        const { data: eligibleRecipients, error: fetchErr } = await supabase
+          .from('notification_recipients')
+          .select(`
+            id,
+            notifications!inner (
+              id,
+              type,
+              status
+            )
+          `)
+          .eq('user_id', auth.userId)
+          .is('read_at', null)
+          .lte('created_at', cutoffIso)
+          .eq('notifications.status', 'PUBLISHED')
+          .eq('notifications.type', normalizedTab);
+
+        if (fetchErr) {
+          console.error('[FETCH ELIGIBLE RECIPIENTS ERROR]', fetchErr);
+          return res.status(500).json({
+            success: false,
+            error: 'Lỗi truy vấn các thông báo cần đánh dấu đã đọc.',
+            details: fetchErr.message,
+          });
+        }
+
+        const idsToUpdate = (eligibleRecipients || []).map((r: any) => r.id);
+
+        if (idsToUpdate.length > 0) {
+          const { error: updErr } = await supabase
+            .from('notification_recipients')
+            .update({ read_at: markedAtIso })
+            .in('id', idsToUpdate)
+            .is('read_at', null);
+
+          if (updErr) {
+            console.error('[UPDATE RECIPIENTS READ ERROR]', updErr);
+            return res.status(500).json({
+              success: false,
+              error: 'Không thể cập nhật trạng thái đã đọc hàng loạt.',
+              details: updErr.message,
+            });
+          }
+
+          updatedCount = idsToUpdate.length;
+        } else {
+          updatedCount = 0;
+        }
+      }
+
+      // 5. Trả về đúng envelope chuẩn C3.4B
+      return res.json({
+        success: true,
+        data: {
+          tab: normalizedTab,
+          cutoff_at: cutoffIso,
+          updated_count: updatedCount,
+          marked_at: markedAtIso,
+        },
+      });
+    } catch (err: any) {
+      console.error('[API /api/v1/portal/notifications/read-all EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi đánh dấu đã đọc tất cả.' });
+    }
+  });
 
   // ----------------------------------------------------------------------------
-  // API 404 HANDLER (Ngăn API không tồn tại bị lọt xuống SPA fallback trả về HTML)
+  // MODULE C3.5A — API QUẢN LÝ THÔNG BÁO BAN QUẢN TRỊ (ADMIN / STAFF)
+  // Namespace: /api/v1/admin/notifications
+  // Các endpoint:
+  //   1. GET    /api/v1/admin/notifications/announcements            - Danh sách bản tin (lọc status, category, search, phân trang)
+  //   2. POST   /api/v1/admin/notifications/announcements            - Tạo mới bản nháp (DRAFT)
+  //   3. GET    /api/v1/admin/notifications/announcements/:id        - Chi tiết bản tin kèm thống kê người nhận
+  //   4. PATCH  /api/v1/admin/notifications/announcements/:id        - Chỉnh sửa bản nháp (kiểm tra version/updated_at, chỉ DRAFT)
+  //   5. DELETE /api/v1/admin/notifications/announcements/:id        - Xóa bản nháp (chỉ DRAFT)
+  //   6. POST   /api/v1/admin/notifications/announcements/:id/publish - Xuất bản bản tin (nguyên tử snapshot người nhận)
+  //   7. POST   /api/v1/admin/notifications/announcements/:id/revoke  - Thu hồi bản tin (bắt buộc lý do, giữ nguyên lịch sử)
+  //   8. GET    /api/v1/admin/notifications/announcements/:id/recipients - Danh sách người nhận và trạng thái đọc
+  //   9. GET    /api/v1/admin/notifications/recipient-options        - Tìm kiếm CTV để chọn người nhận
+  //  10. POST   /api/v1/admin/notifications/recipient-preview        - Xem trước số lượng và danh sách người nhận theo filter
+  // ----------------------------------------------------------------------------
+
+  // Helper hàm giải quyết danh sách người nhận CTV theo phạm vi và bộ lọc (Dùng chung cho Preview và Publish)
+  async function resolveEligibleRecipients(
+    scope: 'ALL' | 'STATUS_FILTER' | 'SPECIFIC',
+    filter?: { status?: string[]; affiliate_ids?: string[] } | null
+  ): Promise<{
+    eligibleUserIds: string[];
+    sampleList: Array<{
+      affiliate_profile_id: string;
+      user_id: string;
+      affiliate_code: string;
+      full_name: string;
+      status: string;
+    }>;
+    totalEligible: number;
+    excludedCount: number;
+    error?: string;
+  }> {
+    // 1. Truy vấn các hồ sơ affiliate_profiles kèm profiles
+    const { data: rawAffiliates, error: dbErr } = await supabase
+      .from('affiliate_profiles')
+      .select(`
+        id,
+        user_id,
+        affiliate_code,
+        status,
+        profile:profiles!affiliate_profiles_user_id_fkey (
+          id,
+          full_name,
+          email,
+          role,
+          is_active
+        )
+      `);
+
+    if (dbErr) {
+      return { eligibleUserIds: [], sampleList: [], totalEligible: 0, excludedCount: 0, error: dbErr.message };
+    }
+
+    // 2. Lọc bỏ các tài khoản không hợp lệ (không phải role affiliate, hoặc bị vô hiệu hóa is_active = false)
+    const validAffiliates = (rawAffiliates || []).filter((item: any) => {
+      const p = item.profile;
+      return p && p.role === 'affiliate' && p.is_active === true;
+    });
+
+    let matchedAffiliates: any[] = [];
+    let excluded = 0;
+
+    if (scope === 'ALL') {
+      // Toàn bộ tài khoản có hồ sơ CTV hợp lệ
+      matchedAffiliates = validAffiliates;
+    } else if (scope === 'STATUS_FILTER') {
+      const targetStatuses = Array.isArray(filter?.status) ? filter.status : [];
+      if (targetStatuses.length === 0) {
+        return {
+          eligibleUserIds: [],
+          sampleList: [],
+          totalEligible: 0,
+          excludedCount: 0,
+          error: 'Bộ lọc trạng thái (status) không được để trống khi chọn STATUS_FILTER.',
+        };
+      }
+      matchedAffiliates = validAffiliates.filter((item: any) => targetStatuses.includes(item.status));
+      excluded = validAffiliates.length - matchedAffiliates.length;
+    } else if (scope === 'SPECIFIC') {
+      const targetAffiliateIds = Array.isArray(filter?.affiliate_ids) ? filter.affiliate_ids : [];
+      if (targetAffiliateIds.length === 0) {
+        return {
+          eligibleUserIds: [],
+          sampleList: [],
+          totalEligible: 0,
+          excludedCount: 0,
+          error: 'Danh sách CTV chỉ định (affiliate_ids) không được để trống khi chọn SPECIFIC.',
+        };
+      }
+      // Ánh xạ affiliate_profile.id hoặc user_id sang danh sách
+      matchedAffiliates = validAffiliates.filter((item: any) =>
+        targetAffiliateIds.includes(item.id) || targetAffiliateIds.includes(item.user_id)
+      );
+      // Kiểm tra nếu có ID yêu cầu nhưng không tìm thấy
+      const foundIds = new Set(matchedAffiliates.flatMap((m: any) => [m.id, m.user_id]));
+      const missing = targetAffiliateIds.filter((tid: string) => !foundIds.has(tid));
+      if (missing.length > 0) {
+        return {
+          eligibleUserIds: [],
+          sampleList: [],
+          totalEligible: 0,
+          excludedCount: 0,
+          error: `Một số mã CTV chỉ định không tồn tại hoặc không phải tài khoản CTV hợp lệ: ${missing.slice(0, 3).join(', ')}`,
+        };
+      }
+    }
+
+    // 3. Loại trùng lặp user_id tuyệt đối
+    const seenUsers = new Set<string>();
+    const eligibleUserIds: string[] = [];
+    const sampleList: any[] = [];
+
+    for (const aff of matchedAffiliates) {
+      if (aff.user_id && !seenUsers.has(aff.user_id)) {
+        seenUsers.add(aff.user_id);
+        eligibleUserIds.push(aff.user_id);
+        if (sampleList.length < 10) {
+          sampleList.push({
+            affiliate_profile_id: aff.id,
+            user_id: aff.user_id,
+            affiliate_code: aff.affiliate_code,
+            full_name: aff.profile?.full_name || 'Cộng tác viên',
+            status: aff.status,
+          });
+        }
+      }
+    }
+
+    return {
+      eligibleUserIds,
+      sampleList,
+      totalEligible: eligibleUserIds.length,
+      excludedCount: excluded,
+    };
+  }
+
+  // 1. GET /api/v1/admin/notifications/announcements - Danh sách bản tin Quản trị
+  app.get('/api/v1/admin/notifications/announcements', requirePermission('notifications.view'), async (req: Request, res: Response) => {
+    try {
+      const { status, category, search, page, limit, from_date, to_date, start_date, end_date } = req.query;
+      const pageNum = Math.max(1, parseInt(String(page || '1'), 10) || 1);
+      const limitNum = Math.min(50, Math.max(1, parseInt(String(limit || '20'), 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
+      let query = supabase
+        .from('notifications')
+        .select(`
+          id,
+          type,
+          category,
+          title,
+          summary,
+          recipient_scope,
+          status,
+          published_at,
+          published_by,
+          created_by,
+          created_at,
+          updated_at
+        `, { count: 'exact' })
+        .eq('type', 'ANNOUNCEMENT');
+
+      if (status && typeof status === 'string' && status.trim() && status !== 'ALL') {
+        query = query.eq('status', status.trim().toUpperCase());
+      }
+      if (category && typeof category === 'string' && category.trim() && category !== 'ALL') {
+        query = query.eq('category', category.trim().toUpperCase());
+      }
+      if (search && typeof search === 'string' && search.trim()) {
+        query = query.ilike('title', `%${search.trim()}%`);
+      }
+
+      const fromDate = from_date || start_date;
+      const toDate = to_date || end_date;
+      if (fromDate && typeof fromDate === 'string' && fromDate.trim()) {
+        query = query.gte('created_at', fromDate.trim());
+      }
+      if (toDate && typeof toDate === 'string' && toDate.trim()) {
+        query = query.lte('created_at', toDate.trim());
+      }
+
+      query = query
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(offset, offset + limitNum - 1);
+
+      const { data: rows, count, error: qErr } = await query;
+      if (qErr) {
+        return res.status(500).json({ success: false, error: 'Lỗi tải danh sách bản tin.', details: qErr.message });
+      }
+
+      // Lấy danh sách creator/publisher names và số lượng người nhận
+      const notifIds = (rows || []).map((r: any) => r.id);
+      let recipientCountsMap: Record<string, { total: number; read: number }> = {};
+
+      if (notifIds.length > 0) {
+        const { data: recData } = await supabase
+          .from('notification_recipients')
+          .select('notification_id, read_at')
+          .in('notification_id', notifIds);
+
+        (recData || []).forEach((rec: any) => {
+          if (!recipientCountsMap[rec.notification_id]) {
+            recipientCountsMap[rec.notification_id] = { total: 0, read: 0 };
+          }
+          recipientCountsMap[rec.notification_id].total += 1;
+          if (rec.read_at) {
+            recipientCountsMap[rec.notification_id].read += 1;
+          }
+        });
+      }
+
+      // Lấy tên người tạo / người xuất bản
+      const userIds = [...new Set((rows || []).flatMap((r: any) => [r.created_by, r.published_by]).filter(Boolean))];
+      let namesMap: Record<string, string> = {};
+      if (userIds.length > 0) {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', userIds);
+        (profs || []).forEach((p: any) => {
+          namesMap[p.id] = p.full_name;
+        });
+      }
+
+      const items = (rows || []).map((r: any) => {
+        const stats = recipientCountsMap[r.id] || { total: 0, read: 0 };
+        return {
+          id: r.id,
+          type: r.type,
+          category: r.category,
+          title: r.title,
+          summary: r.summary || null,
+          recipient_scope: r.recipient_scope,
+          status: r.status,
+          published_at: r.published_at || null,
+          published_by: r.published_by || null,
+          publisher_name: r.published_by ? (namesMap[r.published_by] || 'Cán bộ Tuyển sinh') : null,
+          created_by: r.created_by || null,
+          creator_name: r.created_by ? (namesMap[r.created_by] || 'Ban Quản trị') : null,
+          created_at: r.created_at,
+          updated_at: r.updated_at,
+          total_recipients: stats.total,
+          read_recipients: stats.read,
+          unread_recipients: stats.total - stats.read,
+        };
+      });
+
+      const totalItems = count || 0;
+      const totalPages = Math.ceil(totalItems / limitNum) || 1;
+
+      return res.json({
+        success: true,
+        data: {
+          items,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total_items: totalItems,
+            total_pages: totalPages,
+            has_next: pageNum < totalPages,
+            has_prev: pageNum > 1,
+          },
+          server_time: new Date().toISOString(),
+        },
+      });
+    } catch (err: any) {
+      console.error('[GET /announcements ERROR]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi tải danh sách bản tin.' });
+    }
+  });
+
+  // 2. POST /api/v1/admin/notifications/announcements - Tạo mới bản nháp (DRAFT)
+  app.post('/api/v1/admin/notifications/announcements', requirePermission('notifications.create'), async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { title, summary, content, category, recipient_scope, recipient_filter, action_url } = req.body || {};
+
+      // 1. Validation tiêu đề
+      if (!title || typeof title !== 'string' || title.trim().length < 3 || title.trim().length > 255) {
+        return res.status(400).json({
+          success: false,
+          error: 'Tiêu đề bản tin là bắt buộc và phải có độ dài từ 3 đến 255 ký tự.',
+          code: 'INVALID_TITLE',
+        });
+      }
+
+      // 2. Validation nội dung
+      if (!content || typeof content !== 'string' || content.trim().length < 5 || content.length > 50000) {
+        return res.status(400).json({
+          success: false,
+          error: 'Nội dung bản tin là bắt buộc và phải có độ dài từ 5 đến 50.000 ký tự.',
+          code: 'INVALID_CONTENT',
+        });
+      }
+
+      // 3. Validation danh mục
+      const validCategories = ['GENERAL', 'POLICY', 'URGENT', 'EVENT'];
+      const targetCategory = (category ? String(category).trim().toUpperCase() : 'GENERAL');
+      if (!validCategories.includes(targetCategory)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Danh mục không hợp lệ. Chỉ chấp nhận GENERAL, POLICY, URGENT hoặc EVENT.',
+          code: 'INVALID_CATEGORY',
+        });
+      }
+
+      // 4. Validation phạm vi người nhận
+      const validScopes = ['ALL', 'STATUS_FILTER', 'SPECIFIC'];
+      const targetScope = (recipient_scope ? String(recipient_scope).trim().toUpperCase() : 'ALL');
+      if (!validScopes.includes(targetScope)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Phạm vi người nhận không hợp lệ. Chỉ chấp nhận ALL, STATUS_FILTER hoặc SPECIFIC.',
+          code: 'INVALID_RECIPIENT_SCOPE',
+        });
+      }
+
+      // 5. Kiểm tra an toàn bộ lọc
+      const sanitizedFilter = (recipient_filter && typeof recipient_filter === 'object') ? recipient_filter : {};
+
+      // Tạo bản ghi trong notifications
+      const { data: createdNotif, error: insErr } = await supabase
+        .from('notifications')
+        .insert({
+          type: 'ANNOUNCEMENT',
+          category: targetCategory,
+          title: title.trim(),
+          summary: summary && typeof summary === 'string' && summary.trim() ? summary.trim() : null,
+          content: content.trim(),
+          action_url: action_url && typeof action_url === 'string' && action_url.trim() ? action_url.trim() : null,
+          recipient_scope: targetScope,
+          recipient_filter: sanitizedFilter,
+          status: 'DRAFT',
+          created_by: user.id,
+        })
+        .select()
+        .single();
+
+      if (insErr) {
+        console.error('[CREATE ANNOUNCEMENT ERROR]', insErr);
+        return res.status(500).json({ success: false, error: 'Không thể tạo bản nháp thông báo.', details: insErr.message });
+      }
+
+      // Ghi audit log
+      try {
+        await supabase.from('audit_logs').insert({
+          actor_id: user.id,
+          action: 'ANNOUNCEMENT_DRAFT_CREATED',
+          entity_name: 'notifications',
+          entity_id: createdNotif.id,
+          new_values: { title: createdNotif.title, category: createdNotif.category, status: 'DRAFT' },
+          ip_address: req.ip || null,
+          user_agent: req.headers['user-agent'] || null,
+        });
+      } catch (_) {}
+
+      return res.status(201).json({
+        success: true,
+        data: createdNotif,
+        message: 'Tạo bản nháp thông báo thành công.',
+      });
+    } catch (err: any) {
+      console.error('[POST /announcements ERROR]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi tạo bản nháp.' });
+    }
+  });
+
+  // Middleware kiểm tra quyền tra cứu / xem trước phạm vi người nhận:
+  // Admin được phép; Staff cần notifications.view VÀ ít nhất một quyền (notifications.create hoặc notifications.publish)
+  const requireRecipientAccess = async (req: Request, res: Response, next: NextFunction) => {
+    await new Promise<void>((resolve) => {
+      requireStaffOrAdmin(req, res, () => {
+        resolve();
+      });
+    });
+    if (res.headersSent) return;
+
+    const user = (req as any).user;
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Chưa đăng nhập.', code: 'UNAUTHENTICATED' });
+    }
+
+    if (user.role === 'admin' || user.id === demoState.adminUser.id) {
+      return next();
+    }
+
+    try {
+      const { data: hasView } = await supabase.rpc('fn_has_permission', { p_user_id: user.id, p_perm: 'notifications.view' });
+      const { data: hasCreate } = await supabase.rpc('fn_has_permission', { p_user_id: user.id, p_perm: 'notifications.create' });
+      const { data: hasPublish } = await supabase.rpc('fn_has_permission', { p_user_id: user.id, p_perm: 'notifications.publish' });
+
+      if (hasView === true && (hasCreate === true || hasPublish === true)) {
+        return next();
+      }
+    } catch (err) {
+      console.warn('[REQUIRE RECIPIENT ACCESS EXCEPTION]', err);
+    }
+
+    return res.status(403).json({
+      success: false,
+      error: 'Bị từ chối: Bạn cần có quyền notifications.view cùng với notifications.create hoặc notifications.publish.',
+      code: 'PERMISSION_DENIED',
+    });
+  };
+
+  // Handler xem trước phạm vi người nhận (hỗ trợ cả POST body và GET query)
+  const recipientPreviewHandler = async (req: Request, res: Response) => {
+    try {
+      const scopeRaw = req.body?.recipient_scope || req.query?.recipient_scope || 'ALL';
+      const targetScope = String(scopeRaw).trim().toUpperCase();
+
+      const validScopes = ['ALL', 'STATUS_FILTER', 'SPECIFIC'];
+      if (!validScopes.includes(targetScope)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Phạm vi recipient_scope không hợp lệ. Chỉ chấp nhận ALL, STATUS_FILTER hoặc SPECIFIC.',
+          code: 'INVALID_SCOPE',
+        });
+      }
+
+      let filter = req.body?.recipient_filter;
+      if (!filter && (req.query?.status || req.query?.affiliate_ids)) {
+        filter = {};
+        if (req.query.status) {
+          filter.status = Array.isArray(req.query.status)
+            ? req.query.status
+            : String(req.query.status).split(',').map((s: string) => s.trim()).filter(Boolean);
+        }
+        if (req.query.affiliate_ids) {
+          filter.affiliate_ids = Array.isArray(req.query.affiliate_ids)
+            ? req.query.affiliate_ids
+            : String(req.query.affiliate_ids).split(',').map((s: string) => s.trim()).filter(Boolean);
+        }
+      }
+
+      const result = await resolveEligibleRecipients(targetScope as any, filter);
+      if (result.error) {
+        return res.status(400).json({
+          success: false,
+          error: result.error,
+          code: 'PREVIEW_FILTER_ERROR',
+        });
+      }
+
+      return res.json({
+        success: true,
+        data: {
+          recipient_scope: targetScope,
+          recipient_filter: filter || {},
+          total_eligible: result.totalEligible,
+          excluded_count: result.excludedCount,
+          sample_recipients: result.sampleList,
+        },
+      });
+    } catch (err: any) {
+      console.error('[RECIPIENT PREVIEW ERROR]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi xem trước phạm vi người nhận.' });
+    }
+  };
+
+  // Handler tìm kiếm người nhận CTV để chọn đích danh
+  const searchRecipientsHandler = async (req: Request, res: Response) => {
+    try {
+      const { search, status, page, limit } = req.query;
+      const pageNum = Math.max(1, parseInt(String(page || '1'), 10) || 1);
+      const limitNum = Math.min(50, Math.max(1, parseInt(String(limit || '20'), 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
+      let query = supabase
+        .from('affiliate_profiles')
+        .select(`
+          id,
+          user_id,
+          affiliate_code,
+          status,
+          created_at,
+          profile:profiles!affiliate_profiles_user_id_fkey (
+            id,
+            full_name,
+            email,
+            role,
+            is_active
+          )
+        `, { count: 'exact' });
+
+      if (status && typeof status === 'string' && status.trim() && status !== 'ALL') {
+        query = query.eq('status', status.trim().toUpperCase());
+      }
+
+      if (search && typeof search === 'string' && search.trim()) {
+        const kw = search.trim();
+        const { data: matchedProfiles } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('role', 'affiliate')
+          .or(`full_name.ilike.%${kw}%,email.ilike.%${kw}%`);
+
+        const pIds = (matchedProfiles || []).map((p: any) => p.id);
+        if (pIds.length > 0) {
+          query = query.or(`affiliate_code.ilike.%${kw}%,user_id.in.(${pIds.join(',')})`);
+        } else {
+          query = query.ilike('affiliate_code', `%${kw}%`);
+        }
+      }
+
+      query = query
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limitNum - 1);
+
+      const { data: rows, count, error: qErr } = await query;
+      if (qErr) {
+        return res.status(500).json({ success: false, error: 'Lỗi truy vấn danh sách CTV.', details: qErr.message });
+      }
+
+      const items = (rows || [])
+        .filter((r: any) => r.profile && r.profile.role === 'affiliate' && r.profile.is_active === true)
+        .map((r: any) => ({
+          affiliate_profile_id: r.id,
+          user_id: r.user_id,
+          affiliate_code: r.affiliate_code,
+          full_name: r.profile?.full_name || 'Cộng tác viên',
+          email: r.profile?.email || '---',
+          status: r.status,
+        }));
+
+      const totalItems = count || 0;
+      const totalPages = Math.ceil(totalItems / limitNum) || 1;
+
+      return res.json({
+        success: true,
+        data: {
+          items,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total_items: totalItems,
+            total_pages: totalPages,
+            has_next: pageNum < totalPages,
+            has_prev: pageNum > 1,
+          },
+        },
+      });
+    } catch (err: any) {
+      console.error('[SEARCH RECIPIENTS ERROR]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi tìm kiếm CTV.' });
+    }
+  };
+
+  // 3. GET & POST /recipient-preview
+  app.get('/api/v1/admin/notifications/announcements/recipient-preview', requireRecipientAccess, recipientPreviewHandler);
+  app.post('/api/v1/admin/notifications/announcements/recipient-preview', requireRecipientAccess, recipientPreviewHandler);
+  app.get('/api/v1/admin/notifications/recipient-preview', requireRecipientAccess, recipientPreviewHandler);
+  app.post('/api/v1/admin/notifications/recipient-preview', requireRecipientAccess, recipientPreviewHandler);
+
+  // 4. GET /search-recipients
+  app.get('/api/v1/admin/notifications/announcements/search-recipients', requireRecipientAccess, searchRecipientsHandler);
+  app.get('/api/v1/admin/notifications/recipient-options', requireRecipientAccess, searchRecipientsHandler);
+
+  // 5. GET /api/v1/admin/notifications/announcements/:id - Chi tiết bản tin kèm thống kê người nhận
+  app.get('/api/v1/admin/notifications/announcements/:id', requirePermission('notifications.view'), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const user = (req as any).user;
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!id || !uuidRegex.test(id)) {
+        return res.status(400).json({ success: false, error: 'Mã định danh bản tin không hợp lệ.', code: 'INVALID_ID' });
+      }
+
+      const { data: notif, error: notifErr } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('id', id)
+        .eq('type', 'ANNOUNCEMENT')
+        .maybeSingle();
+
+      if (notifErr || !notif) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy bản tin yêu cầu.', code: 'NOT_FOUND' });
+      }
+
+      // Thống kê số lượng người nhận đã đọc / chưa đọc
+      const { data: recData } = await supabase
+        .from('notification_recipients')
+        .select('read_at')
+        .eq('notification_id', id);
+
+      const totalRecipients = recData?.length || 0;
+      const readRecipients = (recData || []).filter((r: any) => r.read_at !== null).length;
+      const unreadRecipients = totalRecipients - readRecipients;
+
+      // Lấy tên actor (người tạo, người xuất bản, người thu hồi)
+      const actorIds = [notif.created_by, notif.published_by, notif.revoked_by].filter(Boolean);
+      let actorNames: Record<string, string> = {};
+      if (actorIds.length > 0) {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', actorIds);
+        (profs || []).forEach((p: any) => {
+          actorNames[p.id] = p.full_name;
+        });
+      }
+
+      // Quyền thao tác của user hiện tại trên bản tin này
+      const isOwner = notif.created_by === user.id;
+      const isAdmin = user.role === 'admin';
+      const isDraft = notif.status === 'DRAFT';
+      const isPublished = notif.status === 'PUBLISHED';
+
+      const permissions = {
+        can_edit: isDraft && (isAdmin || isOwner),
+        can_delete: isDraft && (isAdmin || isOwner),
+        can_publish: isDraft,
+        can_revoke: isPublished,
+      };
+
+      return res.json({
+        success: true,
+        data: {
+          id: notif.id,
+          type: notif.type,
+          category: notif.category,
+          title: notif.title,
+          summary: notif.summary || null,
+          content: notif.content,
+          action_url: notif.action_url || null,
+          recipient_scope: notif.recipient_scope,
+          recipient_filter: notif.recipient_filter || {},
+          status: notif.status,
+          published_at: notif.published_at || null,
+          published_by: notif.published_by || null,
+          publisher_name: notif.published_by ? (actorNames[notif.published_by] || 'Cán bộ Tuyển sinh') : null,
+          revoked_at: notif.revoked_at || null,
+          revoked_by: notif.revoked_by || null,
+          revoker_name: notif.revoked_by ? (actorNames[notif.revoked_by] || 'Ban Quản trị') : null,
+          revoke_reason: notif.metadata?.revoke_reason || null,
+          created_by: notif.created_by || null,
+          creator_name: notif.created_by ? (actorNames[notif.created_by] || 'Ban Quản trị') : null,
+          created_at: notif.created_at,
+          updated_at: notif.updated_at,
+          stats: {
+            recipient_count: totalRecipients,
+            read_count: readRecipients,
+            unread_count: unreadRecipients,
+          },
+          permissions,
+        },
+      });
+    } catch (err: any) {
+      console.error('[GET /announcements/:id ERROR]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi tải chi tiết bản tin.' });
+    }
+  });
+
+  // 6. PUT & PATCH /api/v1/admin/notifications/announcements/:id - Chỉnh sửa bản nháp
+  const updateAnnouncementDraftHandler = async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const user = (req as any).user;
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!id || !uuidRegex.test(id)) {
+        return res.status(400).json({ success: false, error: 'Mã định danh bản tin không hợp lệ.', code: 'INVALID_ID' });
+      }
+
+      // Đọc bản ghi hiện tại
+      const { data: existing, error: getErr } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('id', id)
+        .eq('type', 'ANNOUNCEMENT')
+        .maybeSingle();
+
+      if (getErr || !existing) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy bản tin cần cập nhật.', code: 'NOT_FOUND' });
+      }
+
+      // Chỉ được sửa bản nháp DRAFT
+      if (existing.status !== 'DRAFT') {
+        return res.status(409).json({
+          success: false,
+          error: `Không thể chỉnh sửa bản tin đã ở trạng thái ${existing.status}. Chỉ được sửa bản nháp DRAFT.`,
+          code: 'STATUS_CONFLICT',
+        });
+      }
+
+      // Kiểm tra quyền sở hữu đối với Staff (Staff chỉ được sửa bản nháp của mình)
+      if (user.role !== 'admin' && existing.created_by !== user.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Bị từ chối: Bạn chỉ có quyền chỉnh sửa bản nháp do chính mình tạo ra.',
+          code: 'PERMISSION_DENIED',
+        });
+      }
+
+      const { title, summary, content, category, recipient_scope, recipient_filter, action_url, expected_updated_at } = req.body || {};
+
+      // Kiểm tra optimistic concurrency qua expected_updated_at
+      if (expected_updated_at && new Date(expected_updated_at).getTime() !== new Date(existing.updated_at).getTime()) {
+        return res.status(409).json({
+          success: false,
+          error: 'Bản tin đã được cập nhật bởi một phiên thao tác khác. Vui lòng tải lại trang.',
+          code: 'CONCURRENCY_CONFLICT',
+        });
+      }
+
+      const updatePayload: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (title !== undefined) {
+        if (!title || typeof title !== 'string' || title.trim().length < 3 || title.trim().length > 255) {
+          return res.status(400).json({ success: false, error: 'Tiêu đề phải từ 3 đến 255 ký tự.', code: 'INVALID_TITLE' });
+        }
+        updatePayload.title = title.trim();
+      }
+
+      if (content !== undefined) {
+        if (!content || typeof content !== 'string' || content.trim().length < 5 || content.length > 50000) {
+          return res.status(400).json({ success: false, error: 'Nội dung phải từ 5 đến 50.000 ký tự.', code: 'INVALID_CONTENT' });
+        }
+        updatePayload.content = content.trim();
+      }
+
+      if (summary !== undefined) {
+        updatePayload.summary = summary && typeof summary === 'string' && summary.trim() ? summary.trim() : null;
+      }
+
+      if (category !== undefined) {
+        const validCategories = ['GENERAL', 'POLICY', 'URGENT', 'EVENT'];
+        const cat = String(category).trim().toUpperCase();
+        if (!validCategories.includes(cat)) {
+          return res.status(400).json({ success: false, error: 'Danh mục không hợp lệ.', code: 'INVALID_CATEGORY' });
+        }
+        updatePayload.category = cat;
+      }
+
+      if (recipient_scope !== undefined) {
+        const validScopes = ['ALL', 'STATUS_FILTER', 'SPECIFIC'];
+        const sc = String(recipient_scope).trim().toUpperCase();
+        if (!validScopes.includes(sc)) {
+          return res.status(400).json({ success: false, error: 'Phạm vi người nhận không hợp lệ.', code: 'INVALID_RECIPIENT_SCOPE' });
+        }
+        updatePayload.recipient_scope = sc;
+      }
+
+      if (recipient_filter !== undefined) {
+        updatePayload.recipient_filter = (recipient_filter && typeof recipient_filter === 'object') ? recipient_filter : {};
+      }
+
+      if (action_url !== undefined) {
+        updatePayload.action_url = action_url && typeof action_url === 'string' && action_url.trim() ? action_url.trim() : null;
+      }
+
+      const { data: updated, error: updErr } = await supabase
+        .from('notifications')
+        .update(updatePayload)
+        .eq('id', id)
+        .eq('status', 'DRAFT')
+        .select()
+        .single();
+
+      if (updErr || !updated) {
+        return res.status(500).json({ success: false, error: 'Không thể cập nhật bản nháp.', details: updErr?.message });
+      }
+
+      // Ghi audit log
+      try {
+        await supabase.from('audit_logs').insert({
+          actor_id: user.id,
+          action: 'ANNOUNCEMENT_DRAFT_UPDATED',
+          entity_name: 'notifications',
+          entity_id: id,
+          old_values: { title: existing.title, category: existing.category },
+          new_values: { title: updated.title, category: updated.category },
+          ip_address: req.ip || null,
+          user_agent: req.headers['user-agent'] || null,
+        });
+      } catch (_) {}
+
+      return res.json({
+        success: true,
+        data: updated,
+        message: 'Cập nhật bản nháp thành công.',
+      });
+    } catch (err: any) {
+      console.error('[UPDATE /announcements/:id ERROR]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi cập nhật bản nháp.' });
+    }
+  };
+  app.put('/api/v1/admin/notifications/announcements/:id', requirePermission('notifications.create'), updateAnnouncementDraftHandler);
+  app.patch('/api/v1/admin/notifications/announcements/:id', requirePermission('notifications.create'), updateAnnouncementDraftHandler);
+
+  // 5. DELETE /api/v1/admin/notifications/announcements/:id - Xóa bản nháp (chỉ DRAFT)
+  app.delete('/api/v1/admin/notifications/announcements/:id', requirePermission('notifications.create'), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const user = (req as any).user;
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!id || !uuidRegex.test(id)) {
+        return res.status(400).json({ success: false, error: 'Mã định danh bản tin không hợp lệ.', code: 'INVALID_ID' });
+      }
+
+      const { data: existing, error: getErr } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('id', id)
+        .eq('type', 'ANNOUNCEMENT')
+        .maybeSingle();
+
+      if (getErr || !existing) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy bản tin cần xóa.', code: 'NOT_FOUND' });
+      }
+
+      // Tuyệt đối không xóa bản tin từng PUBLISHED hoặc REVOKED
+      if (existing.status !== 'DRAFT') {
+        return res.status(409).json({
+          success: false,
+          error: `Không thể xóa bản tin ở trạng thái ${existing.status}. Bản tin đã xuất bản chỉ được phép thu hồi (REVOKE) để bảo toàn lịch sử.`,
+          code: 'STATUS_CONFLICT',
+        });
+      }
+
+      // Staff chỉ được xóa bản nháp của mình
+      if (user.role !== 'admin' && existing.created_by !== user.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Bị từ chối: Bạn chỉ có quyền xóa bản nháp do chính mình tạo ra.',
+          code: 'PERMISSION_DENIED',
+        });
+      }
+
+      const { error: delErr } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('id', id)
+        .eq('status', 'DRAFT');
+
+      if (delErr) {
+        return res.status(500).json({ success: false, error: 'Không thể xóa bản nháp.', details: delErr.message });
+      }
+
+      // Ghi audit log
+      try {
+        await supabase.from('audit_logs').insert({
+          actor_id: user.id,
+          action: 'ANNOUNCEMENT_DRAFT_DELETED',
+          entity_name: 'notifications',
+          entity_id: id,
+          old_values: { title: existing.title, category: existing.category },
+          ip_address: req.ip || null,
+          user_agent: req.headers['user-agent'] || null,
+        });
+      } catch (_) {}
+
+      return res.json({
+        success: true,
+        message: 'Đã xóa bản nháp thông báo thành công.',
+      });
+    } catch (err: any) {
+      console.error('[DELETE /announcements/:id ERROR]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi xóa bản nháp.' });
+    }
+  });
+
+  // 6. POST /api/v1/admin/notifications/announcements/:id/publish - Xuất bản bản tin (Nguyên tử & Fan-out snapshot)
+  app.post('/api/v1/admin/notifications/announcements/:id/publish', requirePermission('notifications.publish'), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const user = (req as any).user;
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!id || !uuidRegex.test(id)) {
+        return res.status(400).json({ success: false, error: 'Mã định danh bản tin không hợp lệ.', code: 'INVALID_ID' });
+      }
+
+      // Khóa và kiểm tra bản tin
+      const { data: notif, error: notifErr } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('id', id)
+        .eq('type', 'ANNOUNCEMENT')
+        .maybeSingle();
+
+      if (notifErr || !notif) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy bản tin cần xuất bản.', code: 'NOT_FOUND' });
+      }
+
+      // Xử lý Retry Publish (Lũy đẳng)
+      if (notif.status === 'PUBLISHED') {
+        const { count: existingRecCount } = await supabase
+          .from('notification_recipients')
+          .select('id', { count: 'exact', head: true })
+          .eq('notification_id', id);
+
+        return res.json({
+          success: true,
+          data: {
+            id: notif.id,
+            status: 'PUBLISHED',
+            published_at: notif.published_at,
+            published_by: notif.published_by,
+            recipients_count: existingRecCount || 0,
+          },
+          message: 'Bản tin đã được xuất bản trước đó.',
+        });
+      }
+
+      // Chặn nếu đã thu hồi
+      if (notif.status === 'REVOKED') {
+        return res.status(409).json({
+          success: false,
+          error: 'Bản tin đã bị thu hồi, không thể xuất bản lại.',
+          code: 'STATUS_CONFLICT',
+        });
+      }
+
+      // Chỉ xuất bản từ DRAFT
+      if (notif.status !== 'DRAFT') {
+        return res.status(409).json({
+          success: false,
+          error: `Trạng thái bản tin không hợp lệ (${notif.status}). Chỉ xuất bản được từ DRAFT.`,
+          code: 'STATUS_CONFLICT',
+        });
+      }
+
+      // 1. Phân giải danh sách người nhận đủ điều kiện
+      const eligible = await resolveEligibleRecipients(notif.recipient_scope, notif.recipient_filter);
+      if (eligible.error) {
+        return res.status(400).json({
+          success: false,
+          error: `Lỗi phân giải người nhận: ${eligible.error}`,
+          code: 'RESOLVER_ERROR',
+        });
+      }
+
+      if (eligible.eligibleUserIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Không tìm thấy người nhận nào phù hợp với phạm vi và bộ lọc. Không thể xuất bản bản tin rỗng.',
+          code: 'NO_ELIGIBLE_RECIPIENTS',
+        });
+      }
+
+      const nowIso = new Date().toISOString();
+
+      // 2. Chuyển trạng thái bản tin sang PUBLISHED
+      const { error: updErr } = await supabase
+        .from('notifications')
+        .update({
+          status: 'PUBLISHED',
+          published_at: nowIso,
+          published_by: user.id,
+          updated_at: nowIso,
+        })
+        .eq('id', id)
+        .eq('status', 'DRAFT');
+
+      if (updErr) {
+        return res.status(500).json({ success: false, error: 'Lỗi cập nhật trạng thái xuất bản.', details: updErr.message });
+      }
+
+      // 3. Phân phối snapshot người nhận vào notification_recipients
+      const recipientInserts = eligible.eligibleUserIds.map((uId: string) => ({
+        notification_id: id,
+        user_id: uId,
+        created_at: nowIso,
+      }));
+
+      // Chèn hàng loạt theo batch 500 bản ghi
+      const batchSize = 500;
+      let insertedTotal = 0;
+      let dispatchFailed = false;
+
+      for (let i = 0; i < recipientInserts.length; i += batchSize) {
+        const batch = recipientInserts.slice(i, i + batchSize);
+        const { data: insertedRows, error: insErr } = await supabase
+          .from('notification_recipients')
+          .insert(batch)
+          .select('id');
+
+        if (insErr) {
+          console.error('[DISPATCH RECIPIENTS BATCH ERROR]', insErr);
+          dispatchFailed = true;
+          break;
+        }
+        insertedTotal += (insertedRows?.length || batch.length);
+      }
+
+      // Nếu phân phối lỗi, rollback trạng thái thông báo về DRAFT để bảo đảm nguyên tử
+      if (dispatchFailed) {
+        await supabase
+          .from('notifications')
+          .update({
+            status: 'DRAFT',
+            published_at: null,
+            published_by: null,
+          })
+          .eq('id', id);
+
+        await supabase
+          .from('notification_recipients')
+          .delete()
+          .eq('notification_id', id);
+
+        return res.status(500).json({
+          success: false,
+          error: 'Lỗi phân phối người nhận. Toàn bộ tiến trình xuất bản đã được rollback về DRAFT.',
+          code: 'DISPATCH_ROLLBACK',
+        });
+      }
+
+      // 4. Ghi audit log
+      try {
+        await supabase.from('audit_logs').insert({
+          actor_id: user.id,
+          action: 'ANNOUNCEMENT_PUBLISHED',
+          entity_name: 'notifications',
+          entity_id: id,
+          new_values: { status: 'PUBLISHED', published_at: nowIso, recipients_count: insertedTotal },
+          ip_address: req.ip || null,
+          user_agent: req.headers['user-agent'] || null,
+        });
+      } catch (_) {}
+
+      return res.json({
+        success: true,
+        data: {
+          id,
+          status: 'PUBLISHED',
+          published_at: nowIso,
+          published_by: user.id,
+          recipients_count: insertedTotal,
+        },
+        message: `Đã xuất bản bản tin thành công tới ${insertedTotal} Cộng tác viên.`,
+      });
+    } catch (err: any) {
+      console.error('[POST /announcements/:id/publish ERROR]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi xuất bản bản tin.' });
+    }
+  });
+
+  // 7. POST /api/v1/admin/notifications/announcements/:id/revoke - Thu hồi bản tin
+  app.post('/api/v1/admin/notifications/announcements/:id/revoke', requirePermission('notifications.revoke'), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const user = (req as any).user;
+      const { reason } = req.body || {};
+
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!id || !uuidRegex.test(id)) {
+        return res.status(400).json({ success: false, error: 'Mã định danh bản tin không hợp lệ.', code: 'INVALID_ID' });
+      }
+
+      // Validation lý do thu hồi
+      if (!reason || typeof reason !== 'string' || reason.trim().length < 5 || reason.trim().length > 500) {
+        return res.status(400).json({
+          success: false,
+          error: 'Lý do thu hồi là bắt buộc và phải có độ dài từ 5 đến 500 ký tự.',
+          code: 'INVALID_REASON',
+        });
+      }
+
+      const { data: notif, error: notifErr } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('id', id)
+        .eq('type', 'ANNOUNCEMENT')
+        .maybeSingle();
+
+      if (notifErr || !notif) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy bản tin cần thu hồi.', code: 'NOT_FOUND' });
+      }
+
+      // Xử lý Retry Revoke (Lũy đẳng: nếu đã REVOKED thì giữ nguyên)
+      if (notif.status === 'REVOKED') {
+        return res.json({
+          success: true,
+          data: {
+            id: notif.id,
+            status: 'REVOKED',
+            revoked_at: notif.revoked_at,
+            revoked_by: notif.revoked_by,
+            revoke_reason: notif.metadata?.revoke_reason || '',
+          },
+          message: 'Bản tin đã được thu hồi trước đó.',
+        });
+      }
+
+      // Chỉ thu hồi bản tin đang PUBLISHED
+      if (notif.status !== 'PUBLISHED') {
+        return res.status(409).json({
+          success: false,
+          error: `Không thể thu hồi bản tin đang ở trạng thái ${notif.status}. Chỉ được thu hồi bản tin đã PUBLISHED.`,
+          code: 'STATUS_CONFLICT',
+        });
+      }
+
+      const nowIso = new Date().toISOString();
+      const updatedMetadata = {
+        ...(notif.metadata || {}),
+        revoke_reason: reason.trim(),
+      };
+
+      const { data: updated, error: updErr } = await supabase
+        .from('notifications')
+        .update({
+          status: 'REVOKED',
+          revoked_at: nowIso,
+          revoked_by: user.id,
+          metadata: updatedMetadata,
+          updated_at: nowIso,
+        })
+        .eq('id', id)
+        .eq('status', 'PUBLISHED')
+        .select()
+        .single();
+
+      if (updErr || !updated) {
+        return res.status(500).json({ success: false, error: 'Không thể thu hồi bản tin.', details: updErr?.message });
+      }
+
+      // Ghi audit log
+      try {
+        await supabase.from('audit_logs').insert({
+          actor_id: user.id,
+          action: 'ANNOUNCEMENT_REVOKED',
+          entity_name: 'notifications',
+          entity_id: id,
+          old_values: { status: 'PUBLISHED' },
+          new_values: { status: 'REVOKED', revoked_at: nowIso, reason: reason.trim() },
+          reason: reason.trim(),
+          ip_address: req.ip || null,
+          user_agent: req.headers['user-agent'] || null,
+        });
+      } catch (_) {}
+
+      return res.json({
+        success: true,
+        data: {
+          id: updated.id,
+          status: 'REVOKED',
+          revoked_at: updated.revoked_at,
+          revoked_by: updated.revoked_by,
+          revoke_reason: reason.trim(),
+        },
+        message: 'Đã thu hồi bản tin thành công.',
+      });
+    } catch (err: any) {
+      console.error('[POST /announcements/:id/revoke ERROR]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi thu hồi bản tin.' });
+    }
+  });
+
+  // 8. GET /api/v1/admin/notifications/announcements/:id/recipients - Danh sách người nhận và trạng thái đọc
+  app.get('/api/v1/admin/notifications/announcements/:id/recipients', requirePermission('notifications.view'), async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { status, page, limit } = req.query; // status: ALL, READ, UNREAD
+      const pageNum = Math.max(1, parseInt(String(page || '1'), 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(String(limit || '20'), 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!id || !uuidRegex.test(id)) {
+        return res.status(400).json({ success: false, error: 'Mã định danh bản tin không hợp lệ.', code: 'INVALID_ID' });
+      }
+
+      // Kiểm tra bản tin có tồn tại không
+      const { data: notif } = await supabase
+        .from('notifications')
+        .select('id, title, type')
+        .eq('id', id)
+        .eq('type', 'ANNOUNCEMENT')
+        .maybeSingle();
+
+      if (!notif) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy bản tin yêu cầu.', code: 'NOT_FOUND' });
+      }
+
+      let query = supabase
+        .from('notification_recipients')
+        .select(`
+          id,
+          user_id,
+          read_at,
+          created_at,
+          profile:profiles!notification_recipients_user_id_fkey (
+            id,
+            full_name,
+            email
+          )
+        `, { count: 'exact' })
+        .eq('notification_id', id);
+
+      if (status === 'READ') {
+        query = query.not('read_at', 'is', null);
+      } else if (status === 'UNREAD') {
+        query = query.is('read_at', null);
+      }
+
+      query = query
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limitNum - 1);
+
+      const { data: rows, count, error: qErr } = await query;
+      if (qErr) {
+        return res.status(500).json({ success: false, error: 'Lỗi tải danh sách người nhận.', details: qErr.message });
+      }
+
+      // Tra cứu affiliate_code của các user_id này
+      const userIds = (rows || []).map((r: any) => r.user_id);
+      let affCodeMap: Record<string, string> = {};
+      if (userIds.length > 0) {
+        const { data: affs } = await supabase
+          .from('affiliate_profiles')
+          .select('user_id, affiliate_code')
+          .in('user_id', userIds);
+        (affs || []).forEach((a: any) => {
+          affCodeMap[a.user_id] = a.affiliate_code;
+        });
+      }
+
+      const items = (rows || []).map((r: any) => ({
+        recipient_id: r.id,
+        user_id: r.user_id,
+        full_name: r.profile?.full_name || 'Cộng tác viên',
+        email: r.profile?.email || '---',
+        affiliate_code: affCodeMap[r.user_id] || '---',
+        read_at: r.read_at || null,
+        is_read: Boolean(r.read_at),
+        delivered_at: r.created_at,
+      }));
+
+      const totalItems = count || 0;
+      const totalPages = Math.ceil(totalItems / limitNum) || 1;
+
+      return res.json({
+        success: true,
+        data: {
+          items,
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total_items: totalItems,
+            total_pages: totalPages,
+            has_next: pageNum < totalPages,
+            has_prev: pageNum > 1,
+          },
+        },
+      });
+    } catch (err: any) {
+      console.error('[GET /announcements/:id/recipients ERROR]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi tải danh sách người nhận.' });
+    }
+  });
+
+
+
+
   // ----------------------------------------------------------------------------
   app.all('/api/*', (req: Request, res: Response) => {
     res.status(404).json({

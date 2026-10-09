@@ -20,6 +20,7 @@ import { ADMIN_NAV_ITEMS, AFFILIATE_NAV_ITEMS, NavItem } from '../../config/navC
 import { ProfileDetailView } from './ProfileDetailView';
 import { useSystemBranding } from '../../contexts/SystemBrandingContext';
 import { usePortalHeader } from '../../contexts/PortalHeaderContext';
+import { usePortalNotification } from '../../contexts/PortalNotificationContext';
 
 interface AppLayoutProps {
   role: 'staff' | 'admin' | 'affiliate_active' | 'affiliate_pending' | string;
@@ -121,6 +122,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   };
 
   const { headerMeta } = usePortalHeader();
+  const { unreadCounts } = usePortalNotification();
 
   return (
     <div className="min-h-screen flex bg-slate-100 font-sans text-slate-955 antialiased selection:bg-amber-400 selection:text-slate-950">
@@ -206,9 +208,19 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                     : 'text-slate-300 hover:bg-blue-950 hover:text-white'
                 } ${isCollapsed && !mobileSidebarOpen ? 'justify-center' : ''}`}
               >
-                <IconComponent className={`w-5 h-5 shrink-0 ${active ? 'text-amber-400' : 'text-slate-400 group-hover:text-slate-200'}`} />
+                <div className="relative shrink-0">
+                  <IconComponent className={`w-5 h-5 ${active ? 'text-amber-400' : 'text-slate-400 group-hover:text-slate-200'}`} />
+                  {item.id === 'notifications' && isCollapsed && !mobileSidebarOpen && unreadCounts.total_unread > 0 && (
+                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-[#0B1E3F]" />
+                  )}
+                </div>
                 {(!isCollapsed || mobileSidebarOpen) && (
                   <span className="truncate text-left flex-1">{item.title}</span>
+                )}
+                {item.id === 'notifications' && (!isCollapsed || mobileSidebarOpen) && unreadCounts.total_unread > 0 && (
+                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-rose-500 text-white rounded-full min-w-[18px] text-center shrink-0 shadow-xs">
+                    {unreadCounts.total_unread > 99 ? '99+' : unreadCounts.total_unread}
+                  </span>
                 )}
                 {active && (!isCollapsed || mobileSidebarOpen) && (
                   <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
@@ -277,6 +289,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                 className="p-2.5 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors relative"
               >
                 <Bell className="w-5 h-5" />
+                {unreadCounts.total_unread > 0 && (
+                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white" />
+                )}
               </button>
 
               {/* Notification Popover (per A0.4 instructions) */}
@@ -293,8 +308,25 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
                   </div>
                   <div className="py-4 text-center text-slate-600 space-y-1">
                     <Info className="w-6 h-6 text-blue-900 mx-auto opacity-80" />
-                    <p className="font-medium">Thông tin thông báo sẽ được bổ sung.</p>
+                    <p className="font-medium">
+                      {unreadCounts.total_unread > 0
+                        ? `Bạn có ${unreadCounts.total_unread} thông báo chưa đọc.`
+                        : 'Không có thông báo mới.'}
+                    </p>
                   </div>
+                  {!isAdminOrStaff && (
+                    <div className="pt-2 border-t border-slate-100">
+                      <button
+                        onClick={() => {
+                          setNotificationOpen(false);
+                          handleSelectNav('/portal/notifications');
+                        }}
+                        className="w-full py-2 px-3 text-center text-blue-900 hover:bg-blue-50 font-semibold rounded-lg transition-colors text-xs"
+                      >
+                        Xem tất cả thông báo
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

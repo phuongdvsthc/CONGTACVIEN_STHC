@@ -5,6 +5,7 @@ import {
   FileText,
   FileCheck2,
   Award,
+  Bell,
   Home,
   UserCheck,
   History,
@@ -56,6 +57,16 @@ export const AFFILIATE_NAV_ITEMS: NavItem[] = [
     isActiveMatch: (currentPath: string) => {
       const clean = currentPath.split('?')[0].split('#')[0];
       return clean === '/portal/leads' || clean.startsWith('/portal/leads/');
+    },
+  },
+  {
+    id: 'notifications',
+    title: 'Thông báo',
+    path: '/portal/notifications',
+    icon: Bell,
+    isActiveMatch: (currentPath: string) => {
+      const clean = currentPath.split('?')[0].split('#')[0];
+      return clean === '/portal/notifications' || clean.startsWith('/portal/notifications/');
     },
   },
 ];
@@ -119,6 +130,16 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
     isActiveMatch: (currentPath: string) => {
       const clean = currentPath.split('?')[0].split('#')[0];
       return clean === '/admin/rewards';
+    },
+  },
+  {
+    id: 'admin_notifications',
+    title: 'Quản lý thông báo',
+    path: '/admin/notifications',
+    icon: Bell,
+    isActiveMatch: (currentPath: string) => {
+      const clean = currentPath.split('?')[0].split('#')[0];
+      return clean === '/admin/notifications' || clean.startsWith('/admin/notifications');
     },
   },
   {
