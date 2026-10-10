@@ -13,6 +13,7 @@ import {
   Shield,
   Mail,
   Send,
+  DollarSign,
   LucideIcon,
 } from 'lucide-react';
 
@@ -69,6 +70,16 @@ export const AFFILIATE_NAV_ITEMS: NavItem[] = [
     isActiveMatch: (currentPath: string) => {
       const clean = currentPath.split('?')[0].split('#')[0];
       return clean === '/portal/notifications' || clean.startsWith('/portal/notifications/');
+    },
+  },
+  {
+    id: 'rewards',
+    title: 'Thù lao CTV',
+    path: '/portal/rewards',
+    icon: DollarSign,
+    isActiveMatch: (currentPath: string) => {
+      const clean = currentPath.split('?')[0].split('#')[0];
+      return clean === '/portal/rewards' || clean.startsWith('/portal/rewards/');
     },
   },
 ];

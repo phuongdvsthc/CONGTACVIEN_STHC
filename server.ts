@@ -10906,7 +10906,7 @@ async function startServer() {
         faviconDisplayUrl = `/api/v1/public/branding/asset?path=${encodeURIComponent(faviconDisplayUrl)}&v=${settings.revision || 1}`;
       }
 
-      const emailCreds = getSmtpCredentials();
+      const emailCreds = getSmtpCredentials(settings);
       const completeSettings = {
         ...DEFAULT_EMAIL_SERVICE_SETTINGS,
         ...settings,
@@ -11442,9 +11442,9 @@ async function startServer() {
             });
           }
 
-          // Fallback an toàn cho nhóm email_service khi migration CSDL từ xa chưa được áp dụng
-          if (cleanGroup === 'email_service') {
-            console.warn('[EMAIL SERVICE RPC FALLBACK] Remote DB migration pending, saving locally:', rpcErr.message);
+          // Fallback an toàn cho mọi nhóm cấu hình khi migration CSDL từ xa chưa được áp dụng hoặc lỗi RPC
+          if (['branding', 'operation', 'registration', 'affiliate_code', 'email_service'].includes(cleanGroup)) {
+            console.warn(`[SYSTEM SETTINGS RPC FALLBACK] Group ${cleanGroup} DB migration pending or RPC error, saving locally:`, rpcErr.message);
             const currentData = loadSystemSettingsData();
             if (currentData.settings.revision !== expected_revision) {
               return res.status(409).json({
@@ -11461,21 +11461,27 @@ async function startServer() {
               updated_at: new Date().toISOString(),
               updated_by: adminId,
             };
+
+            // Build previous data snapshot based on group keys
+            const prevData: any = {};
+            const groupKeysMap: Record<string, string[]> = {
+              branding: ['system_name', 'system_short_name', 'unit_name', 'logo_backend_url', 'favicon_url'],
+              operation: ['public_base_url', 'support_email', 'support_phone', 'timezone'],
+              registration: ['allow_affiliate_registration', 'registration_closed_message'],
+              affiliate_code: ['affiliate_code_prefix', 'affiliate_code_min_digits'],
+              email_service: ['email_business_enabled', 'smtp_host', 'smtp_port', 'smtp_secure_mode', 'smtp_sender_name', 'smtp_sender_email', 'smtp_reply_to', 'smtp_timeout_ms'],
+            };
+            const keys = groupKeysMap[cleanGroup] || [];
+            keys.forEach(k => {
+              prevData[k] = currentData.settings[k];
+            });
+
             const historyEntry = {
               id: Date.now().toString(),
-              setting_group: 'EMAIL_SERVICE',
+              setting_group: cleanGroup.toUpperCase(),
               action_type: 'UPDATE',
               revision: newRevision,
-              previous_data: {
-                email_business_enabled: currentData.settings.email_business_enabled,
-                smtp_host: currentData.settings.smtp_host,
-                smtp_port: currentData.settings.smtp_port,
-                smtp_secure_mode: currentData.settings.smtp_secure_mode,
-                smtp_sender_name: currentData.settings.smtp_sender_name,
-                smtp_sender_email: currentData.settings.smtp_sender_email,
-                smtp_reply_to: currentData.settings.smtp_reply_to,
-                smtp_timeout_ms: currentData.settings.smtp_timeout_ms,
-              },
+              previous_data: prevData,
               new_data: sanitizedData,
               changed_by: adminId,
               changed_at: new Date().toISOString(),
@@ -11529,19 +11535,20 @@ async function startServer() {
       const adminEmail = (req as any).user?.email || 'admin@sthc.edu.vn';
 
       let config: EmailServiceSettings;
+      let dbSettings: any = null;
+      try {
+        const { data } = await supabase.from('system_settings').select('*').eq('id', 1).maybeSingle();
+        if (data) dbSettings = data;
+      } catch (e) {}
+
+      const settings = dbSettings || loadSystemSettingsData().settings;
+
       if (req.body?.config) {
         config = {
           ...DEFAULT_EMAIL_SERVICE_SETTINGS,
           ...req.body.config,
         };
       } else {
-        let dbSettings: any = null;
-        try {
-          const { data } = await supabase.from('system_settings').select('*').eq('id', 1).maybeSingle();
-          if (data) dbSettings = data;
-        } catch (e) {}
-
-        const settings = dbSettings || loadSystemSettingsData().settings;
         config = {
           email_business_enabled: settings.email_business_enabled ?? DEFAULT_EMAIL_SERVICE_SETTINGS.email_business_enabled,
           smtp_host: settings.smtp_host || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_host,
@@ -11554,7 +11561,10 @@ async function startServer() {
         };
       }
 
-      const result = await verifySmtpConnection(config);
+      const creds = getSmtpCredentials(settings);
+      const credentials = { user: creds.user, pass: creds.pass };
+
+      const result = await verifySmtpConnection(config, credentials);
 
       // Ghi log kiểm tra an toàn (không ghi mật khẩu)
       try {
@@ -11607,19 +11617,20 @@ async function startServer() {
       }
 
       let config: EmailServiceSettings;
+      let dbSettings: any = null;
+      try {
+        const { data } = await supabase.from('system_settings').select('*').eq('id', 1).maybeSingle();
+        if (data) dbSettings = data;
+      } catch (e) {}
+
+      const settings = dbSettings || loadSystemSettingsData().settings;
+
       if (req.body?.config) {
         config = {
           ...DEFAULT_EMAIL_SERVICE_SETTINGS,
           ...req.body.config,
         };
       } else {
-        let dbSettings: any = null;
-        try {
-          const { data } = await supabase.from('system_settings').select('*').eq('id', 1).maybeSingle();
-          if (data) dbSettings = data;
-        } catch (e) {}
-
-        const settings = dbSettings || loadSystemSettingsData().settings;
         config = {
           email_business_enabled: settings.email_business_enabled ?? DEFAULT_EMAIL_SERVICE_SETTINGS.email_business_enabled,
           smtp_host: settings.smtp_host || DEFAULT_EMAIL_SERVICE_SETTINGS.smtp_host,
@@ -11632,11 +11643,15 @@ async function startServer() {
         };
       }
 
+      const creds = getSmtpCredentials(settings);
+      const credentials = { user: creds.user, pass: creds.pass };
+
       const result = await sendSmtpTestEmail({
         recipientEmail,
         adminName,
         adminEmail,
         config,
+        credentials,
       });
 
       const maskedRecipient = maskEmailAddress(recipientEmail);

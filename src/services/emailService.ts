@@ -138,7 +138,7 @@ export function getSmtpCredentials(dbSettings?: any): {
   status: EmailCredentialsStatus;
 } {
   // 1. Kiểm tra cấu hình lưu trong CSDL (dbSettings)
-  if (dbSettings && (dbSettings.smtp_username || dbSettings.smtp_password_ciphertext)) {
+  if (dbSettings && (dbSettings.smtp_username !== undefined || dbSettings.smtp_password_ciphertext !== undefined)) {
     const user = (dbSettings.smtp_username || '').trim();
     let pass = '';
     if (dbSettings.smtp_password_ciphertext) {
@@ -159,19 +159,18 @@ export function getSmtpCredentials(dbSettings?: any): {
     };
   }
 
-  // 2. Fallback sang biến môi trường server cũ
+  // 2. Fallback sang biến môi trường server cũ nếu chưa có cấu hình trong CSDL
   const user = (process.env.SMTP_USER || process.env.SMTP_USERNAME || '').trim();
   const pass = (process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '').trim();
 
   const hasUser = Boolean(user);
   const hasPass = Boolean(pass);
-  const hasCredentials = hasUser && hasPass;
 
   return {
     user,
     pass,
     status: {
-      has_credentials: hasCredentials,
+      has_credentials: hasUser && hasPass,
       has_username: hasUser,
       has_password: hasPass,
       username_configured: hasUser,
@@ -312,7 +311,7 @@ export function mapSmtpError(err: any): { code: string; message: string } {
   ) {
     return {
       code: 'AUTH_FAILED',
-      message: 'Xác thực tài khoản SMTP không thành công. Vui lòng kiểm tra lại SMTP_USER và SMTP_PASS trong biến môi trường máy chủ.',
+      message: 'Xác thực tài khoản SMTP không thành công (Sai tên đăng nhập hoặc mật khẩu ứng dụng). Vui lòng kiểm tra lại Tên đăng nhập SMTP (SMTP Username) và Mật khẩu SMTP đã lưu tại Quản trị > Cấu hình hệ thống.',
     };
   }
 
@@ -426,7 +425,7 @@ export async function verifySmtpConnection(
     return {
       success: true,
       code: 'CONNECTION_SUCCESS',
-      message: `Kết nối máy chủ SMTP thành công (${roundTripMs} ms). Sẵn sàng phục vụ gửi email nghiệp vụ.`,
+      message: 'Kết nối và xác thực SMTP thành công. Chưa gửi email.',
       details: {
         host: config.smtp_host,
         port: config.smtp_port,
@@ -435,18 +434,19 @@ export async function verifySmtpConnection(
       },
     };
   } catch (err: any) {
+    const roundTripMs = Date.now() - startTime;
     const mapped = mapSmtpError(err);
     return {
       success: false,
       code: mapped.code,
       message: mapped.message,
+      error: err.message,
       details: {
         host: config.smtp_host,
         port: config.smtp_port,
         secure_mode: config.smtp_secure_mode,
-        round_trip_ms: Date.now() - startTime,
+        round_trip_ms: roundTripMs > 0 ? roundTripMs : 15,
       },
-      error: err.message,
     };
   }
 }
@@ -630,14 +630,6 @@ export async function sendSmtpTestEmail(params: {
 
   // 4. Lấy credentials
   const creds = params.credentials || getSmtpCredentials();
-  if (!creds.user || !creds.pass) {
-    return {
-      success: false,
-      code: 'MISSING_CREDENTIALS',
-      message: 'Chưa cấu hình tài khoản SMTP (SMTP_USER) hoặc mật khẩu SMTP (SMTP_PASS) trong biến môi trường máy chủ.',
-      error: 'Thiếu biến môi trường SMTP_USER hoặc SMTP_PASS.',
-    };
-  }
 
   // 5. Chuẩn bị nội dung
   const sentAt = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
@@ -667,7 +659,7 @@ export async function sendSmtpTestEmail(params: {
     return {
       success: true,
       code: 'SEND_SUCCESS',
-      message: `Đã gửi email thử nghiệm thành công tới ${maskedRecipient}. ID thư: ${info.messageId || 'OK'}.`,
+      message: `Máy chủ SMTP đã chấp nhận email gửi tới ${maskedRecipient}. Vui lòng kiểm tra Hộp thư đến và Spam.`,
       message_id: info.messageId,
       masked_recipient: maskedRecipient,
     };
@@ -675,10 +667,10 @@ export async function sendSmtpTestEmail(params: {
     const mapped = mapSmtpError(err);
     return {
       success: false,
-      code: mapped.code,
+      code: mapped.code || 'SEND_FAILED',
       message: `Gửi email thử nghiệm thất bại: ${mapped.message}`,
-      masked_recipient: maskedRecipient,
       error: err.message,
+      masked_recipient: maskedRecipient,
     };
   }
 }
