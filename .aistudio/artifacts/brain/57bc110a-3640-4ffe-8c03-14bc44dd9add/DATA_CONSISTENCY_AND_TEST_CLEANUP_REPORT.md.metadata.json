@@ -1,0 +1,5 @@
+{
+  "summary":  "Data consistency verification report across leads, rewards, and dashboard, along with test data cleanup plan and SQL migration script.",
+  "updatedAt":  "2026-10-10T14:27:13.970279571Z",
+  "userFacing":  true
+}

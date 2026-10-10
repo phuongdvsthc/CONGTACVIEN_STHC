@@ -524,6 +524,16 @@ function attachCourseFull(course: any) {
   return attachCourseLifecycle(attachCourseBenefits(course));
 }
 
+function resolveCanonicalCourseInput(input: string): string {
+  if (!input) return '';
+  const clean = String(input).trim().toLowerCase();
+  // Map legacy / short code aliases containing '13e2', 'ep-13e2', 'ba-13e2' to Bánh Âu UUID
+  if (clean.includes('13e2') || clean === 'ep-13e2' || clean === 'ba-13e2') {
+    return '13e2cf6a-b792-4ae0-8562-c6c1e6ae0db1';
+  }
+  return clean;
+}
+
 // Persistent companion storage for Profile Tax Codes (P2)
 // Tuyệt đối không ghi mã số thuế vào console log
 const TAX_CODES_FILE = path.join(__dirname, 'data', 'profile_tax_codes.json');
@@ -1826,7 +1836,7 @@ async function startServer() {
   });
 
   app.get('/api/v1/public/courses/:slug', async (req: Request, res: Response) => {
-    const { slug } = req.params;
+    const slug = resolveCanonicalCourseInput(req.params.slug);
     try {
       let query = supabase.from('courses').select('*');
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug);
@@ -2074,15 +2084,16 @@ async function startServer() {
 
     // 2. Phân giải UUID khóa học từ slug/code/id
     let resolvedCourseDbId: string | null = null;
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(course_id || ''));
+    const cleanCourseInput = resolveCanonicalCourseInput(course_id);
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanCourseInput);
 
-    if (course_id) {
+    if (cleanCourseInput) {
       try {
         let query = supabase.from('courses').select('id, is_active, accepts_referrals');
         if (isUUID) {
-          query = query.or(`id.eq.${course_id},code.eq.${course_id},slug.eq.${course_id}`);
+          query = query.or(`id.eq.${cleanCourseInput},code.eq.${cleanCourseInput},slug.eq.${cleanCourseInput}`);
         } else {
-          query = query.or(`code.eq.${course_id},slug.eq.${course_id}`);
+          query = query.or(`code.ilike.${cleanCourseInput},slug.ilike.${cleanCourseInput},code.eq.${cleanCourseInput},slug.eq.${cleanCourseInput}`);
         }
         const { data: dbCourse } = await query.maybeSingle();
         if (dbCourse) {
@@ -2093,14 +2104,20 @@ async function startServer() {
       }
 
       if (!resolvedCourseDbId) {
-        const fb = INITIAL_COURSES.find(c => (c as any).id === course_id || c.code === course_id || c.slug === course_id);
+        const fb = INITIAL_COURSES.find(c => 
+          (c as any).id === cleanCourseInput || 
+          c.code.toLowerCase() === cleanCourseInput.toLowerCase() || 
+          c.slug.toLowerCase() === cleanCourseInput.toLowerCase()
+        );
         if (fb) {
-          const { data: matchedDb } = await supabase
-            .from('courses')
-            .select('id')
-            .or(`code.eq.${fb.code},slug.eq.${fb.slug}`)
-            .maybeSingle();
-          if (matchedDb) resolvedCourseDbId = matchedDb.id;
+          try {
+            const { data: matchedDb } = await supabase
+              .from('courses')
+              .select('id')
+              .or(`code.eq.${fb.code},slug.eq.${fb.slug}`)
+              .maybeSingle();
+            if (matchedDb) resolvedCourseDbId = matchedDb.id;
+          } catch (e) {}
         }
       }
     }
@@ -2108,8 +2125,8 @@ async function startServer() {
     if (!resolvedCourseDbId) {
       return res.status(400).json({
         success: false,
-        error: 'Vui lòng chọn khóa học cần đăng ký tư vấn.',
-        code: 'COURSE_REQUIRED',
+        error: 'Khóa học được chọn không tồn tại hoặc không hợp lệ trên hệ thống. Vui lòng kiểm tra lại liên kết tuyển sinh.',
+        code: 'COURSE_NOT_FOUND',
       });
     }
 
@@ -3427,51 +3444,146 @@ async function startServer() {
     }
   });
 
-  // GET /api/v1/affiliate/rewards (Danh sách thưởng 500k của CTV)
+  // GET /api/v1/affiliate/rewards (Danh sách thưởng 500k của CTV - Thống nhất dữ liệu với leads và dashboard)
   app.get('/api/v1/affiliate/rewards', requireActiveAffiliate, async (req: Request, res: Response) => {
-    const authResult = await resolveAffiliateSession(req);
-    const affiliateId = authResult.affiliate?.id || demoState.activeAffiliate.id;
-    const affiliateUserId = authResult.affiliate?.user_id || demoState.activeAffiliate.user_id;
+    try {
+      const authResult = await resolveAffiliateSession(req);
+      const affiliateId = authResult.affiliate?.id || demoState.activeAffiliate.id;
+      const affiliateUserId = authResult.affiliate?.user_id || demoState.activeAffiliate.user_id;
 
-    let rewardsQuery = supabase
-      .from('rewards')
-      .select('id, amount, status, approved_at, rejection_reason, void_reason, created_at, lead_id');
+      const { search, status, course_id, from_date, to_date, page, limit } = req.query;
+      const pageNum = Math.max(1, parseInt(String(page || '1'), 10) || 1);
+      let limitNum = parseInt(String(limit || '20'), 10) || 20;
+      if (![10, 20, 50, 100].includes(limitNum)) limitNum = 20;
 
-    if (affiliateId && affiliateUserId && affiliateId !== affiliateUserId) {
-      rewardsQuery = rewardsQuery.or(`affiliate_id.eq.${affiliateId},affiliate_id.eq.${affiliateUserId}`);
-    } else {
-      rewardsQuery = rewardsQuery.eq('affiliate_id', affiliateId);
+      const from = (pageNum - 1) * limitNum;
+      const to = from + limitNum - 1;
+
+      let rewardsQuery = supabase
+        .from('rewards')
+        .select(`
+          id,
+          amount,
+          status,
+          approved_at,
+          rejection_reason,
+          void_reason,
+          created_at,
+          lead_id,
+          leads:lead_id(id, full_name, phone, course_id, courses(title, code), lead_reconciliations(id, external_admission_code, reconciliation_status), lead_egov_links(external_admission_code, link_status))
+        `, { count: 'exact' });
+
+      if (affiliateId && affiliateUserId && affiliateId !== affiliateUserId) {
+        rewardsQuery = rewardsQuery.or(`affiliate_id.eq.${affiliateId},affiliate_id.eq.${affiliateUserId}`);
+      } else {
+        rewardsQuery = rewardsQuery.eq('affiliate_id', affiliateId);
+      }
+
+      // Status filter
+      const statusFilter = typeof status === 'string' ? status.trim().toUpperCase() : 'ACTIVE';
+      if (statusFilter === 'ACTIVE') {
+        rewardsQuery = rewardsQuery.in('status', ['PENDING_APPROVAL', 'APPROVED']);
+      } else if (statusFilter !== 'ALL' && ['PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'VOIDED'].includes(statusFilter)) {
+        rewardsQuery = rewardsQuery.eq('status', statusFilter);
+      }
+
+      if (from_date && typeof from_date === 'string') {
+        rewardsQuery = rewardsQuery.gte('created_at', `${from_date}T00:00:00.000Z`);
+      }
+      if (to_date && typeof to_date === 'string') {
+        rewardsQuery = rewardsQuery.lte('created_at', `${to_date}T23:59:59.999Z`);
+      }
+
+      rewardsQuery = rewardsQuery.order('created_at', { ascending: false }).range(from, to);
+
+      const { data: realRewards, count, error } = await rewardsQuery;
+      if (error) {
+        console.error('[AFFILIATE REWARDS ERROR]', error);
+      }
+
+      const courseMap: Record<string, string> = {
+        'CBMA-TC-01': 'Kỹ thuật Chế biến Món ăn Á - Âu',
+        'BB-TC-02': 'Nghệ thuật Bếp bánh & Bánh ngọt Âu',
+        'QTKS-TC-03': 'Quản trị Khách sạn & Khu nghỉ dưỡng',
+        'LT-SC-04': 'Quản trị Lễ tân Quốc tế',
+        'QTNH-TC-05': 'Quản trị Nhà hàng & Dịch vụ Ăn uống',
+        'PC-SC-06': 'Nghệ thuật Pha chế Đồ uống (Bartender & Barista)',
+        'HDDL-TC-07': 'Hướng dẫn Du lịch Quốc tế & Nội địa',
+        'DH-TC-08': 'Quản trị Điều hành Tour & Đại lý Du lịch',
+      };
+
+      const getActiveEgovLink = (links: any) => {
+        if (!links) return null;
+        const list = Array.isArray(links) ? [...links] : [links];
+        const active = list.find((l: any) => l.link_status === 'ACTIVE');
+        return active || null;
+      };
+
+      const getActiveRecon = (recons: any) => {
+        if (!recons) return null;
+        const list = Array.isArray(recons) ? [...recons] : [recons];
+        const active = list.find((r: any) => r.reconciliation_status === 'MATCHED_VALID');
+        return active || list[0] || null;
+      };
+
+      let formattedRewards = (realRewards || []).map((r: any) => {
+        const lead = r.leads || {};
+        const activeRecon = getActiveRecon(lead.lead_reconciliations);
+        const activeEgov = getActiveEgovLink(lead.lead_egov_links);
+        const egovCode = activeRecon?.external_admission_code || activeEgov?.external_admission_code || null;
+        const courseTitle = lead.courses?.title || (lead.course_id ? (courseMap[lead.course_id] || 'Chương trình tuyển sinh STHC') : 'Tư vấn chung');
+
+        return {
+          id: r.id,
+          amount: Number(r.amount) || 500000,
+          status: r.status,
+          candidate_name: lead.full_name || 'Học viên giới thiệu',
+          course_title: courseTitle,
+          external_admission_code: egovCode,
+          approved_at: r.approved_at || null,
+          rejection_reason: r.rejection_reason || null,
+          void_reason: r.void_reason || null,
+          created_at: r.created_at,
+          lead_id: r.lead_id || null,
+        };
+      });
+
+      // Filter by search term if provided
+      const cleanSearch = typeof search === 'string' ? search.trim().toLowerCase() : '';
+      if (cleanSearch) {
+        formattedRewards = formattedRewards.filter((r: any) => 
+          r.candidate_name.toLowerCase().includes(cleanSearch) ||
+          (r.external_admission_code && r.external_admission_code.toLowerCase().includes(cleanSearch)) ||
+          r.course_title.toLowerCase().includes(cleanSearch)
+        );
+      }
+
+      // Filter by course_id if provided
+      if (course_id && course_id !== 'ALL') {
+        formattedRewards = formattedRewards.filter((r: any) => {
+          const rawLead = (realRewards || []).find((rew: any) => rew.id === r.id)?.leads;
+          const leadObj = Array.isArray(rawLead) ? rawLead[0] : rawLead;
+          const leadCourseId = leadObj?.course_id;
+          return leadCourseId === course_id;
+        });
+      }
+
+      const total = count ?? formattedRewards.length;
+      const totalPages = Math.max(1, Math.ceil(total / limitNum));
+
+      return res.json({
+        success: true,
+        data: formattedRewards,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages,
+        },
+      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi tải danh sách thù lao CTV.' });
     }
-
-    const { data: realRewards } = await rewardsQuery.order('created_at', { ascending: false });
-
-    const mockSeedRewards = [
-      {
-        id: 'rew-01',
-        amount: 500000,
-        status: 'APPROVED',
-        candidate_name: 'Nguyễn Hoàng Khang',
-        course_title: 'Kỹ thuật Chế biến Món ăn Á - Âu',
-        external_admission_code: 'STHC-2026-TS-0188',
-        approved_at: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
-        created_at: new Date(Date.now() - 3600000 * 24 * 4).toISOString(),
-      },
-      {
-        id: 'rew-02',
-        amount: 500000,
-        status: 'PENDING_APPROVAL',
-        candidate_name: 'Trần Mỹ Linh',
-        course_title: 'Quản trị Khách sạn & Khu nghỉ dưỡng',
-        external_admission_code: 'STHC-2026-TS-0215',
-        approved_at: null,
-        created_at: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
-      },
-    ];
-
-    res.json({
-      success: true,
-      data: [...(realRewards || []), ...mockSeedRewards],
-    });
   });
 
   // ----------------------------------------------------------------------------

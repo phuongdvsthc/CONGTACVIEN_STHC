@@ -40,7 +40,9 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [courseId, setCourseId] = useState(selectedCourseId || (courses[0]?.id || ''));
+  const [courseId, setCourseId] = useState(
+    selectedCourseId || courses[0]?.id || courses[0]?.slug || courses[0]?.code || ''
+  );
   const [preferredContactTime, setPreferredContactTime] = useState('Buổi sáng (08h - 11h30)');
   const [customerNote, setCustomerNote] = useState('');
   const [consentAccepted, setConsentAccepted] = useState(defaultConsent);
@@ -51,7 +53,7 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
     if (selectedCourseId) {
       setCourseId(selectedCourseId);
     } else if (!courseId && courses.length > 0) {
-      setCourseId(courses[0].id);
+      setCourseId(courses[0].id || courses[0].slug || courses[0].code || '');
     }
   }, [selectedCourseId, courses]);
 
@@ -82,6 +84,12 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
       return;
     }
 
+    const effectiveCourseId = courseId || selectedCourseId || courses[0]?.id || courses[0]?.slug || courses[0]?.code;
+    if (!effectiveCourseId) {
+      setErrorMessage('Vui lòng chọn khóa học cần đăng ký tư vấn.');
+      return;
+    }
+
     if (!consentAccepted) {
       setErrorMessage('Bạn phải tích chọn đồng ý điều kiện để gửi đăng ký.');
       return;
@@ -93,7 +101,7 @@ export const LeadConsultationForm: React.FC<LeadConsultationFormProps> = ({
         full_name: fullName.trim(),
         phone: phone.trim(),
         email: emailClean,
-        course_id: courseId || undefined,
+        course_id: effectiveCourseId,
         customer_note: customerNote.trim() || undefined,
         consent_accepted: consentAccepted,
         ref_code: effectiveRefCode || undefined,
