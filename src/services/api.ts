@@ -320,8 +320,31 @@ export const api = {
     return apiFetch(`/api/v1/affiliate/leads/${encodeURIComponent(id)}/history`);
   },
 
-  async getAffiliateRewards(): Promise<{ success: boolean; data: any[] }> {
-    return apiFetch('/api/v1/affiliate/rewards');
+  async getAffiliateRewards(params?: {
+    search?: string;
+    status?: string;
+    course_id?: string;
+    from_date?: string;
+    to_date?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{
+    success: boolean;
+    data: any[];
+    pagination?: { page: number; limit: number; total: number; totalPages: number };
+    error?: string;
+  }> {
+    const query = new URLSearchParams();
+    if (params?.search) query.set('search', params.search);
+    if (params?.status && params.status !== 'ALL') query.set('status', params.status);
+    if (params?.course_id && params.course_id !== 'ALL') query.set('course_id', params.course_id);
+    if (params?.from_date) query.set('from_date', params.from_date);
+    if (params?.to_date) query.set('to_date', params.to_date);
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.limit) query.set('limit', String(params.limit));
+
+    const url = `/api/v1/affiliate/rewards${query.toString() ? `?${query.toString()}` : ''}`;
+    return apiFetch(url);
   },
 
   // --------------------------------------------------------------------------
@@ -677,10 +700,9 @@ export const api = {
     if (params?.from_date) q.set('from_date', params.from_date);
     if (params?.to_date) q.set('to_date', params.to_date);
     const qs = q.toString();
-    const token = localStorage.getItem('sthc_token');
     const res = await fetch(`/api/v1/admin/reports/rewards-export${qs ? `?${qs}` : ''}`, {
       headers: {
-        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        ...getAuthHeaders(),
       }
     });
     if (!res.ok) {

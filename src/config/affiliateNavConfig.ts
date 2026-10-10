@@ -1,4 +1,4 @@
-import { LayoutDashboard, BookOpen, Users, LucideIcon } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Users, DollarSign, LucideIcon } from 'lucide-react';
 
 export interface AffiliateNavItem {
   id: string;
@@ -46,6 +46,17 @@ export const AFFILIATE_NAV_ITEMS: AffiliateNavItem[] = [
     isActiveMatch: (currentPath: string) => {
       const clean = currentPath.split('?')[0].split('#')[0];
       return clean === '/portal/leads' || clean.startsWith('/portal/leads/');
+    },
+  },
+  {
+    id: 'rewards',
+    title: 'Thù lao CTV',
+    path: '/portal/rewards',
+    icon: DollarSign,
+    accessCondition: 'ACTIVE_AFFILIATE',
+    isActiveMatch: (currentPath: string) => {
+      const clean = currentPath.split('?')[0].split('#')[0];
+      return clean === '/portal/rewards' || clean.startsWith('/portal/rewards/');
     },
   },
 ];

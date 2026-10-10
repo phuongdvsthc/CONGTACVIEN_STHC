@@ -304,7 +304,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ currentUser, currentPa
     if (clean === '/admin/courses') setActiveTab('courses');
     else if (clean === '/admin/leads') setActiveTab('leads');
     else if (clean === '/admin/reconcile') setActiveTab('reconcile');
-    else if (clean === '/admin/rewards') setActiveTab('rewards');
+    else if (clean.startsWith('/admin/rewards')) setActiveTab('rewards');
     else if (clean === '/admin/audit') setActiveTab('audit');
     else if (clean === '/admin/affiliates') setActiveTab('affiliates');
     else if (clean === '/admin') setActiveTab('affiliates');

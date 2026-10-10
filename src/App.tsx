@@ -24,6 +24,7 @@ import { AffiliateRegisterModal } from './components/affiliate/AffiliateRegister
 import { AffiliateLeadsView } from './components/affiliate/AffiliateLeadsView';
 import { AffiliateLeadDetailView } from './components/affiliate/AffiliateLeadDetailView';
 import { AffiliateNotificationsView } from './components/affiliate/AffiliateNotificationsView';
+import { AffiliateRewardsView } from './components/affiliate/AffiliateRewardsView';
 import { AdminPortal } from './components/admin/AdminPortal';
 import { AdminDashboardView } from './components/admin/AdminDashboardView';
 import { AdminLeadDetailView } from './components/admin/AdminLeadDetailView';
@@ -542,6 +543,10 @@ export default function App() {
                 <AffiliateNotificationsView onNavigate={(path) => navigate(path)} />
               )}
 
+              {currentPath.startsWith('/portal/rewards') && (
+                <AffiliateRewardsView onNavigateToOverview={() => navigate('/portal')} />
+              )}
+
             {/* ADMIN & STAFF PORTAL ROUTING */}
             {currentPath === '/admin/profile' && (
               <ProfileDetailView
@@ -574,7 +579,7 @@ export default function App() {
               currentPath === '/admin/courses' ||
               currentPath === '/admin/leads' ||
               currentPath === '/admin/reconcile' ||
-              currentPath === '/admin/rewards' ||
+              currentPath.startsWith('/admin/rewards') ||
               currentPath === '/admin/audit') && (
               <AdminPortal currentUser={authSession.user} currentPath={currentPath} />
             )}
