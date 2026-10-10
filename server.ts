@@ -13,6 +13,7 @@ import { EmailQueueService } from './src/services/emailQueueService';
 import {
   DEFAULT_EMAIL_SERVICE_SETTINGS,
   getSmtpCredentials,
+  encryptSmtpPassword,
   validateEmailServiceConfig,
   verifySmtpConnection,
   sendSmtpTestEmail,
@@ -11272,6 +11273,8 @@ async function startServer() {
           'smtp_sender_email',
           'smtp_reply_to',
           'smtp_timeout_ms',
+          'smtp_username',
+          'smtp_password',
         ],
       };
 
@@ -11401,6 +11404,10 @@ async function startServer() {
         sanitizedData.smtp_sender_email = String(payloadData.smtp_sender_email).trim();
         sanitizedData.smtp_reply_to = payloadData.smtp_reply_to ? String(payloadData.smtp_reply_to).trim() : null;
         sanitizedData.smtp_timeout_ms = Number(payloadData.smtp_timeout_ms || 10000);
+        sanitizedData.smtp_username = payloadData.smtp_username !== undefined ? (payloadData.smtp_username ? String(payloadData.smtp_username).trim() : null) : undefined;
+        if (payloadData.smtp_password && typeof payloadData.smtp_password === 'string' && payloadData.smtp_password.trim() !== '') {
+          sanitizedData.smtp_password_ciphertext = encryptSmtpPassword(payloadData.smtp_password.trim());
+        }
       }
 
       // Thử gọi RPC CSDL trước
@@ -11848,6 +11855,15 @@ async function startServer() {
             template_code: 'LEAD_REGISTRATION_CONFIRMATION',
             name: 'Xác nhận đăng ký tuyển sinh & Hướng dẫn EGOV',
             description: 'Mẫu email gửi tự động cho khách hàng khi đăng ký khóa học qua cổng tuyển sinh STHC',
+            is_active: true,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          {
+            id: 'template-ctv-notif-01',
+            template_code: 'CTV_NOTIFICATION_EMAIL',
+            name: 'Thông báo sự kiện cho Cộng tác viên (CTV)',
+            description: 'Mẫu email thông báo cho CTV khi có khách đăng ký mới, nhập học hoặc phát sinh thù lao',
             is_active: true,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),

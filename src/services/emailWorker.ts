@@ -110,7 +110,7 @@ async function processEmailBatch() {
 
     console.log(`[EMAIL WORKER] Đã claim thành công ${claimedJobs.length} tác vụ email.`);
 
-    const credentials = getSmtpCredentials();
+    const credentials = getSmtpCredentials(config);
     const sender = new SmtpEmailSender(config, credentials);
 
     // 3. Xử lý từng tác vụ trong batch

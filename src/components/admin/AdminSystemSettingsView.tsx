@@ -117,6 +117,9 @@ export const AdminSystemSettingsView: React.FC<AdminSystemSettingsViewProps> = (
   const [smtpSenderEmail, setSmtpSenderEmail] = useState('');
   const [smtpReplyTo, setSmtpReplyTo] = useState('');
   const [smtpTimeoutMs, setSmtpTimeoutMs] = useState<number>(10000);
+  const [smtpUsername, setSmtpUsername] = useState('');
+  const [smtpPassword, setSmtpPassword] = useState('');
+  const [showSmtpPassword, setShowSmtpPassword] = useState(false);
   const [emailCredentialsStatus, setEmailCredentialsStatus] = useState<any>(null);
 
   const [savingEmailService, setSavingEmailService] = useState(false);
@@ -329,6 +332,8 @@ export const AdminSystemSettingsView: React.FC<AdminSystemSettingsViewProps> = (
           smtp_sender_email: cleanSenderEmail,
           smtp_reply_to: smtpReplyTo.trim() || null,
           smtp_timeout_ms: Number(smtpTimeoutMs) || 10000,
+          smtp_username: smtpUsername.trim() || null,
+          ...(smtpPassword.trim() ? { smtp_password: smtpPassword.trim() } : {}),
         },
         reason: 'Cập nhật cấu hình dịch vụ email nghiệp vụ (C3.11A)',
       });
@@ -662,6 +667,8 @@ export const AdminSystemSettingsView: React.FC<AdminSystemSettingsViewProps> = (
         setSmtpSenderEmail(s.smtp_sender_email || 'tuyensinh@sthc.edu.vn');
         setSmtpReplyTo(s.smtp_reply_to || 'tuyensinh@sthc.edu.vn');
         setSmtpTimeoutMs(s.smtp_timeout_ms || 10000);
+        setSmtpUsername(s.smtp_username || '');
+        setSmtpPassword('');
         if (res.data?.email_credentials_status) {
           setEmailCredentialsStatus(res.data.email_credentials_status);
         }
@@ -2019,27 +2026,65 @@ export const AdminSystemSettingsView: React.FC<AdminSystemSettingsViewProps> = (
                   className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
                 />
               </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 text-xs mb-1">
+                  Tài khoản đăng nhập SMTP (SMTP Username)
+                </label>
+                <input
+                  type="text"
+                  value={smtpUsername}
+                  onChange={(e) => setSmtpUsername(e.target.value)}
+                  placeholder="user@gmail.com hoặc username_smtp"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">Tài khoản xác thực do nhà cung cấp SMTP cấp.</p>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-800 text-xs mb-1">
+                  Mật khẩu SMTP / Mật khẩu ứng dụng (SMTP Password)
+                </label>
+                <div className="relative">
+                  <input
+                    type={showSmtpPassword ? 'text' : 'password'}
+                    value={smtpPassword}
+                    onChange={(e) => setSmtpPassword(e.target.value)}
+                    placeholder="Để trống nếu giữ nguyên mật khẩu cũ đã lưu"
+                    className="w-full px-3.5 py-2.5 pr-10 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSmtpPassword(!showSmtpPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-700 p-1"
+                    title={showSmtpPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">Để trống ô này nếu không muốn thay đổi mật khẩu đã lưu.</p>
+              </div>
             </div>
 
             {/* Trạng thái Credentials SMTP */}
             <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2">
               <h4 className="font-bold text-blue-900 text-xs flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-blue-700" />
-                <span>Trạng thái Xác thực & Biến môi trường Server (Credentials Status)</span>
+                <span>Trạng thái Xác thực & Bảo mật Credentials</span>
               </h4>
               <p className="text-xs text-slate-600">
-                Mật khẩu và tài khoản SMTP được quản lý an toàn qua biến môi trường máy chủ (<code className="font-mono text-blue-900 font-bold">SMTP_USER</code>, <code className="font-mono text-blue-900 font-bold">SMTP_PASS</code> hoặc <code className="font-mono text-blue-900 font-bold">SMTP_PASSWORD</code>). Không lưu mật khẩu trong cơ sở dữ liệu.
+                Mật khẩu được mã hóa an toàn phía server bằng cơ chế AES-256-GCM trước khi lưu vào cơ sở dữ liệu. Không lưu mật khẩu dạng rõ.
               </p>
               <div className="flex flex-wrap gap-3 pt-1">
                 <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold ${
                   emailCredentialsStatus?.has_username ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                 }`}>
-                  {emailCredentialsStatus?.has_username ? '✓ SMTP_USER đã cấu hình' : '✗ Chưa cấu hình SMTP_USER'}
+                  {emailCredentialsStatus?.has_username ? '✓ Đã cấu hình Username' : '✗ Chưa cấu hình Username'}
                 </span>
                 <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold ${
                   emailCredentialsStatus?.has_password ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                 }`}>
-                  {emailCredentialsStatus?.has_password ? '✓ SMTP_PASS đã cấu hình' : '✗ Chưa cấu hình SMTP_PASS'}
+                  {emailCredentialsStatus?.has_password ? '✓ Đã lưu mật khẩu (Password configured)' : '✗ Chưa cấu hình mật khẩu'}
                 </span>
               </div>
             </div>

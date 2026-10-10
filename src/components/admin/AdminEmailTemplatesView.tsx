@@ -14,10 +14,8 @@ import {
   X,
   Smartphone,
   Monitor,
-  Lock,
-  Globe,
   Sparkles,
-  Info,
+  HelpCircle,
 } from 'lucide-react';
 
 interface AdminEmailTemplatesViewProps {
@@ -26,7 +24,7 @@ interface AdminEmailTemplatesViewProps {
 
 export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = ({ currentUser }) => {
   const [templatesList, setTemplatesList] = useState<any[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
+  const [selectedItem, setSelectedItem] = useState<any | null>(null); // Chứa { template, versions, active_published_version }
   const [selectedVersion, setSelectedVersion] = useState<any | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -42,6 +40,11 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
   const [footerText, setFooterText] = useState('');
   const [changeReason, setChangeReason] = useState('');
 
+  // Trạng thái theo dõi thay đổi chưa lưu (Dirty state)
+  const [isDirty, setIsDirty] = useState(false);
+  const [pendingTargetItem, setPendingTargetItem] = useState<any | null>(null);
+  const [unsavedModalOpen, setUnsavedModalOpen] = useState(false);
+
   const [savingDraft, setSavingDraft] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
@@ -56,26 +59,25 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
   const [sendingTest, setSendingTest] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
 
-  const fetchTemplates = async () => {
+  const fetchTemplates = async (targetTemplateCode?: string) => {
     setLoading(true);
     setErrorMsg(null);
     try {
       const res = await api.getAdminEmailTemplates();
       if (res.success && res.data && res.data.length > 0) {
         setTemplatesList(res.data);
-        // Mặc định chọn template đầu tiên (LEAD_REGISTRATION_CONFIRMATION)
-        const first = res.data[0];
-        setSelectedTemplate(first.template);
-        const activeVer = first.active_published_version || first.versions[0];
-        if (activeVer) {
-          setSelectedVersion(activeVer);
-          setVersionCode(`v${(first.versions.length || 0) + 1}`);
-          setSubject(activeVer.subject || '');
-          setBodyHtml(activeVer.body_html || '');
-          setBodyText(activeVer.body_text || '');
-          setButtonLabel(activeVer.button_label || 'Hoàn tất hồ sơ đăng ký');
-          setFooterText(activeVer.footer_text || '');
+        
+        // Chọn mẫu theo targetTemplateCode hoặc giữ selectedItem hiện tại hoặc chọn item đầu tiên
+        let target = res.data[0];
+        if (targetTemplateCode) {
+          const found = res.data.find((i: any) => i.template.template_code === targetTemplateCode);
+          if (found) target = found;
+        } else if (selectedItem) {
+          const found = res.data.find((i: any) => i.template.id === selectedItem.template.id);
+          if (found) target = found;
         }
+
+        applySelectedTemplateItem(target);
       } else {
         setErrorMsg(res.error || 'Không thể tải danh sách mẫu email từ cơ sở dữ liệu.');
       }
@@ -86,9 +88,46 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
     }
   };
 
+  const applySelectedTemplateItem = (item: any) => {
+    setSelectedItem(item);
+    const activeVer = item.active_published_version || item.versions[0];
+    if (activeVer) {
+      setSelectedVersion(activeVer);
+      setVersionCode(activeVer.version_code || `v${(item.versions.length || 0) + 1}`);
+      setSubject(activeVer.subject || '');
+      setBodyHtml(activeVer.body_html || '');
+      setBodyText(activeVer.body_text || '');
+      setButtonLabel(activeVer.button_label || (item.template.template_code === 'CTV_NOTIFICATION_EMAIL' ? 'Xem chi tiết thông báo' : 'Hoàn tất hồ sơ đăng ký'));
+      setFooterText(activeVer.footer_text || '');
+    }
+    setIsDirty(false);
+    setSuccessMsg(null);
+    setErrorMsg(null);
+  };
+
   useEffect(() => {
     fetchTemplates();
   }, []);
+
+  const handleSelectTemplateClick = (item: any) => {
+    if (selectedItem && selectedItem.template.id === item.template.id) {
+      return; // Đã chọn mẫu này rồi
+    }
+    if (isDirty) {
+      setPendingTargetItem(item);
+      setUnsavedModalOpen(true);
+      return;
+    }
+    applySelectedTemplateItem(item);
+  };
+
+  const confirmSwitchWithoutSaving = () => {
+    if (pendingTargetItem) {
+      applySelectedTemplateItem(pendingTargetItem);
+    }
+    setUnsavedModalOpen(false);
+    setPendingTargetItem(null);
+  };
 
   const handleSelectVersion = (ver: any) => {
     setSelectedVersion(ver);
@@ -98,25 +137,62 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
     setBodyText(ver.body_text || '');
     setButtonLabel(ver.button_label || 'Hoàn tất hồ sơ đăng ký');
     setFooterText(ver.footer_text || '');
+    setIsDirty(false);
     setSuccessMsg(null);
     setErrorMsg(null);
+  };
+
+  const handleFieldChange = (setter: (val: string) => void, val: string) => {
+    setter(val);
+    setIsDirty(true);
   };
 
   const insertVariable = (variableKey: string) => {
     const token = `{{${variableKey}}}`;
     setBodyHtml((prev) => prev + token);
     setBodyText((prev) => prev + token);
+    setIsDirty(true);
   };
 
-  // Kiểm tra cảnh báo biến bắt buộc & an toàn HTML
-  const missingVariables = ['full_name', 'course_title', 'official_registration_url'].filter(
+  const templateCode = selectedItem?.template?.template_code;
+
+  // Danh sách biến theo từng mẫu nghiệp vụ
+  const availableVariables = templateCode === 'CTV_NOTIFICATION_EMAIL' ? [
+    { key: 'ctv_name', label: 'Tên cộng tác viên' },
+    { key: 'ctv_code', label: 'Mã cộng tác viên' },
+    { key: 'event_title', label: 'Tiêu đề sự kiện' },
+    { key: 'event_description', label: 'Chi tiết sự kiện' },
+    { key: 'customer_name', label: 'Tên khách hàng (nếu có)' },
+    { key: 'course_title', label: 'Tên khóa học' },
+    { key: 'reward_amount', label: 'Số tiền thù lao (VNĐ)' },
+    { key: 'support_hotline', label: 'Hotline hỗ trợ' },
+    { key: 'support_email', label: 'Email hỗ trợ' },
+    { key: 'unit_name', label: 'Tên trường' },
+  ] : [
+    { key: 'full_name', label: 'Họ tên khách' },
+    { key: 'course_title', label: 'Tên khóa học' },
+    { key: 'registered_at', label: 'Thời điểm đăng ký' },
+    { key: 'official_registration_url', label: 'Link nút EGOV' },
+    { key: 'affiliate_name', label: 'Tên CTV' },
+    { key: 'affiliate_code', label: 'Mã CTV' },
+    { key: 'support_hotline', label: 'Hotline hỗ trợ' },
+    { key: 'support_email', label: 'Email hỗ trợ' },
+    { key: 'unit_name', label: 'Tên trường' },
+  ];
+
+  // Kiểm tra cảnh báo biến bắt buộc
+  const requiredVars = templateCode === 'CTV_NOTIFICATION_EMAIL' 
+    ? ['ctv_name', 'event_title']
+    : ['full_name', 'course_title', 'official_registration_url'];
+
+  const missingVariables = requiredVars.filter(
     (v) => !bodyHtml.includes(`{{${v}}}`) && !subject.includes(`{{${v}}}`)
   );
 
   const hasDangerousContent = /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>|<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>|javascript:|onerror\s*=/i.test(bodyHtml);
 
   const handleSaveDraft = async () => {
-    if (!selectedTemplate) return;
+    if (!selectedItem) return;
     if (hasDangerousContent) {
       setErrorMsg('Bị từ chối: Nội dung HTML chứa thẻ script, iframe hoặc mã độc hại.');
       return;
@@ -127,7 +203,7 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
     setSuccessMsg(null);
 
     try {
-      const res = await api.saveAdminEmailTemplateDraft(selectedTemplate.template_code, {
+      const res = await api.saveAdminEmailTemplateDraft(selectedItem.template.template_code, {
         version_code: versionCode.trim() || 'v2',
         subject: subject.trim(),
         body_html: bodyHtml.trim(),
@@ -141,7 +217,8 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
       if (res.success) {
         setSuccessMsg('Lưu nháp phiên bản mẫu email thành công.');
         setChangeReason('');
-        fetchTemplates();
+        setIsDirty(false);
+        fetchTemplates(selectedItem.template.template_code);
       } else if (res.code === 'CONFIG_VERSION_CONFLICT') {
         setErrorMsg('Xung đột phiên bản: Mẫu email đã được thay đổi bởi quản trị viên khác. Vui lòng tải lại trang.');
       } else {
@@ -173,7 +250,8 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
       if (res.success) {
         setSuccessMsg('Xuất bản phiên bản mẫu email thành công! Các tác vụ email mới tạo sẽ tự động sử dụng phiên bản bất biến này.');
         setChangeReason('');
-        fetchTemplates();
+        setIsDirty(false);
+        fetchTemplates(selectedItem.template.template_code);
       } else {
         setErrorMsg(res.error || 'Xuất bản phiên bản thất bại.');
       }
@@ -206,7 +284,18 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
   };
 
   // Dữ liệu giả lập cho Xem trước (Preview)
-  const previewData = {
+  const previewData = templateCode === 'CTV_NOTIFICATION_EMAIL' ? {
+    ctv_name: 'Trần Đại sứ Tuyển sinh',
+    ctv_code: 'STHCCTV10001',
+    event_title: 'Có học viên mới đăng ký khóa học qua link giới thiệu',
+    event_description: 'Khách hàng Nguyễn Văn Khách đã đăng ký khóa học Kỹ thuật Chế biến Món ăn Á - Âu (CBMA-TC-01) qua đường dẫn giới thiệu của bạn.',
+    customer_name: 'Nguyễn Văn Khách',
+    course_title: 'Kỹ thuật Chế biến Món ăn Á - Âu (CBMA-TC-01)',
+    reward_amount: '500,000 VNĐ',
+    support_hotline: '02838442238',
+    support_email: 'tuyensinh@sthc.edu.vn',
+    unit_name: 'Trường Trung cấp Du lịch & Khách sạn Saigontourist',
+  } : {
     full_name: 'Nguyễn Văn Khách',
     course_title: 'Kỹ thuật Chế biến Món ăn Á - Âu (CBMA-TC-01)',
     registered_at: new Date().toLocaleString('vi-VN'),
@@ -220,12 +309,11 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
   };
 
   const renderInterpolatedHtml = (htmlStr: string) => {
-    let rendered = htmlStr;
+    let rendered = htmlStr || '';
     Object.entries(previewData).forEach(([key, val]) => {
       const regex = new RegExp(`{{${key}}}`, 'g');
       rendered = rendered.replace(regex, val || '');
     });
-    // Xử lý block điều kiện đơn giản cho affiliate
     if (!previewWithAffiliate) {
       rendered = rendered.replace(/\{\{#if affiliate_name\}\}[\s\S]*?\{\{\/if\}\}/g, '');
     } else {
@@ -241,11 +329,11 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
         <div className="space-y-2">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 text-blue-200 text-xs font-bold tracking-wide uppercase backdrop-blur-md border border-white/10">
             <Mail className="w-3.5 h-3.5" />
-            <span>Phân hệ Quản lý Mẫu Email (C3.11B)</span>
+            <span>Phân hệ Quản lý Mẫu Email Nghiệp vụ (C3.11B & C3.13B)</span>
           </div>
-          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">Trình Soạn Thảo & Xuất Bản Mẫu Email</h1>
+          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">Trình Soạn Thảo & Quản Lý Mẫu Email</h1>
           <p className="text-blue-100 text-xs md:text-sm max-w-2xl leading-relaxed opacity-90">
-            Quản lý nội dung, tiêu đề và biến động cho mẫu email xác nhận đăng ký tuyển sinh. Đảm bảo tính bất biến của phiên bản xuất bản và liên kết nguyên tử với hàng đợi email.
+            Chọn và chỉnh sửa riêng biệt từng mẫu email nghiệp vụ (<code className="font-mono bg-white/20 px-1.5 py-0.5 rounded text-white">LEAD_REGISTRATION_CONFIRMATION</code> & <code className="font-mono bg-white/20 px-1.5 py-0.5 rounded text-white">CTV_NOTIFICATION_EMAIL</code>). Đảm bảo tính bất biến của phiên bản xuất bản.
           </p>
         </div>
 
@@ -284,55 +372,97 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
       )}
 
       {loading ? (
-        <div className="p-16 text-center text-slate-500 text-xs">Đang tải danh sách mẫu email...</div>
+        <div className="p-16 text-center text-slate-500 text-xs">Đang tải danh sách mẫu email nghiệp vụ...</div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Cột trái: Danh sách mẫu & Phiên bản (4 col) */}
-          <div className="lg:col-span-4 space-y-4">
+          {/* Cột trái: Danh sách mẫu nghiệp vụ & Lịch sử phiên bản (4 col) */}
+          <div className="lg:col-span-4 space-y-5">
+            {/* 1. Danh sách mẫu nghiệp vụ */}
             <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4">
-              <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
-                <FileText className="w-4 h-4 text-blue-900" />
-                <span>Danh sách Mẫu Nghiệp vụ</span>
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-blue-900" />
+                  <span>Danh sách Mẫu Nghiệp vụ</span>
+                </h3>
+                <span className="text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-0.5 rounded-full">
+                  {templatesList.length} mẫu
+                </span>
+              </div>
 
-              <div className="space-y-2">
-                {templatesList.map((item) => (
-                  <div
-                    key={item.template.id}
-                    className="p-3.5 rounded-xl border border-blue-900/30 bg-blue-50/50 space-y-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono text-[11px] font-bold text-blue-900 bg-blue-100 px-2 py-0.5 rounded">
-                        {item.template.template_code}
-                      </span>
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                        Đang áp dụng
-                      </span>
+              <div className="space-y-3">
+                {templatesList.map((item) => {
+                  const isSelected = selectedItem?.template?.id === item.template.id;
+                  const activeVersion = item.active_published_version;
+                  return (
+                    <div
+                      key={item.template.id}
+                      onClick={() => handleSelectTemplateClick(item)}
+                      className={`p-4 rounded-2xl border transition-all cursor-pointer space-y-2.5 ${
+                        isSelected
+                          ? 'border-blue-900 bg-blue-50/80 shadow-md ring-2 ring-blue-900/20'
+                          : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded uppercase ${
+                          isSelected ? 'bg-blue-900 text-white' : 'bg-blue-100 text-blue-900'
+                        }`}>
+                          {item.template.template_code}
+                        </span>
+                        
+                        <div className="flex items-center gap-1.5">
+                          {activeVersion && (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded flex items-center gap-1" title="Có phiên bản đang xuất bản">
+                              <Check className="w-3 h-3" /> Đang áp dụng
+                            </span>
+                          )}
+                          {isSelected && (
+                            <span className="text-[10px] font-bold text-blue-700 bg-blue-200/80 px-2 py-0.5 rounded">
+                              Đang chọn
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="font-bold text-slate-900 text-xs leading-snug">{item.template.name}</div>
+                        <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{item.template.description}</p>
+                      </div>
+
+                      {activeVersion && (
+                        <div className="text-[10px] text-slate-400 pt-1 border-t border-slate-200/60 flex items-center justify-between font-mono">
+                          <span>Bản áp dụng: {activeVersion.version_code}</span>
+                          <span>Rev {activeVersion.revision}</span>
+                        </div>
+                      )}
                     </div>
-                    <div className="font-bold text-slate-900 text-xs">{item.template.name}</div>
-                    <p className="text-[11px] text-slate-500 line-clamp-2">{item.template.description}</p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
-            {/* Danh sách phiên bản */}
+            {/* 2. Lịch sử Phiên bản (Versions) của mẫu đang chọn */}
             <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4">
-              <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
-                <History className="w-4 h-4 text-blue-900" />
-                <span>Lịch sử Phiên bản (Versions)</span>
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
+                  <History className="w-4 h-4 text-blue-900" />
+                  <span>Phiên bản Mẫu Đang Chọn</span>
+                </h3>
+                <span className="text-[10px] font-mono font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded">
+                  {selectedItem?.template?.template_code}
+                </span>
+              </div>
 
-              <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                {templatesList[0]?.versions?.map((ver: any) => {
-                  const isSelected = selectedVersion?.id === ver.id;
+              <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
+                {selectedItem?.versions?.map((ver: any) => {
+                  const isVerSelected = selectedVersion?.id === ver.id;
                   return (
                     <div
                       key={ver.id}
                       onClick={() => handleSelectVersion(ver)}
                       className={`p-3 rounded-xl border transition-all cursor-pointer space-y-1.5 ${
-                        isSelected
-                          ? 'border-blue-900 bg-blue-900/5 shadow-xs'
+                        isVerSelected
+                          ? 'border-blue-900 bg-blue-900/5 shadow-xs ring-1 ring-blue-900/20'
                           : 'border-slate-200 hover:bg-slate-50'
                       }`}
                     >
@@ -362,51 +492,54 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
           {/* Cột phải: Trình soạn thảo trực quan (8 col) */}
           <div className="lg:col-span-8 space-y-5">
             <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-5">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              {/* Tên nghiệp vụ đang sửa trên đầu trình soạn thảo */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between border-b border-slate-100 pb-4 gap-3">
                 <div>
-                  <h3 className="font-bold text-slate-900 text-sm">Trình Soạn Thảo Mẫu Email</h3>
-                  <p className="text-xs text-slate-500">
-                    Chỉnh sửa tiêu đề, nội dung HTML, nhãn nút và thông tin chân trang.
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold bg-blue-100 text-blue-900 px-2.5 py-0.5 rounded">
+                      {selectedItem?.template?.template_code}
+                    </span>
+                    {isDirty && (
+                      <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded animate-pulse">
+                        Có thay đổi chưa lưu
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="font-extrabold text-slate-900 text-base mt-1">
+                    {selectedItem?.template?.name}
+                  </h3>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded-lg">
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs font-mono font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
                     Đang sửa: {versionCode} ({selectedVersion?.status || 'DRAFT'})
                   </span>
                 </div>
               </div>
 
               {/* Danh sách biến chèn nhanh */}
-              <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2">
+              <div className="p-4 bg-blue-50/70 border border-blue-200/80 rounded-2xl space-y-2.5">
                 <div className="font-bold text-blue-900 text-xs flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-blue-700" />
-                  <span>Danh sách Biến nghiệp vụ (Click để chèn vào cuối nội dung)</span>
+                  <Sparkles className="w-4 h-4 text-blue-700" />
+                  <span>Danh sách Biến Nghiệp vụ (Click để chèn vào nội dung)</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {[
-                    { key: 'full_name', label: 'Họ tên khách' },
-                    { key: 'course_title', label: 'Tên khóa học' },
-                    { key: 'registered_at', label: 'Thời điểm đăng ký' },
-                    { key: 'official_registration_url', label: 'Link nút EGOV' },
-                    { key: 'affiliate_name', label: 'Tên CTV' },
-                    { key: 'affiliate_code', label: 'Mã CTV' },
-                    { key: 'support_hotline', label: 'Hotline hỗ trợ' },
-                    { key: 'support_email', label: 'Email hỗ trợ' },
-                    { key: 'unit_name', label: 'Tên trường' },
-                  ].map((v) => (
+                  {availableVariables.map((v) => (
                     <button
                       key={v.key}
                       type="button"
                       onClick={() => insertVariable(v.key)}
-                      className="px-2.5 py-1 bg-white hover:bg-blue-100 text-blue-900 border border-blue-300 rounded-lg text-[11px] font-mono font-bold shadow-2xs transition-colors"
+                      className="px-2.5 py-1.5 bg-white hover:bg-blue-100 text-blue-900 border border-blue-300 rounded-xl text-[11px] font-mono font-bold shadow-2xs transition-colors flex items-center gap-1"
                       title={`Chèn {{${v.key}}}`}
                     >
-                      {`{{${v.key}}}`} <span className="font-sans text-[10px] text-slate-500">({v.label})</span>
+                      <span>{`{{${v.key}}}`}</span>
+                      <span className="font-sans text-[10px] text-slate-500 font-normal">({v.label})</span>
                     </button>
                   ))}
                 </div>
-                <p className="text-[11px] text-slate-500 italic">
-                  * Lưu ý: Link nút EGOV luôn lấy tự động từ <code className="font-mono text-blue-900">official_registration_url</code> của khóa học trong CSDL, không thể thay thế bằng URL cố định ngoài hệ thống.
+                <p className="text-[11px] text-slate-500 italic flex items-center gap-1 pt-1">
+                  <HelpCircle className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                  <span>Hệ thống tự động thay thế các biến này khi render email gửi đi từ hàng đợi (queue worker).</span>
                 </p>
               </div>
 
@@ -414,7 +547,7 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
               {missingVariables.length > 0 && (
                 <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-xl flex items-center gap-2">
                   <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
-                  <span><strong>Cảnh báo:</strong> Mẫu email đang thiếu các biến bắt buộc: <code className="font-bold">{missingVariables.join(', ')}</code>.</span>
+                  <span><strong>Cảnh báo:</strong> Mẫu email đang thiếu các biến bắt buộc cho mẫu này: <code className="font-bold">{missingVariables.map(v => `{{${v}}}`).join(', ')}</code>.</span>
                 </div>
               )}
               {hasDangerousContent && (
@@ -425,15 +558,27 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
               )}
 
               <div className="space-y-4">
-                <div>
-                  <label className="block font-bold text-slate-800 text-xs mb-1">Mã phiên bản (Version Code)</label>
-                  <input
-                    type="text"
-                    value={versionCode}
-                    onChange={(e) => setVersionCode(e.target.value)}
-                    placeholder="v2"
-                    className="w-full sm:w-48 px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-900/20"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block font-bold text-slate-800 text-xs mb-1">Mã phiên bản (Version Code)</label>
+                    <input
+                      type="text"
+                      value={versionCode}
+                      onChange={(e) => handleFieldChange(setVersionCode, e.target.value)}
+                      placeholder="v2"
+                      className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-900/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-800 text-xs mb-1">Nhãn nút hành động <span className="text-rose-500">*</span></label>
+                    <input
+                      type="text"
+                      value={buttonLabel}
+                      onChange={(e) => handleFieldChange(setButtonLabel, e.target.value)}
+                      placeholder="Hoàn tất hồ sơ đăng ký"
+                      className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-900/20 font-semibold"
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -441,29 +586,18 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
                   <input
                     type="text"
                     value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    placeholder="Xác nhận tiếp nhận hồ sơ đăng ký khóa học - {{course_title}}"
+                    onChange={(e) => handleFieldChange(setSubject, e.target.value)}
+                    placeholder="Nhập tiêu đề email..."
                     className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-900/20 font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-800 text-xs mb-1">Nhãn nút hành động (“Hoàn tất hồ sơ đăng ký”) <span className="text-rose-500">*</span></label>
-                  <input
-                    type="text"
-                    value={buttonLabel}
-                    onChange={(e) => setButtonLabel(e.target.value)}
-                    placeholder="Hoàn tất hồ sơ đăng ký"
-                    className="w-full sm:w-72 px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-900/20 font-semibold"
                   />
                 </div>
 
                 <div>
                   <label className="block font-bold text-slate-800 text-xs mb-1">Nội dung HTML trực quan (Body HTML) <span className="text-rose-500">*</span></label>
                   <textarea
-                    rows={10}
+                    rows={12}
                     value={bodyHtml}
-                    onChange={(e) => setBodyHtml(e.target.value)}
+                    onChange={(e) => handleFieldChange(setBodyHtml, e.target.value)}
                     className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-900/20 leading-relaxed"
                   />
                 </div>
@@ -473,7 +607,7 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
                   <textarea
                     rows={4}
                     value={bodyText}
-                    onChange={(e) => setBodyText(e.target.value)}
+                    onChange={(e) => handleFieldChange(setBodyText, e.target.value)}
                     className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-900/20"
                   />
                 </div>
@@ -484,7 +618,7 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
                     type="text"
                     value={changeReason}
                     onChange={(e) => setChangeReason(e.target.value)}
-                    placeholder="Ví dụ: Cập nhật bố cục email và bổ sung thông tin hỗ trợ"
+                    placeholder="Ví dụ: Cập nhật bố cục email và bổ sung thông tin hỗ trợ tuyển sinh"
                     className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-900/20"
                   />
                 </div>
@@ -494,9 +628,9 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-slate-100">
                 <div className="text-xs text-slate-500">
                   {selectedVersion?.status === 'PUBLISHED' ? (
-                    <span className="text-amber-700 font-medium">Phiên bản này đang PUBLISHED. Lưu thay đổi sẽ tạo bản nháp mới.</span>
+                    <span className="text-amber-700 font-medium">Phiên bản này đang PUBLISHED. Lưu thay đổi sẽ tạo bản nháp phiên bản mới.</span>
                   ) : (
-                    <span>Đang chỉnh sửa bản nháp. Có thể xem trước trước khi xuất bản.</span>
+                    <span>Đang chỉnh sửa bản nháp. Có thể xem trước trước khi xuất bản chính thức.</span>
                   )}
                 </div>
 
@@ -522,6 +656,54 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Xác nhận chuyển mẫu khi có thay đổi chưa lưu */}
+      {unsavedModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden text-xs p-6 space-y-4">
+            <div className="flex items-center gap-3 text-amber-700">
+              <AlertTriangle className="w-6 h-6 shrink-0" />
+              <h3 className="font-bold text-sm text-slate-900">Thay đổi chưa được lưu</h3>
+            </div>
+            <p className="text-slate-600 leading-relaxed">
+              Bạn có các thay đổi chưa được lưu trong mẫu email hiện tại (<code className="font-mono font-bold text-blue-900">{selectedItem?.template?.template_code}</code>). Nếu bạn chuyển sang mẫu khác, các thay đổi này sẽ bị mất.
+            </p>
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setUnsavedModalOpen(false);
+                  setPendingTargetItem(null);
+                }}
+                className="px-4 py-2 border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold rounded-xl"
+              >
+                Hủy (Ở lại)
+              </button>
+              <button
+                type="button"
+                onClick={confirmSwitchWithoutSaving}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl shadow-xs"
+              >
+                Bỏ thay đổi & Chuyển mẫu
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setUnsavedModalOpen(false);
+                  await handleSaveDraft();
+                  if (pendingTargetItem) {
+                    applySelectedTemplateItem(pendingTargetItem);
+                  }
+                  setPendingTargetItem(null);
+                }}
+                className="px-5 py-2 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-xl shadow-xs"
+              >
+                Lưu nháp & Chuyển
+              </button>
             </div>
           </div>
         </div>
@@ -553,15 +735,17 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
               </div>
 
               <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={previewWithAffiliate}
-                    onChange={(e) => setPreviewWithAffiliate(e.target.checked)}
-                    className="rounded text-blue-600 focus:ring-0"
-                  />
-                  <span>Giả lập có CTV giới thiệu</span>
-                </label>
+                {templateCode === 'LEAD_REGISTRATION_CONFIRMATION' && (
+                  <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={previewWithAffiliate}
+                      onChange={(e) => setPreviewWithAffiliate(e.target.checked)}
+                      className="rounded text-blue-600 focus:ring-0"
+                    />
+                    <span>Giả lập có CTV giới thiệu</span>
+                  </label>
+                )}
                 <button
                   onClick={() => setPreviewModalOpen(false)}
                   className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
@@ -572,6 +756,7 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
             </div>
 
             <div className="bg-slate-100 p-4 border-b border-slate-200 shrink-0 text-xs space-y-1 font-mono">
+              <div><strong>Mẫu:</strong> {selectedItem?.template?.template_code}</div>
               <div><strong>Tiêu đề (Subject):</strong> {renderInterpolatedHtml(subject)}</div>
             </div>
 
@@ -605,7 +790,7 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
 
             <div className="p-6 space-y-4">
               <p className="text-slate-600">
-                Gửi bản xem trước mẫu email này tới hộp thư của Quản trị viên để kiểm tra trực quan trên thiết bị thực tế.
+                Gửi bản xem trước mẫu email <code className="font-mono font-bold text-blue-900">{selectedItem?.template?.template_code}</code> này tới hộp thư của Quản trị viên để kiểm tra trực quan trên thiết bị thực tế.
               </p>
 
               <div>

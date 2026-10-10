@@ -86,14 +86,79 @@ export function maskEmailAddress(email?: string | null): string {
 }
 
 /**
- * Lấy thông tin xác thực SMTP từ biến môi trường máy chủ
- * Tuyệt đối không lưu mật khẩu trong CSDL hay gửi ra giao diện người dùng
+ * Mã hóa và giải mã mật khẩu SMTP an toàn bằng AES-256-GCM
  */
-export function getSmtpCredentials(): {
+const ALGORITHM = 'aes-256-gcm';
+
+function getEncryptionKey(): Buffer {
+  const secret = process.env.EMAIL_CREDENTIALS_ENCRYPTION_KEY || 'sthc-ctv-default-encryption-secret-key-2026';
+  if (/^[0-9a-fA-F]{64}$/.test(secret)) {
+    return Buffer.from(secret, 'hex');
+  }
+  return crypto.createHash('sha256').update(secret).digest();
+}
+
+export function encryptSmtpPassword(plainText: string): string {
+  if (!plainText) return '';
+  const key = getEncryptionKey();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  const encrypted = Buffer.concat([cipher.update(plainText, 'utf8'), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+export function decryptSmtpPassword(ciphertext: string): string {
+  if (!ciphertext) return '';
+  try {
+    const parts = ciphertext.split(':');
+    if (parts.length !== 3) return ciphertext; // fallback if legacy
+    const [ivHex, authTagHex, encryptedHex] = parts;
+    const key = getEncryptionKey();
+    const iv = Buffer.from(ivHex, 'hex');
+    const authTag = Buffer.from(authTagHex, 'hex');
+    const encrypted = Buffer.from(encryptedHex, 'hex');
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(authTag);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString('utf8');
+  } catch (err) {
+    console.error('[DECRYPT SMTP PASSWORD ERROR]', err);
+    throw new Error('Không thể giải mã mật khẩu SMTP: Khóa mã hóa (EMAIL_CREDENTIALS_ENCRYPTION_KEY) không hợp lệ hoặc dữ liệu mật khẩu đã bị hỏng.');
+  }
+}
+
+/**
+ * Lấy thông tin xác thực SMTP ưu tiên từ CSDL (dbSettings), fallback sang biến môi trường máy chủ
+ */
+export function getSmtpCredentials(dbSettings?: any): {
   user: string;
   pass: string;
   status: EmailCredentialsStatus;
 } {
+  // 1. Kiểm tra cấu hình lưu trong CSDL (dbSettings)
+  if (dbSettings && (dbSettings.smtp_username || dbSettings.smtp_password_ciphertext)) {
+    const user = (dbSettings.smtp_username || '').trim();
+    let pass = '';
+    if (dbSettings.smtp_password_ciphertext) {
+      pass = decryptSmtpPassword(dbSettings.smtp_password_ciphertext);
+    }
+    const hasUser = Boolean(user);
+    const hasPass = Boolean(pass);
+    return {
+      user,
+      pass,
+      status: {
+        has_credentials: hasUser && hasPass,
+        has_username: hasUser,
+        has_password: hasPass,
+        username_configured: hasUser,
+        password_configured: hasPass,
+      },
+    };
+  }
+
+  // 2. Fallback sang biến môi trường server cũ
   const user = (process.env.SMTP_USER || process.env.SMTP_USERNAME || '').trim();
   const pass = (process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '').trim();
 
