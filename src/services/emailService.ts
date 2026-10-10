@@ -12,6 +12,7 @@
  */
 
 import nodemailer, { Transporter } from 'nodemailer';
+import crypto from 'crypto';
 import {
   EmailServiceSettings,
   EmailCredentialsStatus,

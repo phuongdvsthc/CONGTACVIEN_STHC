@@ -325,15 +325,11 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in pb-16">
       {/* Header Banner */}
-      <div className="bg-gradient-to-r from-blue-950 via-blue-900 to-indigo-900 text-white rounded-3xl p-8 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-        <div className="space-y-2">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/10 text-blue-200 text-xs font-bold tracking-wide uppercase backdrop-blur-md border border-white/10">
-            <Mail className="w-3.5 h-3.5" />
-            <span>Phân hệ Quản lý Mẫu Email Nghiệp vụ (C3.11B & C3.13B)</span>
-          </div>
-          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">Trình Soạn Thảo & Quản Lý Mẫu Email</h1>
-          <p className="text-blue-100 text-xs md:text-sm max-w-2xl leading-relaxed opacity-90">
-            Chọn và chỉnh sửa riêng biệt từng mẫu email nghiệp vụ (<code className="font-mono bg-white/20 px-1.5 py-0.5 rounded text-white">LEAD_REGISTRATION_CONFIRMATION</code> & <code className="font-mono bg-white/20 px-1.5 py-0.5 rounded text-white">CTV_NOTIFICATION_EMAIL</code>). Đảm bảo tính bất biến của phiên bản xuất bản.
+      <div className="bg-gradient-to-r from-blue-950 via-blue-900 to-indigo-900 text-white rounded-2xl p-5 md:p-6 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-lg md:text-xl font-bold tracking-tight">Trình Soạn Thảo & Quản Lý Mẫu Email</h1>
+          <p className="text-blue-100 text-xs max-w-2xl leading-relaxed opacity-90">
+            Chọn và chỉnh sửa riêng biệt từng mẫu email nghiệp vụ. Đảm bảo tính bất biến của phiên bản xuất bản.
           </p>
         </div>
 

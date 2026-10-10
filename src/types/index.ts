@@ -361,6 +361,7 @@ export interface SystemSettings {
   smtp_sender_email?: string | null;
   smtp_reply_to?: string | null;
   smtp_timeout_ms?: number;
+  smtp_username?: string | null;
   revision: number;
   updated_at: string;
   updated_by?: string | null;
@@ -1190,6 +1191,7 @@ export interface EmailServiceSettings {
   smtp_sender_email: string;
   smtp_reply_to?: string | null;
   smtp_timeout_ms: number;
+  smtp_username?: string | null;
 }
 
 /**
