@@ -1095,6 +1095,31 @@ export interface EmailJobAttemptDTO {
 }
 
 /**
+ * Trạng thái vận hành thực tế của Email Worker trên máy chủ
+ */
+export interface EmailWorkerStatusDTO {
+  instance_id: string;
+  worker_enabled_env: boolean;
+  email_business_enabled: boolean;
+  operational_status: 'ACTIVE_HEALTHY' | 'STALE' | 'SERVER_DISABLED' | 'BUSINESS_DISABLED' | 'NOT_STARTED';
+  operational_label: string;
+  is_polling: boolean;
+  is_processing: boolean;
+  poll_interval_ms: number;
+  last_poll_at: string | null;
+  last_claim_at: string | null;
+  last_success_at: string | null;
+  last_error_at: string | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+  jobs_claimed_count: number;
+  jobs_sent_count: number;
+  jobs_failed_count: number;
+  last_processed_job_id: string | null;
+  last_processed_recipient_masked: string | null;
+}
+
+/**
  * Tham số đầu vào để enqueue một tác vụ email
  */
 export interface EnqueueEmailJobParams {

@@ -926,6 +926,25 @@ export const api = {
     });
   },
 
+  async getEmailWorkerStatus(): Promise<{
+    success: boolean;
+    data?: import('../types').EmailWorkerStatusDTO;
+    error?: string;
+  }> {
+    return apiFetch('/api/v1/admin/email-worker/status');
+  },
+
+  async triggerEmailWorkerPoll(): Promise<{
+    success: boolean;
+    message?: string;
+    data?: import('../types').EmailWorkerStatusDTO;
+    error?: string;
+  }> {
+    return apiFetch('/api/v1/admin/email-worker/trigger-poll', {
+      method: 'POST',
+    });
+  },
+
   async getAdminEmailJobs(params?: {
     q?: string;
     type?: string;

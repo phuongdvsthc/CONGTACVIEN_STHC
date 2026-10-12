@@ -21,7 +21,7 @@ import {
   isValidEmail,
 } from './src/services/emailService';
 import { EmailServiceSettings } from './src/types';
-import { startEmailWorker, stopEmailWorker } from './src/services/emailWorker';
+import { startEmailWorker, stopEmailWorker, getEmailWorkerRuntimeStatus, processEmailBatch } from './src/services/emailWorker';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,106 +56,106 @@ const emailQueueService = new EmailQueueService(supabase);
 // Initial academic courses of STHC
 const INITIAL_COURSES = [
   {
-    code: 'CBMA-TC-01',
-    title: 'Kỹ thuật Chế biến Món ăn Á - Âu',
+    code: 'BEP-A-AU-TC',
+    title: 'Kỹ thuật Chế biến Món ăn Á - Âu (Hệ Trung cấp)',
     slug: 'ky-thuat-che-bien-mon-an-a-au',
-    department: 'Khoa Ẩm thực & Bếp',
+    department: 'Khoa Bếp',
     degree_level: 'Trung cấp chính quy',
     duration_text: '2 năm (4 học kỳ)',
     tuition_fee_estimate: 14500000,
-    summary: 'Chương trình đào tạo nghề bếp chuẩn quốc tế, trang bị kỹ thuật chế biến ẩm thực Á - Âu, quản lý bếp chuyên nghiệp và an toàn thực phẩm.',
-    description_html: '<p>Chương trình cung cấp kỹ năng chế biến các món ăn đặc sắc từ ẩm thực Việt Nam, các nước Châu Á đến tinh hoa ẩm thực Pháp, Ý. Sinh viên được thực hành tại hệ thống bếp tiêu chuẩn 5 sao và thực tập hưởng lương tại các khách sạn trực thuộc Saigontourist Group.</p>',
+    summary: 'Đào tạo chuyên sâu kỹ năng chế biến món ăn Việt Nam, món Á và món Âu tiêu chuẩn khách sạn 5 sao.',
+    description_html: '<p>Chương trình đào tạo thực hành chiếm 70% thời lượng. Học viên được trực tiếp thực tập tại các khách sạn 4-5 sao thuộc Saigontourist Group như Rex Hotel, Caravelle, Grand Hotel Saigon, Majestic.</p>',
     is_active: true,
     sort_order: 1,
   },
   {
-    code: 'BB-TC-02',
-    title: 'Nghệ thuật Bếp bánh & Bánh ngọt Âu',
-    slug: 'nghe-thuat-bep-banh-banh-ngot-au',
-    department: 'Khoa Ẩm thực & Bếp',
+    code: 'BEP-BANH-AU-TC',
+    title: 'Nghệ thuật Làm Bánh & Bánh Ngọt Âu (Hệ Trung cấp)',
+    slug: 'nghe-thuat-lam-banh-ngot-au',
+    department: 'Khoa Bếp',
     degree_level: 'Trung cấp chính quy',
     duration_text: '2 năm (4 học kỳ)',
-    tuition_fee_estimate: 13800000,
-    summary: 'Đào tạo kỹ nghệ làm bánh mì, bánh ngọt kiểu Âu (Pastry & Bakery), trang trí sô-cô-la và món tráng miệng nhà hàng cao cấp.',
-    description_html: '<p>Sinh viên được đào tạo chuyên sâu về kỹ thuật làm bánh cổ điển Pháp, bánh hiện đại, tạo hình đường nghệ thuật và quản lý xưởng bánh chuyên nghiệp.</p>',
+    tuition_fee_estimate: 15000000,
+    summary: 'Nắm vững kỹ thuật làm bánh mì, bánh lạnh, pastry và nghệ thuật trang trí bánh kem chuẩn châu Âu.',
+    description_html: '<p>Phòng thực hành trang bị lò nướng hiện đại theo tiêu chuẩn công nghiệp châu Âu, cam kết việc làm sau tốt nghiệp.</p>',
     is_active: true,
     sort_order: 2,
   },
   {
-    code: 'QTKS-TC-03',
-    title: 'Quản trị Khách sạn & Khu nghỉ dưỡng',
-    slug: 'quan-tri-khach-san-khu-nghi-duong',
-    department: 'Khoa Quản trị Khách sạn',
-    degree_level: 'Trung cấp chính quy',
-    duration_text: '2 năm (4 học kỳ)',
-    tuition_fee_estimate: 13500000,
-    summary: 'Chương trình quản trị tiền sảnh, buồng phòng, dịch vụ hội nghị và quản lý vận hành khách sạn 4 - 5 sao.',
-    description_html: '<p>Đào tạo toàn diện nghiệp vụ khách sạn quốc tế, sử dụng phần mềm quản lý Opera/Fidelio, giao tiếp tiếng Anh chuyên ngành và thực tập tại Rex Hotel, Grand Hotel, Caravelle.</p>',
+    code: 'BEP-TRUONG-CD',
+    title: 'Nghiệp vụ Bếp Trưởng Điều hành (Khóa Chuyên đề)',
+    slug: 'nghiep-vu-bep-truong-dieu-hanh',
+    department: 'Khoa Bếp',
+    degree_level: 'Chứng chỉ chuyên đề',
+    duration_text: '3 tháng (Cuối tuần)',
+    tuition_fee_estimate: 8500000,
+    summary: 'Khóa học quản trị bếp, tính toán cost món ăn, quản trị nhân sự bếp dành cho người đã có tay nghề.',
+    description_html: '<p>Giảng dạy bởi các Bếp trưởng giàu kinh nghiệm tại các khách sạn danh tiếng của Saigontourist Group.</p>',
     is_active: true,
     sort_order: 3,
   },
   {
-    code: 'LT-SC-04',
-    title: 'Quản trị Lễ tân Quốc tế',
-    slug: 'quan-tri-le-tan-quoc-te',
-    department: 'Khoa Quản trị Khách sạn',
-    degree_level: 'Sơ cấp chuyên nghiệp',
-    duration_text: '6 tháng',
-    tuition_fee_estimate: 8500000,
-    summary: 'Nghiệp vụ tiền sảnh, check-in/check-out, xử lý khiếu nại khách quốc tế và kỹ năng giao tiếp hiếu khách chuyên nghiệp.',
-    description_html: '<p>Khóa học ngắn hạn trang bị cấp tốc kỹ năng nghiệp vụ lễ tân khách sạn hiện đại, cấp chứng chỉ sơ cấp quốc gia có giá trị toàn quốc.</p>',
+    code: 'KS-QT-TC',
+    title: 'Quản trị Khách sạn & Khu Nghỉ dưỡng (Hệ Trung cấp)',
+    slug: 'quan-tri-khach-san-khu-nghi-duong',
+    department: 'Khoa Khách sạn',
+    degree_level: 'Trung cấp chính quy',
+    duration_text: '2 năm (4 học kỳ)',
+    tuition_fee_estimate: 13500000,
+    summary: 'Chương trình đào tạo quản lý lưu trú, lễ tân, buồng phòng và vận hành tiền sảnh theo chuẩn ASEAN.',
+    description_html: '<p>Học viên được rèn luyện tiếng Anh chuyên ngành du lịch khách sạn và thực tập có phụ cấp tại hệ thống khu nghỉ dưỡng Saigontourist trên toàn quốc.</p>',
     is_active: true,
     sort_order: 4,
   },
   {
-    code: 'QTNH-TC-05',
-    title: 'Quản trị Nhà hàng & Dịch vụ Ăn uống',
-    slug: 'quan-tri-nha-hang-dich-vu-an-uong',
-    department: 'Khoa Nhà hàng & Ẩm thực (F&B)',
-    degree_level: 'Trung cấp chính quy',
-    duration_text: '2 năm (4 học kỳ)',
-    tuition_fee_estimate: 13000000,
-    summary: 'Kỹ năng phục vụ bàn chuẩn Fine Dining, quản lý hầm rượu vang (Sommelier), tổ chức tiệc cưới và yến tiệc sự kiện.',
-    description_html: '<p>Trở thành chuyên viên F&B chuyên nghiệp, nắm vững quy trình set bàn Âu - Á, nghệ thuật phục vụ rượu vang và kỹ năng quản lý chuỗi nhà hàng.</p>',
+    code: 'KS-LE-TAN-SC',
+    title: 'Nghiệp vụ Lễ tân Quốc tế (Hệ Sơ cấp)',
+    slug: 'nghiep-vu-le-tan-quoc-te',
+    department: 'Khoa Khách sạn',
+    degree_level: 'Sơ cấp nghề',
+    duration_text: '3 tháng',
+    tuition_fee_estimate: 5500000,
+    summary: 'Đào tạo kỹ năng giao tiếp, xử lý tình huống check-in/check-out và sử dụng phần mềm quản lý khách sạn quốc tế.',
+    description_html: '<p>Thực hành trực tiếp trên hệ thống PMS Smile / Opera tiêu chuẩn khách sạn 4-5 sao.</p>',
     is_active: true,
     sort_order: 5,
   },
   {
-    code: 'PC-SC-06',
-    title: 'Nghệ thuật Pha chế Đồ uống (Bartender & Barista)',
-    slug: 'nghe-thuat-pha-che-bartender-barista',
-    department: 'Khoa Nhà hàng & Ẩm thực (F&B)',
-    degree_level: 'Sơ cấp chuyên nghiệp',
-    duration_text: '3 tháng',
-    tuition_fee_estimate: 7900000,
-    summary: 'Kỹ nghệ pha chế Cocktail, Mocktail, nghệ thuật pha chế Cà phê Ý (Latte Art) và quản lý quầy bar hiện đại.',
-    description_html: '<p>Học viên được thực hành pha chế hơn 60 loại thức uống thịnh hành, kỹ thuật quăng chai biểu diễn (Flair Bartending) và quản trị quầy bar chuyên nghiệp.</p>',
+    code: 'NH-QT-TC',
+    title: 'Quản trị Nhà hàng & Dịch vụ Ẩm thực (Hệ Trung cấp)',
+    slug: 'quan-tri-nha-hang-dich-vu-am-thuc',
+    department: 'Khoa Nhà hàng',
+    degree_level: 'Trung cấp chính quy',
+    duration_text: '2 năm (4 học kỳ)',
+    tuition_fee_estimate: 13000000,
+    summary: 'Đào tạo nghệ thuật phục vụ bàn Á-Âu, tổ chức tiệc buffet, yến tiệc hội nghị và quản lý bar.',
+    description_html: '<p>Cơ hội tham gia phục vụ tại các sự kiện ngoại giao và hội nghị quốc tế do Saigontourist Group tổ chức.</p>',
     is_active: true,
     sort_order: 6,
   },
   {
-    code: 'HDDL-TC-07',
-    title: 'Hướng dẫn Du lịch Quốc tế & Nội địa',
-    slug: 'huong-dan-du-lich-quoc-te-noi-dia',
-    department: 'Khoa Lữ hành & Hướng dẫn',
-    degree_level: 'Trung cấp chính quy',
-    duration_text: '2 năm (4 học kỳ)',
-    tuition_fee_estimate: 12500000,
-    summary: 'Trang bị kiến thức văn hóa, lịch sử, kỹ năng thuyết minh tour, quản lý đoàn và điều kiện cấp Thẻ Hướng dẫn viên Du lịch Quốc gia.',
-    description_html: '<p>Sinh viên được dẫn tour thực địa xuyên Việt, rèn luyện kỹ năng hoạt náo, xử lý tình huống khẩn cấp và cơ hội làm việc tại Công ty Dịch vụ Lữ hành Saigontourist.</p>',
+    code: 'NH-BARTENDER-SC',
+    title: 'Nghệ thuật Pha chế Bartender & Barista Chuyên nghiệp',
+    slug: 'pha-che-bartender-barista-chuyen-nghiep',
+    department: 'Khoa Nhà hàng',
+    degree_level: 'Sơ cấp nghề',
+    duration_text: '3 tháng',
+    tuition_fee_estimate: 6000000,
+    summary: 'Học pha chế cocktail quốc tế, nghệ thuật vẽ Latte Art và kỹ thuật biểu diễn Flair Bartending.',
+    description_html: '<p>Trang bị quầy bar thực hành đạt chuẩn quốc tế, nguyên liệu phong phú và giảng viên đạt giải pha chế quốc gia.</p>',
     is_active: true,
     sort_order: 7,
   },
   {
-    code: 'DH-TC-08',
-    title: 'Quản trị Điều hành Tour & Đại lý Du lịch',
-    slug: 'quan-tri-dieu-hanh-tour-dai-ly-du-lich',
-    department: 'Khoa Lữ hành & Hướng dẫn',
+    code: 'DL-HDV-TC',
+    title: 'Hướng dẫn Du lịch Quốc tế & Nội địa (Hệ Trung cấp)',
+    slug: 'huong-dan-du-lich-quoc-te-noi-dia',
+    department: 'Khoa Du lịch',
     degree_level: 'Trung cấp chính quy',
     duration_text: '2 năm (4 học kỳ)',
-    tuition_fee_estimate: 12800000,
-    summary: 'Kỹ năng thiết kế sản phẩm tour, định giá chương trình du lịch, điều hành phương tiện và đại lý bán vé máy bay/khách sạn.',
-    description_html: '<p>Đào tạo chuyên viên điều hành tour (Tour Operator), kỹ năng thương lượng với nhà cung cấp dịch vụ và xây dựng hành trình trải nghiệm độc đáo.</p>',
+    tuition_fee_estimate: 12500000,
+    summary: 'Trang bị kiến thức lịch sử, văn hóa, kỹ năng thuyết minh và sơ cấp cứu tour du lịch.',
+    description_html: '<p>Sau khi tốt nghiệp đủ điều kiện xin cấp Thẻ Hướng dẫn viên du lịch nội địa / quốc tế của Sở Du lịch.</p>',
     is_active: true,
     sort_order: 8,
   }
@@ -526,12 +526,52 @@ function attachCourseFull(course: any) {
 
 function resolveCanonicalCourseInput(input: string): string {
   if (!input) return '';
-  const clean = String(input).trim().toLowerCase();
-  // Map legacy / short code aliases containing '13e2', 'ep-13e2', 'ba-13e2' to Bánh Âu UUID
-  if (clean.includes('13e2') || clean === 'ep-13e2' || clean === 'ba-13e2') {
-    return '13e2cf6a-b792-4ae0-8562-c6c1e6ae0db1';
+  return String(input).trim();
+}
+
+async function ensureCourseInDb(courseInput: string): Promise<string | null> {
+  const clean = String(courseInput || '').trim();
+  if (!clean) return null;
+
+  const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(clean);
+  try {
+    if (isUUID) {
+      const { data: cId } = await supabase.from('courses').select('id').eq('id', clean).maybeSingle();
+      if (cId) return cId.id;
+    }
+    const { data: cSlug } = await supabase.from('courses').select('id').or(`slug.eq.${clean},code.eq.${clean}`).maybeSingle();
+    if (cSlug) return cSlug.id;
+
+    const { data: cIlike } = await supabase.from('courses').select('id').or(`slug.ilike.${clean},code.ilike.${clean}`).maybeSingle();
+    if (cIlike) return cIlike.id;
+  } catch (e) {}
+
+  const fb = INITIAL_COURSES.find(c => 
+    (c as any).id === clean || 
+    c.code.toLowerCase() === clean.toLowerCase() || 
+    c.slug.toLowerCase() === clean.toLowerCase()
+  );
+
+  if (fb) {
+    try {
+      const { data: existing } = await supabase.from('courses').select('id').or(`code.eq.${fb.code},slug.eq.${fb.slug}`).maybeSingle();
+      if (existing) return existing.id;
+
+      const { data: inserted } = await supabase.from('courses').insert(fb).select('id').maybeSingle();
+      if (inserted) return inserted.id;
+    } catch (e) {}
   }
-  return clean;
+
+  try {
+    const { count } = await supabase.from('courses').select('*', { count: 'exact', head: true });
+    if (count === 0 || count === null) {
+      await supabase.from('courses').insert(INITIAL_COURSES);
+      const { data: retry } = await supabase.from('courses').select('id').or(`slug.eq.${clean},code.eq.${clean}`).maybeSingle();
+      if (retry) return retry.id;
+    }
+  } catch (e) {}
+
+  return null;
 }
 
 // Persistent companion storage for Profile Tax Codes (P2)
@@ -1836,22 +1876,40 @@ async function startServer() {
   });
 
   app.get('/api/v1/public/courses/:slug', async (req: Request, res: Response) => {
+    const requestId = Math.random().toString(36).substring(2, 10);
     const slug = resolveCanonicalCourseInput(req.params.slug);
+    console.log(`[PUBLIC COURSE LOOKUP] [reqId:${requestId}] inputSlug="${slug}"`);
     try {
-      let query = supabase.from('courses').select('*');
+      let course: any = null;
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug);
-      if (isUUID) {
-        query = query.or(`slug.eq.${slug},id.eq.${slug},code.ilike.${slug}`);
-      } else {
-        query = query.or(`slug.eq.${slug},code.ilike.${slug}`);
+      let queryError: string | null = null;
+      try {
+        if (isUUID) {
+          const { data: cId, error: eId } = await supabase.from('courses').select('*').eq('id', slug).maybeSingle();
+          if (cId) course = cId;
+          if (eId) queryError = eId.message;
+        }
+        if (!course) {
+          const { data: cSlug, error: eSlug } = await supabase.from('courses').select('*').or(`slug.eq.${slug},code.eq.${slug}`).maybeSingle();
+          if (cSlug) course = cSlug;
+          if (eSlug && !queryError) queryError = eSlug.message;
+        }
+        if (!course) {
+          const { data: cIlike, error: eIlike } = await supabase.from('courses').select('*').or(`slug.ilike.${slug},code.ilike.${slug}`).maybeSingle();
+          if (cIlike) course = cIlike;
+          if (eIlike && !queryError) queryError = eIlike.message;
+        }
+      } catch (dbErr: any) {
+        queryError = dbErr?.message;
       }
-      const { data: course, error } = await query.maybeSingle();
+      console.log(`[PUBLIC COURSE LOOKUP] [reqId:${requestId}] dbMatch=${!!course}, error=${queryError || 'none'}`);
 
       const target = course || INITIAL_COURSES.find(c => 
         c.slug === slug || 
         c.code.toLowerCase() === slug.toLowerCase() || 
         (c as any).id === slug
       );
+      console.log(`[PUBLIC COURSE LOOKUP] [reqId:${requestId}] targetFound=${!!target}, title=${target?.title || 'N/A'}`);
       if (!target) {
         return res.status(404).json({ success: false, error: 'Không tìm thấy khóa học' });
       }
@@ -2083,44 +2141,10 @@ async function startServer() {
     }
 
     // 2. Phân giải UUID khóa học từ slug/code/id
-    let resolvedCourseDbId: string | null = null;
-    const cleanCourseInput = resolveCanonicalCourseInput(course_id);
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanCourseInput);
-
-    if (cleanCourseInput) {
-      try {
-        let query = supabase.from('courses').select('id, is_active, accepts_referrals');
-        if (isUUID) {
-          query = query.or(`id.eq.${cleanCourseInput},code.eq.${cleanCourseInput},slug.eq.${cleanCourseInput}`);
-        } else {
-          query = query.or(`code.ilike.${cleanCourseInput},slug.ilike.${cleanCourseInput},code.eq.${cleanCourseInput},slug.eq.${cleanCourseInput}`);
-        }
-        const { data: dbCourse } = await query.maybeSingle();
-        if (dbCourse) {
-          resolvedCourseDbId = dbCourse.id;
-        }
-      } catch (dbErr) {
-        // Fallback tra cứu static
-      }
-
-      if (!resolvedCourseDbId) {
-        const fb = INITIAL_COURSES.find(c => 
-          (c as any).id === cleanCourseInput || 
-          c.code.toLowerCase() === cleanCourseInput.toLowerCase() || 
-          c.slug.toLowerCase() === cleanCourseInput.toLowerCase()
-        );
-        if (fb) {
-          try {
-            const { data: matchedDb } = await supabase
-              .from('courses')
-              .select('id')
-              .or(`code.eq.${fb.code},slug.eq.${fb.slug}`)
-              .maybeSingle();
-            if (matchedDb) resolvedCourseDbId = matchedDb.id;
-          } catch (e) {}
-        }
-      }
-    }
+    const requestId = Math.random().toString(36).substring(2, 10);
+    console.log(`[LEAD SUBMIT] [reqId:${requestId}] inputCourseId="${course_id}"`);
+    const resolvedCourseDbId = await ensureCourseInDb(course_id);
+    console.log(`[LEAD SUBMIT] [reqId:${requestId}] resolvedCourseDbId="${resolvedCourseDbId}"`);
 
     if (!resolvedCourseDbId) {
       return res.status(400).json({
@@ -12160,6 +12184,29 @@ async function startServer() {
   // C3.13B — GIÁM SÁT & QUẢN LÝ HÀNG ĐỢI EMAIL (ADMIN EMAIL JOBS API)
   // ----------------------------------------------------------------------------
 
+  // 0. GET /api/v1/admin/email-worker/status (Trạng thái vận hành thực tế của Email Worker)
+  app.get('/api/v1/admin/email-worker/status', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const status = await getEmailWorkerRuntimeStatus(supabase);
+      return res.json({ success: true, data: status });
+    } catch (err: any) {
+      console.error('[ADMIN GET EMAIL WORKER STATUS EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi khi tải trạng thái Email Worker.' });
+    }
+  });
+
+  // 0.1. POST /api/v1/admin/email-worker/trigger-poll (Kích hoạt một chu kỳ quét hàng đợi tức thì)
+  app.post('/api/v1/admin/email-worker/trigger-poll', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      await processEmailBatch();
+      const status = await getEmailWorkerRuntimeStatus(supabase);
+      return res.json({ success: true, message: 'Đã kích hoạt chu kỳ quét hàng đợi email.', data: status });
+    } catch (err: any) {
+      console.error('[ADMIN TRIGGER EMAIL WORKER POLL EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: 'Lỗi khi kích hoạt chu kỳ quét.' });
+    }
+  });
+
   // 1. GET /api/v1/admin/email-jobs (Danh sách tác vụ email)
   app.get('/api/v1/admin/email-jobs', requireAdminOnly, async (req: Request, res: Response) => {
     try {
@@ -12241,7 +12288,7 @@ async function startServer() {
     }
   });
 
-  // 3. POST /api/v1/admin/email-jobs/:id/retry (Thử lại tác vụ FAILED/BLOCKED)
+  // 3. POST /api/v1/admin/email-jobs/:id/retry (Thử lại tác vụ FAILED/BLOCKED có kiểm soát snapshot)
   app.post('/api/v1/admin/email-jobs/:id/retry', requireAdminOnly, async (req: Request, res: Response) => {
     try {
       const jobId = req.params.id;
@@ -12265,18 +12312,92 @@ async function startServer() {
         });
       }
 
+      // Xử lý kiểm soát đặc biệt đối với tác vụ bị khóa do thiếu official_registration_url
+      let updatedPayload = job.payload;
+      let snapshotRefreshed = false;
+      const oldSnapshotUrl = job.payload?.official_registration_url || null;
+      let newSnapshotUrl: string | null = null;
+
+      if (
+        job.email_type === 'LEAD_REGISTRATION_CONFIRMATION' &&
+        (job.status === 'BLOCKED' || !job.payload?.official_registration_url)
+      ) {
+        // Tìm khóa học tương ứng từ lead hoặc payload
+        let courseId: string | null = null;
+        if (job.lead_id) {
+          const { data: leadData } = await supabase
+            .from('leads')
+            .select('course_id')
+            .eq('id', job.lead_id)
+            .maybeSingle();
+          if (leadData?.course_id) {
+            courseId = leadData.course_id;
+          }
+        }
+
+        let courseData: any = null;
+        if (courseId) {
+          const { data: c } = await supabase
+            .from('courses')
+            .select('id, code, title, official_registration_url')
+            .eq('id', courseId)
+            .maybeSingle();
+          courseData = c;
+        } else if (job.payload?.course_code) {
+          const { data: c } = await supabase
+            .from('courses')
+            .select('id, code, title, official_registration_url')
+            .eq('code', job.payload.course_code)
+            .maybeSingle();
+          courseData = c;
+        }
+
+        const currentUrl = (courseData?.official_registration_url || '').trim();
+        const isValidUrl = currentUrl.startsWith('https://') || currentUrl.startsWith('http://');
+
+        if (!isValidUrl) {
+          return res.status(400).json({
+            success: false,
+            code: 'COURSE_OFFICIAL_REGISTRATION_URL_STILL_MISSING',
+            error: `Không thể khôi phục tác vụ: Khóa học "${courseData?.title || job.payload?.course_title || 'N/A'}" (Mã: ${courseData?.code || job.payload?.course_code || 'N/A'}) vẫn chưa được cấu hình đường dẫn đăng ký chính thức trên cổng EGOV. Vui lòng vào trang Quản lý Khóa học để bổ sung URL trước khi thử lại.`,
+            course: courseData ? { id: courseData.id, code: courseData.code, title: courseData.title } : null,
+          });
+        }
+
+        newSnapshotUrl = currentUrl;
+        updatedPayload = {
+          ...job.payload,
+          official_registration_url: currentUrl,
+        };
+        snapshotRefreshed = true;
+      }
+
       const newMaxAttempts = Math.max(job.max_attempts, job.attempt_count + 3);
+      const updateData: any = {
+        status: 'PENDING',
+        next_attempt_at: new Date().toISOString(),
+        blocked_reason: null,
+        last_error_code: null,
+        last_error_message: null,
+        max_attempts: newMaxAttempts,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (snapshotRefreshed) {
+        updateData.payload = updatedPayload;
+        updateData.metadata = {
+          ...(job.metadata || {}),
+          snapshot_refreshed_at: new Date().toISOString(),
+          snapshot_refreshed_by: adminEmail,
+          snapshot_refreshed_reason: 'OFFICIAL_REGISTRATION_URL_RESTORED',
+          previous_official_registration_url: oldSnapshotUrl,
+          new_official_registration_url: newSnapshotUrl,
+        };
+      }
+
       const { data: updated, error: updErr } = await supabase
         .from('email_jobs')
-        .update({
-          status: 'PENDING',
-          next_attempt_at: new Date().toISOString(),
-          blocked_reason: null,
-          last_error_code: null,
-          last_error_message: null,
-          max_attempts: newMaxAttempts,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq('id', jobId)
         .select()
         .single();
@@ -12292,16 +12413,26 @@ async function startServer() {
           entity_type: 'email_job',
           entity_id: jobId,
           actor_id: adminId,
-          changes: { previous_status: job.status, new_status: 'PENDING', email_type: job.email_type, recipient: job.recipient_email },
+          changes: {
+            previous_status: job.status,
+            new_status: 'PENDING',
+            email_type: job.email_type,
+            recipient: job.recipient_email,
+            snapshot_refreshed: snapshotRefreshed,
+            ...(snapshotRefreshed ? { old_url: oldSnapshotUrl, new_url: newSnapshotUrl } : {}),
+          },
         });
       } catch (e) {}
 
-      console.log(`[EMAIL JOB RETRY] Admin ${adminEmail} retried email job ${jobId} (${job.email_type})`);
+      console.log(`[EMAIL JOB RETRY] Admin ${adminEmail} retried email job ${jobId} (snapshot_refreshed: ${snapshotRefreshed})`);
 
       return res.json({
         success: true,
-        message: 'Đã đưa tác vụ email về trạng thái chờ xử lý lại thành công.',
+        message: snapshotRefreshed
+          ? 'Đã đồng bộ đường dẫn đăng ký mới vào snapshot và đưa tác vụ về hàng đợi chờ gửi tự động.'
+          : 'Đã đưa tác vụ email về trạng thái chờ xử lý lại thành công.',
         job: updated,
+        snapshot_refreshed: snapshotRefreshed,
       });
     } catch (err: any) {
       console.error('[ADMIN RETRY EMAIL JOB EXCEPTION]', err);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../../services/api';
-import { EmailJobDTO, EmailJobAttemptDTO, EmailJobStatus, EmailJobType } from '../../types';
+import { EmailJobDTO, EmailJobAttemptDTO, EmailJobStatus, EmailJobType, EmailWorkerStatusDTO } from '../../types';
 import {
   Mail,
   Search,
@@ -21,6 +21,12 @@ import {
   ChevronRight,
   Info,
   ExternalLink,
+  Zap,
+  Activity,
+  Server,
+  ToggleLeft,
+  ToggleRight,
+  HelpCircle,
 } from 'lucide-react';
 
 interface AdminEmailJobsViewProps {
@@ -50,6 +56,44 @@ export const AdminEmailJobsView: React.FC<AdminEmailJobsViewProps> = ({ currentU
 
   // Action loading states
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  // Worker Runtime Status (C3.12A / C3.13B)
+  const [workerStatus, setWorkerStatus] = useState<EmailWorkerStatusDTO | null>(null);
+  const [loadingWorkerStatus, setLoadingWorkerStatus] = useState(false);
+  const [triggeringPoll, setTriggeringPoll] = useState(false);
+
+  const fetchWorkerStatus = async () => {
+    try {
+      setLoadingWorkerStatus(true);
+      const res = await api.getEmailWorkerStatus();
+      if (res.success && res.data) {
+        setWorkerStatus(res.data);
+      }
+    } catch (e) {
+      console.error('Error fetching email worker status:', e);
+    } finally {
+      setLoadingWorkerStatus(false);
+    }
+  };
+
+  const handleTriggerPoll = async () => {
+    try {
+      setTriggeringPoll(true);
+      setErrorMsg(null);
+      const res = await api.triggerEmailWorkerPoll();
+      if (res.success) {
+        setSuccessMsg(res.message || 'Đã kích hoạt chu kỳ quét hàng đợi email.');
+        if (res.data) setWorkerStatus(res.data);
+        fetchJobs();
+      } else {
+        setErrorMsg(res.error || 'Không thể kích hoạt quét hàng đợi.');
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Lỗi khi kích hoạt quét.');
+    } finally {
+      setTriggeringPoll(false);
+    }
+  };
 
   const fetchJobs = async () => {
     setLoading(true);
@@ -88,6 +132,14 @@ export const AdminEmailJobsView: React.FC<AdminEmailJobsViewProps> = ({ currentU
   useEffect(() => {
     fetchJobs();
   }, [debouncedSearch, typeFilter, statusFilter, page, limit]);
+
+  useEffect(() => {
+    fetchWorkerStatus();
+    const interval = setInterval(() => {
+      fetchWorkerStatus();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleOpenDetail = async (job: EmailJobDTO) => {
     setSelectedJob(job);
@@ -268,6 +320,164 @@ export const AdminEmailJobsView: React.FC<AdminEmailJobsViewProps> = ({ currentU
           </button>
         </div>
       )}
+
+      {/* C3.12A / C3.13B: Trạng thái Vận hành Email Worker Thực tế */}
+      <div className="bg-slate-900/80 p-6 rounded-2xl border border-slate-800 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+          <div className="flex items-center gap-2.5">
+            <Activity className="w-5 h-5 text-indigo-400 shrink-0" />
+            <h2 className="text-base font-bold text-slate-100">
+              Trạng thái Vận hành Email Worker Tự động
+            </h2>
+            <span className="text-xs text-slate-400 font-normal hidden sm:inline">
+              (Tiến trình máy chủ định kỳ quét hàng đợi và gửi email)
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleTriggerPoll}
+              disabled={triggeringPoll}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-indigo-200 rounded-lg text-xs font-semibold border border-indigo-500/30 transition disabled:opacity-50"
+              title="Kích hoạt ngay một chu kỳ quét hàng đợi email trên server"
+            >
+              <Zap className={`w-3.5 h-3.5 ${triggeringPoll ? 'animate-bounce' : ''}`} />
+              {triggeringPoll ? 'Đang kích hoạt...' : 'Quét hàng đợi ngay'}
+            </button>
+            <button
+              onClick={fetchWorkerStatus}
+              disabled={loadingWorkerStatus}
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg border border-slate-700 transition disabled:opacity-50"
+              title="Làm mới trạng thái worker"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loadingWorkerStatus ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* 4 Cards Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          {/* Card 1: Công tắc Nghiệp vụ */}
+          <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-semibold uppercase tracking-wider">Email Nghiệp vụ</span>
+              <ToggleRight className="w-4 h-4 text-slate-400" />
+            </div>
+            <div className="flex items-center gap-2">
+              {workerStatus?.email_business_enabled ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <CheckCircle2 className="w-3 h-3" /> Đang Bật
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/20">
+                  <XCircle className="w-3 h-3" /> Đang Tắt
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Cài đặt Hệ thống (system_settings)
+            </p>
+          </div>
+
+          {/* Card 2: Công tắc Server Env */}
+          <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-semibold uppercase tracking-wider">Worker Máy chủ</span>
+              <Server className="w-4 h-4 text-slate-400" />
+            </div>
+            <div className="flex items-center gap-2">
+              {workerStatus?.worker_enabled_env ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <CheckCircle2 className="w-3 h-3" /> EMAIL_WORKER_ENABLED
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  <AlertTriangle className="w-3 h-3" /> Chưa đặt biến môi trường
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Bảo vệ môi trường chạy (Preview/Hosting)
+            </p>
+          </div>
+
+          {/* Card 3: Tiến trình Thực tế */}
+          <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-semibold uppercase tracking-wider">Tiến trình Worker</span>
+              <Activity className="w-4 h-4 text-slate-400" />
+            </div>
+            <div className="flex items-center gap-2">
+              {workerStatus?.operational_status === 'ACTIVE_HEALTHY' ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  Đang hoạt động ({Math.round((workerStatus.poll_interval_ms || 15000) / 1000)}s)
+                </span>
+              ) : workerStatus?.operational_status === 'SERVER_DISABLED' ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-500/15 text-slate-400 border border-slate-500/30">
+                  Tắt trên Máy chủ
+                </span>
+              ) : workerStatus?.operational_status === 'BUSINESS_DISABLED' ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                  Tắt Nghiệp vụ
+                </span>
+              ) : workerStatus?.operational_status === 'STALE' ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-500/15 text-red-400 border border-red-500/30">
+                  Mất nhịp Heartbeat
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                  Chờ chu kỳ quét
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500 truncate" title={workerStatus?.instance_id || ''}>
+              {workerStatus?.instance_id ? `ID: ${workerStatus.instance_id.slice(0, 18)}` : 'Không hiển thị chạy nếu thiếu poll'}
+            </p>
+          </div>
+
+          {/* Card 4: Heartbeat & Sản lượng */}
+          <div className="bg-slate-950/70 p-4 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span className="font-semibold uppercase tracking-wider">Heartbeat Gần Nhất</span>
+              <Clock className="w-4 h-4 text-slate-400" />
+            </div>
+            <div className="text-xs font-medium text-slate-200">
+              {workerStatus?.last_poll_at ? (
+                <span>{new Date(workerStatus.last_poll_at).toLocaleTimeString('vi-VN')}</span>
+              ) : (
+                <span className="text-slate-500">Chưa có nhịp quét</span>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-500">
+              {workerStatus?.last_success_at ? (
+                <span>Gửi gần nhất: {new Date(workerStatus.last_success_at).toLocaleTimeString('vi-VN')}</span>
+              ) : (
+                <span>Đã gửi phiên này: {workerStatus?.jobs_sent_count || 0}</span>
+              )}
+            </p>
+          </div>
+        </div>
+
+        {/* Lỗi gần nhất đã làm sạch (nếu có) */}
+        {workerStatus?.last_error_message && (
+          <div className="p-3 bg-red-950/30 border border-red-800/40 rounded-xl text-xs text-red-300 flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <div>
+                <strong>Lỗi Worker gần nhất ({workerStatus.last_error_code || 'LỖI'}):</strong>{' '}
+                {workerStatus.last_error_message}
+              </div>
+              <div className="text-[11px] text-red-400/80">
+                Thời điểm ghi nhận:{' '}
+                {workerStatus.last_error_at
+                  ? new Date(workerStatus.last_error_at).toLocaleString('vi-VN')
+                  : 'N/A'}{' '}
+                • <em>Thông điệp đã được làm sạch, không chứa mật khẩu hoặc mã bí mật.</em>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Filters & Search Toolbar */}
       <div className="bg-slate-900/60 p-5 rounded-2xl border border-slate-800 flex flex-col md:flex-row gap-4 items-center justify-between">
@@ -538,8 +748,34 @@ export const AdminEmailJobsView: React.FC<AdminEmailJobsViewProps> = ({ currentU
 
               {/* Errors or Blocked reason */}
               {selectedJob.blocked_reason && (
-                <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-sm">
-                  <strong>Lý do khóa (Blocked Reason):</strong> {selectedJob.blocked_reason}
+                <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-sm space-y-3">
+                  <div className="flex items-start gap-2.5">
+                    <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-rose-200">Lý do khóa tác vụ (Blocked):</strong>{' '}
+                      <span>{selectedJob.blocked_reason}</span>
+                    </div>
+                  </div>
+
+                  {selectedJob.blocked_reason.includes('MISSING_OFFICIAL_REGISTRATION_URL') && (
+                    <div className="p-3.5 bg-slate-900/90 rounded-xl border border-rose-500/30 text-xs text-slate-300 space-y-2.5">
+                      <div className="font-semibold text-amber-300 flex items-center gap-1.5">
+                        <Info className="w-4 h-4" />
+                        Hướng dẫn xử lý và chính sách cập nhật Snapshot URL:
+                      </div>
+                      <ol className="list-decimal list-inside space-y-1.5 text-slate-300 pl-1 leading-relaxed">
+                        <li>
+                          <strong>Bản chất dữ liệu:</strong> Tác vụ email này lưu thông tin dưới dạng <em>snapshot bất biến</em> tại thời điểm người dùng gửi biểu mẫu (hiện tại <code className="text-rose-400 font-mono">official_registration_url = null</code>). Việc chỉnh sửa khóa học sẽ <strong>không tự động sửa job cũ</strong> nếu không qua bước đối chiếu.
+                        </li>
+                        <li>
+                          <strong>Bước 1 - Cập nhật Khóa học:</strong> Vào menu <strong>Quản lý Khóa học</strong> → Chọn khóa học <strong>{selectedJob.payload?.course_title || selectedJob.payload?.course_code}</strong> (Mã: <code className="text-cyan-300 font-mono">{selectedJob.payload?.course_code}</code>) → Điền đường dẫn tuyển sinh chính thức EGOV hợp lệ và bấm Lưu.
+                        </li>
+                        <li>
+                          <strong>Bước 2 - Phục hồi có kiểm soát:</strong> Nhấn nút <strong>"Thử lại ngay (Retry)"</strong> bên dưới. Hệ thống sẽ kiểm tra URL mới của đúng khóa học này, cập nhật vào snapshot kèm ghi nhật ký kiểm toán (Audit Log), và đưa tác vụ về <span className="text-amber-400 font-mono">PENDING</span> để Worker tự động gửi email cho học viên.
+                        </li>
+                      </ol>
+                    </div>
+                  )}
                 </div>
               )}
               {selectedJob.last_error_message && (
