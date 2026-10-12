@@ -387,7 +387,7 @@ export class NotificationEventConsumer {
                 p_notification_id: notificationId,
                 p_notification_recipient_id: notificationRecipientId,
                 p_recipient_user_id: event.recipient_user_id,
-                p_template_version: 'v1',
+                p_template_version: null,
                 p_priority: 100,
                 p_initial_status: 'PENDING',
                 p_blocked_reason: null,

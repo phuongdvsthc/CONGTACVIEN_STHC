@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   GraduationCap,
   Menu,
@@ -13,6 +13,10 @@ import {
   Shield,
   Info,
   Settings,
+  Loader2,
+  CheckCheck,
+  AlertCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { UserSessionProfile, AffiliateSessionProfile } from '../../utils/navigationGuard';
 import { AffiliateLandingConfig } from '../../types/landingConfig';
@@ -21,6 +25,8 @@ import { ProfileDetailView } from './ProfileDetailView';
 import { useSystemBranding } from '../../contexts/SystemBrandingContext';
 import { usePortalHeader } from '../../contexts/PortalHeaderContext';
 import { usePortalNotification } from '../../contexts/PortalNotificationContext';
+import { api } from '../../services/api';
+import { formatDateTimeShortVi } from '../../utils/dateFormatter';
 
 interface AppLayoutProps {
   role: 'staff' | 'admin' | 'affiliate_active' | 'affiliate_pending' | string;
@@ -43,10 +49,88 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   brandConfig,
   children,
 }) => {
+  const { unreadCounts, refreshUnreadCounts, updateCountsOptimistically } = usePortalNotification();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  
+  // Bell Popover Notifications State
+  const [recentNotifications, setRecentNotifications] = useState<any[]>([]);
+  const [loadingRecent, setLoadingRecent] = useState(false);
+  const [recentError, setRecentError] = useState<string | null>(null);
+  const [markingAllRead, setMarkingAllRead] = useState(false);
+
+  const fetchRecentNotifications = useCallback(async () => {
+    setLoadingRecent(true);
+    setRecentError(null);
+    try {
+      const res = await api.getPortalBellRecentNotifications(6);
+      if (res.success && res.data) {
+        setRecentNotifications(res.data.items || []);
+        if (res.data.unread_counts) {
+          updateCountsOptimistically(() => ({
+            total_unread: Number(res.data.unread_counts.total_unread || 0),
+            announcement_unread: Number(res.data.unread_counts.announcement_unread || 0),
+            system_unread: Number(res.data.unread_counts.system_unread || 0),
+          }));
+        }
+      } else {
+        setRecentError(res.error || 'Lỗi tải danh sách thông báo.');
+      }
+    } catch (err: any) {
+      setRecentError(err?.message || 'Lỗi kết nối mạng.');
+    } finally {
+      setLoadingRecent(false);
+    }
+  }, [updateCountsOptimistically]);
+
+  useEffect(() => {
+    if (notificationOpen) {
+      fetchRecentNotifications();
+    }
+  }, [notificationOpen, fetchRecentNotifications]);
+
+  const handleMarkItemRead = async (item: any) => {
+    if (!item.is_read) {
+      try {
+        await api.markPortalNotificationAsRead(item.recipient_id || item.id);
+        setRecentNotifications((prev) =>
+          prev.map((n) => ((n.recipient_id || n.id) === (item.recipient_id || item.id) ? { ...n, is_read: true, read_at: new Date().toISOString() } : n))
+        );
+        refreshUnreadCounts();
+      } catch (_) {}
+    }
+    setNotificationOpen(false);
+
+    if (item.action_url) {
+      let targetPath = item.action_url;
+      if (isAdminOrStaff) {
+        if (targetPath.startsWith('/portal/leads/')) {
+          targetPath = targetPath.replace('/portal/leads/', '/admin/leads/');
+        } else if (targetPath === '/portal/leads') {
+          targetPath = '/admin/leads';
+        } else if (targetPath.startsWith('/portal/courses')) {
+          targetPath = '/admin/courses';
+        } else if (targetPath.startsWith('/portal')) {
+          targetPath = '/admin';
+        }
+      }
+      onNavigate(targetPath);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    setMarkingAllRead(true);
+    try {
+      await api.markAllPortalNotificationsAsRead('SYSTEM');
+      setRecentNotifications((prev) => prev.map((n) => ({ ...n, is_read: true, read_at: new Date().toISOString() })));
+      refreshUnreadCounts();
+    } catch (_) {
+    } finally {
+      setMarkingAllRead(false);
+    }
+  };
   const [p1NoticeModalMessage, setP1NoticeModalMessage] = useState<string | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
@@ -122,7 +206,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   };
 
   const { headerMeta } = usePortalHeader();
-  const { unreadCounts } = usePortalNotification();
 
   return (
     <div className="min-h-screen flex bg-slate-100 font-sans text-slate-955 antialiased selection:bg-amber-400 selection:text-slate-950">
@@ -290,43 +373,113 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
               >
                 <Bell className="w-5 h-5" />
                 {unreadCounts.total_unread > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white" />
+                  <span className="absolute top-1 right-1 px-1.5 py-0.5 min-w-[18px] h-4 text-[10px] font-bold bg-rose-500 text-white rounded-full flex items-center justify-center border border-white shadow-xs">
+                    {unreadCounts.total_unread > 99 ? '99+' : unreadCounts.total_unread}
+                  </span>
                 )}
               </button>
 
-              {/* Notification Popover (per A0.4 instructions) */}
+              {/* Notification Popover */}
               {notificationOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-200 p-4 text-xs space-y-3 z-50 animate-fade-in">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-                    <span className="font-bold text-slate-900">Thông báo hệ thống</span>
-                    <button
-                      onClick={() => setNotificationOpen(false)}
-                      className="text-slate-400 hover:text-slate-600 p-1"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="py-4 text-center text-slate-600 space-y-1">
-                    <Info className="w-6 h-6 text-blue-900 mx-auto opacity-80" />
-                    <p className="font-medium">
-                      {unreadCounts.total_unread > 0
-                        ? `Bạn có ${unreadCounts.total_unread} thông báo chưa đọc.`
-                        : 'Không có thông báo mới.'}
-                    </p>
-                  </div>
-                  {!isAdminOrStaff && (
-                    <div className="pt-2 border-t border-slate-100">
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 text-xs space-y-3 z-50 animate-fade-in max-h-[85vh] flex flex-col">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 shrink-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-900 text-sm">Thông báo hệ thống</span>
+                      {unreadCounts.total_unread > 0 && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-amber-100 text-amber-800 rounded-full">
+                          {unreadCounts.total_unread} chưa đọc
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {unreadCounts.total_unread > 0 && (
+                        <button
+                          onClick={handleMarkAllRead}
+                          disabled={markingAllRead}
+                          className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 hover:underline flex items-center gap-1 px-1.5 py-0.5 rounded"
+                          title="Đánh dấu tất cả đã đọc"
+                        >
+                          {markingAllRead ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCheck className="w-3.5 h-3.5" />}
+                          <span>Đã đọc tất cả</span>
+                        </button>
+                      )}
                       <button
-                        onClick={() => {
-                          setNotificationOpen(false);
-                          handleSelectNav('/portal/notifications');
-                        }}
-                        className="w-full py-2 px-3 text-center text-blue-900 hover:bg-blue-50 font-semibold rounded-lg transition-colors text-xs"
+                        onClick={() => setNotificationOpen(false)}
+                        className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
                       >
-                        Xem tất cả thông báo
+                        <X className="w-4 h-4" />
                       </button>
                     </div>
-                  )}
+                  </div>
+
+                  {/* Body List */}
+                  <div className="overflow-y-auto flex-1 space-y-1.5 my-1 pr-1 max-h-[380px]">
+                    {loadingRecent ? (
+                      <div className="py-8 text-center text-slate-500 flex flex-col items-center gap-2">
+                        <Loader2 className="w-6 h-6 animate-spin text-blue-900" />
+                        <span>Đang tải thông báo mới nhất...</span>
+                      </div>
+                    ) : recentError ? (
+                      <div className="py-6 text-center text-rose-600 space-y-2">
+                        <AlertCircle className="w-6 h-6 mx-auto" />
+                        <p className="font-medium">{recentError}</p>
+                        <button
+                          onClick={fetchRecentNotifications}
+                          className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold"
+                        >
+                          Thử lại
+                        </button>
+                      </div>
+                    ) : recentNotifications.length === 0 ? (
+                      <div className="py-8 text-center text-slate-500 space-y-1">
+                        <Info className="w-6 h-6 text-slate-400 mx-auto" />
+                        <p className="font-medium text-slate-600">Không có thông báo mới.</p>
+                      </div>
+                    ) : (
+                      recentNotifications.map((item) => (
+                        <div
+                          key={item.recipient_id || item.id}
+                          onClick={() => handleMarkItemRead(item)}
+                          className={`p-3 rounded-xl border transition-all cursor-pointer relative flex gap-2.5 ${
+                            !item.is_read
+                              ? 'bg-blue-50/70 border-blue-200/80 hover:bg-blue-50'
+                              : 'bg-white border-slate-100 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="shrink-0 pt-0.5">
+                            <span className={`w-2 h-2 rounded-full inline-block mt-1.5 ${!item.is_read ? 'bg-blue-600' : 'bg-slate-300'}`} />
+                          </div>
+                          <div className="flex-1 min-w-0 space-y-0.5">
+                            <div className="flex items-center justify-between gap-1">
+                              <p className={`text-xs truncate ${!item.is_read ? 'font-bold text-slate-900' : 'font-medium text-slate-700'}`}>
+                                {item.title}
+                              </p>
+                              <span className="text-[10px] text-slate-400 shrink-0">
+                                {formatDateTimeShortVi(item.published_at || item.created_at)}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-600 line-clamp-2 leading-snug">
+                              {item.summary || item.content}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Footer button: Xem tất cả thông báo */}
+                  <div className="pt-2 border-t border-slate-100 shrink-0">
+                    <button
+                      onClick={() => {
+                        setNotificationOpen(false);
+                        onNavigate(isAdminOrStaff ? '/admin/notifications' : '/portal/notifications');
+                      }}
+                      className="w-full py-2 px-3 text-center text-blue-900 hover:bg-blue-50 font-semibold rounded-xl transition-colors text-xs flex items-center justify-center gap-1.5 border border-blue-100 bg-blue-50/30"
+                    >
+                      <span>Xem tất cả thông báo</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

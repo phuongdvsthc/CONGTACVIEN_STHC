@@ -211,7 +211,7 @@ async function claimEmailJobsFallback(
       })
       .eq('id', cand.id)
       .in('status', ['PENDING', 'RETRY_WAIT'])
-      .select('id, lock_token, email_type, recipient_email, recipient_name, template_code, template_version, payload, attempt_count, max_attempts')
+      .select('*')
       .maybeSingle();
 
     if (!uErr && updatedJob) {
@@ -223,6 +223,7 @@ async function claimEmailJobsFallback(
         recipient_name: updatedJob.recipient_name,
         template_code: updatedJob.template_code,
         template_version: updatedJob.template_version,
+        template_version_id: (updatedJob as any).template_version_id || null,
         payload: updatedJob.payload,
         attempt_count: updatedJob.attempt_count,
         max_attempts: updatedJob.max_attempts,
@@ -344,10 +345,10 @@ export async function processEmailBatch() {
           }
         }
 
-        // B. Tra cứu template và phiên bản trong CSDL (cho phép PUBLISHED hoặc ARCHIVED cho job cũ)
+        // B. Tra cứu template và phiên bản trong CSDL
         const { data: templateData, error: tErr } = await supabase
           .from('email_templates')
-          .select('id')
+          .select('id, template_code, is_active, current_version_id')
           .eq('template_code', templateCode)
           .single();
 
@@ -363,25 +364,96 @@ export async function processEmailBatch() {
           continue;
         }
 
-        const { data: verData, error: vErr } = await supabase
-          .from('email_template_versions')
-          .select('*')
-          .eq('template_id', templateData.id)
-          .eq('version_code', templateVersionCode)
-          .in('status', ['PUBLISHED', 'ARCHIVED'])
-          .single();
+        if (templateData.is_active === false) {
+          await supabase.rpc('fn_complete_email_job', {
+            p_job_id: jobId,
+            p_lock_token: lockToken,
+            p_status: 'BLOCKED',
+            p_error_code: 'TEMPLATE_INACTIVE',
+            p_error_message: `Mẫu email ${templateCode} hiện đang bị vô hiệu hóa (is_active = false).`,
+          });
+          runtimeState.jobs_failed_count++;
+          continue;
+        }
 
-        if (vErr || !verData) {
+        let verData: any = null;
+
+        // 1. Ưu tiên cao nhất: Tải đúng version_id gắn trên job (nếu có)
+        if (job.template_version_id) {
+          const { data: vById, error: vByIdErr } = await supabase
+            .from('email_template_versions')
+            .select('*')
+            .eq('id', job.template_version_id)
+            .maybeSingle();
+
+          if (!vByIdErr && vById) {
+            // Kiểm tra an toàn: Đảm bảo version_id thuộc đúng template này (chống nhầm lẫn cross-template)
+            if (vById.template_id === templateData.id) {
+              verData = vById;
+            } else {
+              console.warn(`[EMAIL WORKER] template_version_id ${job.template_version_id} không thuộc template ${templateCode}`);
+            }
+          }
+        }
+
+        // 2. Nếu chưa có verData (job cũ chỉ có template_version code hoặc chưa migrate version_id)
+        if (!verData && templateVersionCode && templateVersionCode !== 'NONE') {
+          const { data: vByCodeList } = await supabase
+            .from('email_template_versions')
+            .select('*')
+            .eq('template_id', templateData.id)
+            .eq('version_code', templateVersionCode)
+            .in('status', ['PUBLISHED', 'ARCHIVED'])
+            .order('published_at', { ascending: false, nullsFirst: false })
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+          if (vByCodeList && vByCodeList.length > 0) {
+            verData = vByCodeList[0];
+          }
+        }
+
+        // 3. Nếu vẫn chưa có (ví dụ job không có version code cụ thể hoặc là retry):
+        // Tìm phiên bản PUBLISHED hiện tại của mẫu này qua current_version_id hoặc status = 'PUBLISHED'
+        if (!verData) {
+          if (templateData.current_version_id) {
+            const { data: vCurr } = await supabase
+              .from('email_template_versions')
+              .select('*')
+              .eq('id', templateData.current_version_id)
+              .maybeSingle();
+            if (vCurr && vCurr.template_id === templateData.id && vCurr.status === 'PUBLISHED') {
+              verData = vCurr;
+            }
+          }
+          if (!verData) {
+            const { data: vPubList } = await supabase
+              .from('email_template_versions')
+              .select('*')
+              .eq('template_id', templateData.id)
+              .eq('status', 'PUBLISHED')
+              .order('published_at', { ascending: false, nullsFirst: false })
+              .limit(1);
+            if (vPubList && vPubList.length > 0) {
+              verData = vPubList[0];
+            }
+          }
+        }
+
+        // 4. Nếu tuyệt đối không tìm thấy phiên bản hợp lệ -> BLOCKED! Không fallback sang v1!
+        if (!verData) {
           await supabase.rpc('fn_complete_email_job', {
             p_job_id: jobId,
             p_lock_token: lockToken,
             p_status: 'BLOCKED',
             p_error_code: 'TEMPLATE_VERSION_NOT_FOUND',
-            p_error_message: `Không tìm thấy phiên bản mẫu ${templateVersionCode} (PUBLISHED/ARCHIVED)`,
+            p_error_message: `Không tìm thấy phiên bản mẫu email hợp lệ cho ${templateCode} (version_id: ${job.template_version_id || 'null'}, version_code: ${templateVersionCode || 'null'}).`,
           });
           runtimeState.jobs_failed_count++;
           continue;
         }
+
+        console.log(`[EMAIL WORKER] Job ${jobId} sử dụng phiên bản mẫu: ${verData.version_code} (${verData.status}, id: ${verData.id}) cho template ${templateCode}`);
 
         // C. Render nội dung
         const renderResult = renderEmailTemplate({
@@ -427,6 +499,21 @@ export async function processEmailBatch() {
             console.error(`[EMAIL WORKER] SMTP thành công nhưng ghi kết quả DB lỗi cho job ${jobId}:`, completeErr.message);
           } else {
             console.log(`[EMAIL WORKER] Đã gửi thành công email tới ${maskedRecipient} (Job: ${jobId}, MsgID: ${sendResult.messageId || 'OK'})`);
+            // Ghi nhận version metadata làm bằng chứng kiểm toán
+            try {
+              await supabase
+                .from('email_jobs')
+                .update({
+                  metadata: {
+                    ...(job.metadata || {}),
+                    rendered_version_code: verData.version_code,
+                    rendered_version_id: verData.id,
+                    rendered_subject: renderResult.subject,
+                  },
+                  template_version_id: job.template_version_id || verData.id,
+                })
+                .eq('id', jobId);
+            } catch (mErr) {}
           }
 
           runtimeState.last_success_at = new Date().toISOString();
@@ -448,6 +535,24 @@ export async function processEmailBatch() {
             p_error_message: errorMsg,
             p_retry_delay_seconds: retryDelay,
           });
+
+          if (newStatus === 'DEAD_LETTER') {
+            try {
+              await supabase.rpc('fn_dispatch_admin_staff_notification', {
+                p_event_type: 'EMAIL_FAILED_FINAL',
+                p_category: 'SYSTEM',
+                p_title: 'Email nghiệp vụ gửi thất bại',
+                p_summary: `Email gửi đến ${maskedRecipient} thất bại cuối cùng: ${errorMsg}`,
+                p_content: `Tác vụ email ${jobId} (mẫu ${templateCode}) gửi đến người nhận ${recipientEmail} đã dừng xử lý. Lý do: ${errorMsg}`,
+                p_action_url: '/admin/email-jobs',
+                p_idempotency_key: `evt:admin:EMAIL_FAILED:${jobId}`,
+                p_required_permission: 'email_service.view',
+                p_source_entity_type: 'email_jobs',
+                p_source_entity_id: jobId,
+                p_metadata: { job_id: jobId, recipient_email: recipientEmail, error_code: errorCode, error_message: errorMsg },
+              });
+            } catch (_) {}
+          }
 
           recordWorkerError(errorCode, errorMsg);
           runtimeState.jobs_failed_count++;

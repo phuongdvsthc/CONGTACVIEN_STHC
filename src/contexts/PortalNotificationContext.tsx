@@ -87,11 +87,19 @@ export const PortalNotificationProvider: React.FC<PortalNotificationProviderProp
     []
   );
 
-  // Tải lần đầu khi có userId
+  // Tải lần đầu và polling định kỳ 30s khi có userId
   useEffect(() => {
-    if (userId) {
-      refreshUnreadCounts();
-    }
+    if (!userId) return;
+
+    refreshUnreadCounts();
+
+    const intervalId = setInterval(() => {
+      if (currentUserIdRef.current && document.visibilityState === 'visible') {
+        refreshUnreadCounts();
+      }
+    }, 30000);
+
+    return () => clearInterval(intervalId);
   }, [userId, refreshUnreadCounts]);
 
   // Làm mới khi focus lại tab trình duyệt

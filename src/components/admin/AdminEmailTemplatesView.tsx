@@ -90,7 +90,7 @@ export const AdminEmailTemplatesView: React.FC<AdminEmailTemplatesViewProps> = (
 
   const applySelectedTemplateItem = (item: any) => {
     setSelectedItem(item);
-    const activeVer = item.active_published_version || item.versions[0];
+    const activeVer = item.active_published_version || item.versions?.find((v: any) => v.status === 'PUBLISHED') || item.versions?.[0];
     if (activeVer) {
       setSelectedVersion(activeVer);
       setVersionCode(activeVer.version_code || `v${(item.versions.length || 0) + 1}`);

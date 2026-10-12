@@ -12030,7 +12030,7 @@ async function startServer() {
             .from('email_template_versions')
             .select('*, creator:profiles!email_template_versions_created_by_fkey(id, full_name, email), publisher:profiles!email_template_versions_published_by_fkey(id, full_name, email)')
             .eq('template_id', t.id)
-            .order('revision', { ascending: false });
+            .order('created_at', { ascending: false });
           if (!vErr && vData) versions = vData;
         } catch (e) {}
 
@@ -12055,7 +12055,10 @@ async function startServer() {
           ];
         }
 
-        const activePub = versions.find((v: any) => v.status === 'PUBLISHED') || versions[0];
+        // Ưu tiên theo current_version_id, sau đó tìm bản có status = 'PUBLISHED', nếu không có thì trả về null
+        const activePub = (t.current_version_id && versions.find((v: any) => v.id === t.current_version_id))
+          || versions.find((v: any) => v.status === 'PUBLISHED')
+          || null;
         resultList.push({
           template: t,
           versions,
@@ -13043,9 +13046,10 @@ async function startServer() {
   //   6. POST   /api/v1/portal/notifications/read-all     - Đánh dấu đã đọc toàn bộ hoặc theo tab
   // ----------------------------------------------------------------------------
 
-  // Helper hàm giải quyết user_id của CTV cho Module C3
+  // Helper hàm giải quyết user_id cho thông báo (Admin, Staff, CTV)
   async function resolvePortalNotificationUserId(req: Request): Promise<{
     userId: string | null;
+    role?: string;
     status: 'ACTIVE' | 'PENDING_REVIEW' | 'SUSPENDED' | 'REJECTED' | 'UNAUTHORIZED';
     error?: string;
   }> {
@@ -13064,12 +13068,17 @@ async function startServer() {
         }
 
         if (resolvedId) {
-          // Kiểm tra xem là tài khoản CTV demo nào
+          if (resolvedId === demoState.adminUser.id) {
+            return { userId: resolvedId, role: 'admin', status: 'ACTIVE' };
+          }
+          if (resolvedId === demoState.staffUser.id) {
+            return { userId: resolvedId, role: 'staff', status: 'ACTIVE' };
+          }
           if (resolvedId === demoState.activeAffiliate.user_id || resolvedId === demoState.activeAffiliate.id) {
-            return { userId: resolvedId, status: 'ACTIVE' };
+            return { userId: resolvedId, role: 'affiliate', status: 'ACTIVE' };
           }
           if (resolvedId === demoState.pendingAffiliate.user_id || resolvedId === demoState.pendingAffiliate.id) {
-            return { userId: null, status: 'UNAUTHORIZED', error: 'Chỉ Cộng tác viên ở trạng thái ACTIVE mới có quyền truy cập hộp thư.' };
+            return { userId: null, status: 'UNAUTHORIZED', error: 'Chỉ tài khoản ở trạng thái hoạt động mới có quyền truy cập thông báo.' };
           }
 
           // Truy vấn hồ sơ tài khoản từ CSDL
@@ -13080,29 +13089,31 @@ async function startServer() {
             .maybeSingle();
 
           if (prof) {
-            if (prof.role !== 'affiliate') {
-              return { userId: null, status: 'UNAUTHORIZED', error: 'Tài khoản Quản trị/Cán bộ không sử dụng hộp thư CTV.' };
-            }
             if (prof.is_active === false) {
               return { userId: null, status: 'UNAUTHORIZED', error: 'Tài khoản đã bị vô hiệu hóa.' };
             }
 
-            // Kiểm tra trạng thái CTV trong affiliate_profiles
-            const { data: affProf } = await supabase
-              .from('affiliate_profiles')
-              .select('id, status')
-              .eq('user_id', prof.id)
-              .maybeSingle();
-
-            if (!affProf || affProf.status !== 'ACTIVE') {
-              return {
-                userId: null,
-                status: 'UNAUTHORIZED',
-                error: 'Chỉ Cộng tác viên ở trạng thái ACTIVE mới có quyền truy cập hộp thư.',
-              };
+            if (prof.role === 'admin' || prof.role === 'staff') {
+              return { userId: prof.id, role: prof.role, status: 'ACTIVE' };
             }
 
-            return { userId: prof.id, status: 'ACTIVE' };
+            if (prof.role === 'affiliate') {
+              const { data: affProf } = await supabase
+                .from('affiliate_profiles')
+                .select('id, status')
+                .eq('user_id', prof.id)
+                .maybeSingle();
+
+              if (!affProf || affProf.status !== 'ACTIVE') {
+                return {
+                  userId: null,
+                  status: 'UNAUTHORIZED',
+                  error: 'Chỉ Cộng tác viên ở trạng thái ACTIVE mới có quyền truy cập hộp thư.',
+                };
+              }
+
+              return { userId: prof.id, role: 'affiliate', status: 'ACTIVE' };
+            }
           }
         }
       } catch (tokenErr) {
@@ -13111,15 +13122,50 @@ async function startServer() {
     }
 
     // Fallback theo demoState switcher nếu không có Bearer token
+    if (demoState.currentRole === 'admin') {
+      return { userId: demoState.adminUser.id, role: 'admin', status: 'ACTIVE' };
+    }
+    if (demoState.currentRole === 'staff') {
+      return { userId: demoState.staffUser.id, role: 'staff', status: 'ACTIVE' };
+    }
     if (demoState.currentRole === 'affiliate_active') {
       const uId = demoState.activeAffiliate.user_id || '6dd7aff0-cba1-4b7f-8da1-c045db4c9880';
-      return { userId: uId, status: 'ACTIVE' };
-    }
-    if (demoState.currentRole === 'affiliate_pending') {
-      return { userId: null, status: 'UNAUTHORIZED', error: 'Tài khoản CTV chờ duyệt không có quyền truy cập hộp thư.' };
+      return { userId: uId, role: 'affiliate', status: 'ACTIVE' };
     }
 
-    return { userId: null, status: 'UNAUTHORIZED', error: 'Yêu cầu đăng nhập tài khoản CTV để truy cập hộp thư.' };
+    return { userId: null, status: 'UNAUTHORIZED', error: 'Yêu cầu đăng nhập tài khoản để truy cập thông báo.' };
+  }
+
+  async function dispatchAdminStaffNotification(params: {
+    eventType: string;
+    category: 'ACCOUNT' | 'LEAD' | 'RECONCILIATION' | 'REWARD' | 'SYSTEM';
+    title: string;
+    summary: string;
+    content: string;
+    actionUrl: string;
+    idempotencyKey: string;
+    requiredPermission?: string;
+    sourceEntityType?: string;
+    sourceEntityId?: string;
+    metadata?: Record<string, any>;
+  }) {
+    try {
+      await supabase.rpc('fn_dispatch_admin_staff_notification', {
+        p_event_type: params.eventType,
+        p_category: params.category,
+        p_title: params.title,
+        p_summary: params.summary,
+        p_content: params.content,
+        p_action_url: params.actionUrl,
+        p_idempotency_key: params.idempotencyKey,
+        p_required_permission: params.requiredPermission || null,
+        p_source_entity_type: params.sourceEntityType || null,
+        p_source_entity_id: params.sourceEntityId || null,
+        p_metadata: params.metadata || {},
+      });
+    } catch (err: any) {
+      console.warn('[dispatchAdminStaffNotification ERROR]', err?.message);
+    }
   }
 
   // 1. GET /api/v1/portal/notifications - Danh sách thông báo phân trang và bộ lọc
@@ -13735,11 +13781,11 @@ async function startServer() {
         });
       }
 
-      const normalizedTab = tab.trim().toUpperCase();
-      if (normalizedTab !== 'ANNOUNCEMENT' && normalizedTab !== 'SYSTEM') {
+      const normalizedTab = (tab || 'ALL').trim().toUpperCase();
+      if (normalizedTab !== 'ANNOUNCEMENT' && normalizedTab !== 'SYSTEM' && normalizedTab !== 'ALL') {
         return res.status(400).json({
           success: false,
-          error: 'Tham số tab không hợp lệ. Chỉ chấp nhận ANNOUNCEMENT hoặc SYSTEM.',
+          error: 'Tham số tab không hợp lệ. Chỉ chấp nhận ALL, ANNOUNCEMENT hoặc SYSTEM.',
           code: 'INVALID_TAB',
         });
       }
@@ -15212,6 +15258,15 @@ async function startServer() {
     console.log(`[STHC CTV SYSTEM] Server running at http://0.0.0.0:${PORT}`);
     // Khởi động email worker (C3.12A)
     startEmailWorker();
+
+    // Backfill thông báo cho Admin/Staff về các CTV pending review hiện có
+    Promise.resolve(supabase.rpc('fn_backfill_pending_affiliate_notifications'))
+      .then((res: any) => {
+        if (res && !res.error) {
+          console.log('[BACKFILL PENDING CTV NOTIFICATIONS SUCCESS]', res.data);
+        }
+      })
+      .catch((err: any) => console.warn('[BACKFILL PENDING CTV NOTIFICATIONS NOTICE]', err?.message));
   });
 }
 

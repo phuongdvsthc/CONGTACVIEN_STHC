@@ -1055,6 +1055,7 @@ export interface EmailJobDTO {
   original_job_id?: string | null;
   template_code: string;
   template_version: string;
+  template_version_id?: string | null;
   payload: Record<string, any>;
   status: EmailJobStatus;
   priority: number;
@@ -1305,6 +1306,7 @@ export interface EmailTemplateDTO {
   name: string;
   description?: string | null;
   is_active: boolean;
+  current_version_id?: string | null;
   created_at: string;
   updated_at: string;
 }

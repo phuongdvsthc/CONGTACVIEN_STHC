@@ -481,7 +481,7 @@ export default function App() {
   return (
     <SystemBrandingProvider currentPath={currentPath}>
       <PortalHeaderProvider>
-        <PortalNotificationProvider userId={authSession.role === 'affiliate_active' ? authSession.user?.id : null}>
+        <PortalNotificationProvider userId={authSession.user?.id}>
           {isInternalPortal ? (
             /* A0.4: KHU VỰC NỘI BỘ DÙNG CHUNG APPLAYOUT (HEADER + SIDEBAR + WORKSPACE) */
             <AppLayout

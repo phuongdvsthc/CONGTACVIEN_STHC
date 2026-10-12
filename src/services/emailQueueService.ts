@@ -278,7 +278,7 @@ export class EmailQueueService {
         p_notification_id: params.notification_id || null,
         p_notification_recipient_id: params.notification_recipient_id || null,
         p_recipient_user_id: params.recipient_user_id || null,
-        p_template_version: params.template_version || 'v1',
+        p_template_version: params.template_version || null,
         p_priority: params.priority ?? 100,
         p_initial_status: params.initial_status || 'PENDING',
         p_blocked_reason: params.blocked_reason || null,
@@ -325,7 +325,43 @@ export class EmailQueueService {
         };
       }
 
-      const insertRecord = {
+      // Tra cứu phiên bản PUBLISHED nếu không truyền
+      let resolvedVersionCode = params.template_version || null;
+      let resolvedVersionId: string | null = null;
+      let initialStatus = params.initial_status || 'PENDING';
+      let blockedReason = params.blocked_reason || null;
+
+      if (!resolvedVersionCode) {
+        const { data: tmpl } = await this.supabase
+          .from('email_templates')
+          .select('id, current_version_id')
+          .eq('template_code', params.template_code.trim())
+          .maybeSingle();
+
+        if (tmpl) {
+          const { data: pubVer } = await this.supabase
+            .from('email_template_versions')
+            .select('id, version_code')
+            .eq('template_id', tmpl.id)
+            .eq('status', 'PUBLISHED')
+            .order('published_at', { ascending: false, nullsFirst: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (pubVer) {
+            resolvedVersionCode = pubVer.version_code;
+            resolvedVersionId = pubVer.id;
+          }
+        }
+
+        if (!resolvedVersionCode) {
+          initialStatus = 'BLOCKED';
+          blockedReason = `NO_PUBLISHED_TEMPLATE_VERSION: Mẫu email ${params.template_code} chưa có phiên bản xuất bản (PUBLISHED).`;
+          resolvedVersionCode = 'NONE';
+        }
+      }
+
+      const insertRecord: Record<string, any> = {
         email_type: params.email_type,
         idempotency_key: params.idempotency_key.trim(),
         recipient_email: params.recipient_email.trim().toLowerCase(),
@@ -335,13 +371,17 @@ export class EmailQueueService {
         notification_id: params.notification_id || null,
         notification_recipient_id: params.notification_recipient_id || null,
         template_code: params.template_code.trim(),
-        template_version: params.template_version || 'v1',
+        template_version: resolvedVersionCode,
         payload: cleanPayload,
-        status: params.initial_status || 'PENDING',
+        status: initialStatus,
         priority: params.priority ?? 100,
         next_attempt_at: new Date().toISOString(),
-        blocked_reason: params.blocked_reason || null,
+        blocked_reason: blockedReason,
       };
+
+      if (resolvedVersionId) {
+        insertRecord.template_version_id = resolvedVersionId;
+      }
 
       const { data: inserted, error: insErr } = await this.supabase
         .from('email_jobs')

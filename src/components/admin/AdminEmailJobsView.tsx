@@ -568,7 +568,12 @@ export const AdminEmailJobsView: React.FC<AdminEmailJobsViewProps> = ({ currentU
                       className="hover:bg-slate-800/40 transition cursor-pointer group"
                     >
                       <td className="py-4 px-6">
-                        <div className="font-medium text-slate-200">{renderTypeLabel(job.email_type)}</div>
+                        <div className="font-medium text-slate-200 flex items-center gap-2">
+                          {renderTypeLabel(job.email_type)}
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                            {job.template_version || 'v?'}
+                          </span>
+                        </div>
                         <div className="text-xs text-slate-500 font-mono mt-0.5 truncate max-w-xs">
                           Key: {job.idempotency_key}
                         </div>
@@ -707,8 +712,24 @@ export const AdminEmailJobsView: React.FC<AdminEmailJobsViewProps> = ({ currentU
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-400">Mẫu template:</span>
-                    <span className="font-mono text-indigo-300">{selectedJob.template_code} ({selectedJob.template_version})</span>
+                    <span className="font-mono text-indigo-300">{selectedJob.template_code} ({selectedJob.template_version || 'NONE'})</span>
                   </div>
+                  {selectedJob.template_version_id && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">ID phiên bản:</span>
+                      <span className="font-mono text-indigo-400 text-xs truncate max-w-[200px]" title={selectedJob.template_version_id}>
+                        {selectedJob.template_version_id}
+                      </span>
+                    </div>
+                  )}
+                  {selectedJob.metadata?.rendered_version_code && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-400">Worker đã kết xuất:</span>
+                      <span className="font-mono text-emerald-400 text-xs font-semibold">
+                        {selectedJob.metadata.rendered_version_code}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-400">Khóa trùng lặp:</span>
                     <span className="font-mono text-slate-300 text-xs truncate max-w-[200px]" title={selectedJob.idempotency_key}>

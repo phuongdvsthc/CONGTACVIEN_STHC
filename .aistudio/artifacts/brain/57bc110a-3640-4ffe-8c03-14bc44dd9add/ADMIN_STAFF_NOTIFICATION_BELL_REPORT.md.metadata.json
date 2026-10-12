@@ -1,0 +1,5 @@
+{
+  "summary": "Báo cáo chi tiết kiểm kê nguyên nhân và giải pháp hoàn thiện Bell thông báo cho Admin/Staff trong hệ thống STHC_CTV.\nBao gồm:\n1. Phân tích nguyên nhân lỗi hiển thị bell\n2. Bổ sung các sự kiện nghiệp vụ cho Admin/Staff\n3. Migration CSDL 20261012000004 & RPC fn_dispatch_admin_staff_notification\n4. Cập nhật API backend & context frontend\n5. Cập nhật giao diện Bell Popover hiển thị số unread, danh sách 6 thông báo gần nhất, nút Đánh dấu đã đọc và Xem tất cả thông báo cho Admin/Staff\n6. Backfill thông báo tự động cho các CTV chờ duyệt hiện có.",
+  "updatedAt": "2026-10-12T14:47:23.640042982Z",
+  "userFacing": true
+}
