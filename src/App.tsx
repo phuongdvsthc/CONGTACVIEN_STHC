@@ -29,6 +29,7 @@ import { AdminPortal } from './components/admin/AdminPortal';
 import { AdminDashboardView } from './components/admin/AdminDashboardView';
 import { AdminLeadDetailView } from './components/admin/AdminLeadDetailView';
 import { AdminPlaceholderPage } from './components/admin/AdminPlaceholderPage';
+import { StaffAccountsView } from './components/admin/StaffAccountsView';
 import { AdminHomepageConfigView } from './components/admin/AdminHomepageConfigView';
 import { AdminSystemSettingsView } from './components/admin/AdminSystemSettingsView';
 import { AdminPermissionsView } from './components/admin/AdminPermissionsView';
@@ -596,9 +597,9 @@ export default function App() {
             )}
 
             {currentPath === '/admin/staff-accounts' && (
-              <AdminPlaceholderPage
-                title="Tài khoản nhân viên"
-                onNavigateToOverview={() => navigate('/admin')}
+              <StaffAccountsView
+                currentUser={authSession.user}
+                onNavigate={(path) => navigate(path)}
               />
             )}
 

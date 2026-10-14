@@ -57,6 +57,12 @@ export const AdminPermissionsView: React.FC<AdminPermissionsViewProps> = ({ curr
   };
 
   useEffect(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('tab') === 'staff' || urlParams.has('staff_id')) {
+        setActiveTab('staff');
+      }
+    } catch {}
     loadData();
   }, []);
 

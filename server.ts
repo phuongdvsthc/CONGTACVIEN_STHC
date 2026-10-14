@@ -13036,6 +13036,489 @@ async function startServer() {
   });
 
   // ----------------------------------------------------------------------------
+  // MODULE A7-NV: QUẢN LÝ TÀI KHOẢN NHÂN VIÊN (STAFF ACCOUNTS)
+  // Các endpoint:
+  //   1. GET   /api/v1/admin/staff-accounts              - Danh sách nhân viên (phân trang, search, lọc status/group)
+  //   2. GET   /api/v1/admin/staff-accounts/:id          - Chi tiết tài khoản nhân viên (quyền nền, nhóm quyền, audit)
+  //   3. PATCH /api/v1/admin/staff-accounts/:id/active-status - Khóa / Mở khóa tài khoản nhân viên (is_active)
+  // ----------------------------------------------------------------------------
+
+  // 1. LẤY DANH SÁCH TÀI KHOẢN NHÂN VIÊN
+  app.get('/api/v1/admin/staff-accounts', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.max(1, Math.min(100, parseInt(req.query.limit as string) || 10));
+      const search = (req.query.search as string || '').trim().toLowerCase();
+      const statusFilter = (req.query.status as string || 'all').toLowerCase();
+      const groupFilter = (req.query.group as string || 'all').trim();
+
+      // a. Lấy toàn bộ profiles có role = 'staff'
+      const { data: staffProfiles, error: pErr } = await supabase
+        .from('profiles')
+        .select('id, email, full_name, phone, avatar_url, role, is_active, created_at, updated_at')
+        .eq('role', 'staff')
+        .order('created_at', { ascending: false });
+
+      if (pErr) throw pErr;
+
+      const staffList = staffProfiles || [];
+      const staffIds = staffList.map((s: any) => s.id);
+
+      // b. Lấy hồ sơ CTV liên kết (affiliate_profiles where user_id IN staffIds)
+      let affMap: Record<string, any> = {};
+      if (staffIds.length > 0) {
+        const { data: affList, error: aErr } = await supabase
+          .from('affiliate_profiles')
+          .select('id, user_id, affiliate_code, status')
+          .in('user_id', staffIds);
+
+        if (!aErr && affList) {
+          affList.forEach((a: any) => {
+            affMap[a.user_id] = {
+              id: a.id,
+              affiliate_code: a.affiliate_code,
+              status: a.status,
+            };
+          });
+        }
+      }
+
+      // c. Lấy danh mục nhóm quyền (permission_groups)
+      const { data: allGroups } = await supabase
+        .from('permission_groups')
+        .select('code, name');
+      const groupNameMap: Record<string, string> = {};
+      (allGroups || []).forEach((g: any) => {
+        groupNameMap[g.code] = g.name;
+      });
+
+      // d. Lấy danh sách nhóm quyền gán (staff_permission_groups)
+      let staffGroupsMap: Record<string, any[]> = {};
+      if (staffIds.length > 0) {
+        const { data: sgList, error: sgErr } = await supabase
+          .from('staff_permission_groups')
+          .select('staff_id, group_code, is_active, assigned_at, assigned_by')
+          .in('staff_id', staffIds)
+          .eq('is_active', true);
+
+        if (!sgErr && sgList) {
+          sgList.forEach((sg: any) => {
+            if (!staffGroupsMap[sg.staff_id]) staffGroupsMap[sg.staff_id] = [];
+            staffGroupsMap[sg.staff_id].push({
+              code: sg.group_code,
+              name: groupNameMap[sg.group_code] || sg.group_code,
+              assigned_at: sg.assigned_at,
+              assigned_by: sg.assigned_by,
+              is_active: true,
+            });
+          });
+        }
+      }
+
+      // e. Lấy thông tin đăng nhập gần nhất từ Supabase Auth
+      let authUserMap: Record<string, { last_sign_in_at: string | null; email_confirmed_at: string | null }> = {};
+      try {
+        const { data: authUsersList } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+        if (authUsersList && authUsersList.users) {
+          authUsersList.users.forEach((u: any) => {
+            authUserMap[u.id] = {
+              last_sign_in_at: u.last_sign_in_at || null,
+              email_confirmed_at: u.email_confirmed_at || null,
+            };
+          });
+        }
+      } catch (authErr) {
+        console.warn('[STAFF ACCOUNTS LIST AUTH USERS WARN]', authErr);
+      }
+
+      // f. Ghép nối dữ liệu tổng thể
+      let enriched = staffList.map((staff: any) => {
+        const aff = affMap[staff.id] || null;
+        const groups = staffGroupsMap[staff.id] || [];
+        const authData = authUserMap[staff.id] || { last_sign_in_at: null, email_confirmed_at: null };
+
+        return {
+          id: staff.id,
+          email: staff.email,
+          full_name: staff.full_name,
+          phone: staff.phone || null,
+          avatar_url: staff.avatar_url || null,
+          role: staff.role,
+          is_active: !!staff.is_active,
+          created_at: staff.created_at,
+          updated_at: staff.updated_at,
+          last_sign_in_at: authData.last_sign_in_at,
+          email_confirmed_at: authData.email_confirmed_at,
+          affiliate: aff,
+          permission_groups: groups,
+        };
+      });
+
+      // g. Lọc theo trạng thái tài khoản (status: 'all' | 'active' | 'disabled')
+      if (statusFilter === 'active') {
+        enriched = enriched.filter((s: any) => s.is_active === true);
+      } else if (statusFilter === 'disabled') {
+        enriched = enriched.filter((s: any) => s.is_active === false);
+      }
+
+      // h. Lọc theo nhóm quyền (group: 'all' | 'none' | group_code)
+      if (groupFilter === 'none') {
+        enriched = enriched.filter((s: any) => !s.permission_groups || s.permission_groups.length === 0);
+      } else if (groupFilter && groupFilter !== 'all') {
+        enriched = enriched.filter((s: any) =>
+          s.permission_groups && s.permission_groups.some((g: any) => g.code === groupFilter)
+        );
+      }
+
+      // i. Tìm kiếm theo từ khóa (search trong full_name, email, phone, affiliate_code)
+      if (search) {
+        enriched = enriched.filter((s: any) => {
+          const matchName = (s.full_name || '').toLowerCase().includes(search);
+          const matchEmail = (s.email || '').toLowerCase().includes(search);
+          const matchPhone = (s.phone || '').toLowerCase().includes(search);
+          const matchAffCode = s.affiliate?.affiliate_code
+            ? s.affiliate.affiliate_code.toLowerCase().includes(search)
+            : false;
+          return matchName || matchEmail || matchPhone || matchAffCode;
+        });
+      }
+
+      // j. Phân trang
+      const total = enriched.length;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      const startIndex = (page - 1) * limit;
+      const pagedData = enriched.slice(startIndex, startIndex + limit);
+
+      return res.json({
+        success: true,
+        data: pagedData,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+        },
+      });
+    } catch (err: any) {
+      console.error('[API GET STAFF ACCOUNTS EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi tải danh sách tài khoản nhân viên.' });
+    }
+  });
+
+  // 2. LẤY CHI TIẾT TÀI KHOẢN NHÂN VIÊN
+  app.get('/api/v1/admin/staff-accounts/:id', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      if (!id || typeof id !== 'string') {
+        return res.status(400).json({ success: false, error: 'Mã định danh nhân viên không hợp lệ.' });
+      }
+
+      // a. Tìm hồ sơ nhân viên trong profiles
+      const { data: staff, error: sErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (sErr) throw sErr;
+      if (!staff) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy hồ sơ người dùng.' });
+      }
+      if (staff.role !== 'staff') {
+        return res.status(400).json({
+          success: false,
+          error: `Tài khoản này có vai trò "${staff.role}", không phải Cán bộ Tuyển sinh (Staff).`,
+        });
+      }
+
+      // b. Lấy hồ sơ CTV liên kết
+      const { data: affProfile } = await supabase
+        .from('affiliate_profiles')
+        .select('id, user_id, affiliate_code, status, created_at, reviewed_at')
+        .eq('user_id', staff.id)
+        .maybeSingle();
+
+      // c. Lấy danh mục nhóm quyền
+      const { data: allGroups } = await supabase
+        .from('permission_groups')
+        .select('code, name');
+      const groupNameMap: Record<string, string> = {};
+      (allGroups || []).forEach((g: any) => {
+        groupNameMap[g.code] = g.name;
+      });
+
+      // d. Lấy nhóm quyền đang hoạt động và đã vô hiệu hóa
+      const { data: staffGroups } = await supabase
+        .from('staff_permission_groups')
+        .select('*')
+        .eq('staff_id', staff.id)
+        .order('assigned_at', { ascending: false });
+
+      const activeGroups: any[] = [];
+      const deactivatedGroups: any[] = [];
+      (staffGroups || []).forEach((sg: any) => {
+        const item = {
+          code: sg.group_code,
+          name: groupNameMap[sg.group_code] || sg.group_code,
+          assigned_at: sg.assigned_at,
+          assigned_by: sg.assigned_by,
+          is_active: sg.is_active,
+        };
+        if (sg.is_active) {
+          activeGroups.push(item);
+        } else {
+          deactivatedGroups.push(item);
+        }
+      });
+
+      // e. Lấy thông tin Supabase Auth
+      let lastSignIn: string | null = null;
+      let emailConfirmed: string | null = null;
+      try {
+        const { data: authData } = await supabase.auth.admin.getUserById(staff.id);
+        if (authData?.user) {
+          lastSignIn = authData.user.last_sign_in_at || null;
+          emailConfirmed = authData.user.email_confirmed_at || null;
+        }
+      } catch (authErr) {
+        console.warn('[STAFF DETAIL AUTH USER WARN]', authErr);
+      }
+
+      // f. Lấy danh mục quyền hiệu lực (effective_permissions) qua RPC fn_get_user_permissions
+      let effectivePermissions: string[] = [];
+      try {
+        const { data: rpcData } = await supabase.rpc('fn_get_user_permissions', { p_user_id: staff.id });
+        if (Array.isArray(rpcData)) {
+          effectivePermissions = rpcData.map((p: any) => (typeof p === 'string' ? p : p.permission_code || p.code));
+        }
+      } catch (rpcErr) {
+        console.warn('[STAFF DETAIL RPC fn_get_user_permissions WARN]', rpcErr);
+      }
+
+      // g. Lấy lịch sử biến động từ audit_logs
+      let roleHistory: any[] = [];
+      try {
+        const orConditions = [
+          `entity_id.eq.${staff.id}`,
+        ];
+        if (affProfile?.id) {
+          orConditions.push(`and(entity_name.eq.affiliate_profiles,entity_id.eq.${affProfile.id})`);
+        }
+        const { data: logs } = await supabase
+          .from('audit_logs')
+          .select('id, action, entity_name, entity_id, old_values, new_values, reason, created_at, actor_id')
+          .or(orConditions.join(','))
+          .order('created_at', { ascending: false })
+          .limit(25);
+
+        if (logs) {
+          // Lấy thông tin người thao tác (actor)
+          const actorIds = Array.from(new Set(logs.map((l: any) => l.actor_id).filter(Boolean)));
+          let actorMap: Record<string, any> = {};
+          if (actorIds.length > 0) {
+            const { data: actors } = await supabase
+              .from('profiles')
+              .select('id, full_name, email')
+              .in('id', actorIds);
+            (actors || []).forEach((a: any) => {
+              actorMap[a.id] = a;
+            });
+          }
+
+          roleHistory = logs.map((l: any) => ({
+            ...l,
+            actor: actorMap[l.actor_id] || null,
+          }));
+        }
+      } catch (logErr) {
+        console.warn('[STAFF DETAIL AUDIT LOGS WARN]', logErr);
+      }
+
+      const result = {
+        id: staff.id,
+        email: staff.email,
+        full_name: staff.full_name,
+        phone: staff.phone || null,
+        avatar_url: staff.avatar_url || null,
+        role: staff.role,
+        is_active: !!staff.is_active,
+        created_at: staff.created_at,
+        updated_at: staff.updated_at,
+        last_sign_in_at: lastSignIn,
+        email_confirmed_at: emailConfirmed,
+        affiliate: affProfile ? {
+          id: affProfile.id,
+          affiliate_code: affProfile.affiliate_code,
+          status: affProfile.status,
+          user_id: affProfile.user_id,
+        } : null,
+        permission_groups: activeGroups,
+        deactivated_permission_groups: deactivatedGroups,
+        effective_permissions: effectivePermissions,
+        role_history: roleHistory,
+      };
+
+      return res.json({ success: true, data: result });
+    } catch (err: any) {
+      console.error('[API GET STAFF ACCOUNT DETAIL EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi tải chi tiết tài khoản nhân viên.' });
+    }
+  });
+
+  // 3. KHÓA / MỞ KHÓA TÀI KHOẢN NHÂN VIÊN (profiles.is_active)
+  app.patch('/api/v1/admin/staff-accounts/:id/active-status', requireAdminOnly, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { is_active, reason } = req.body;
+
+      if (!id || typeof id !== 'string') {
+        return res.status(400).json({ success: false, error: 'Mã định danh nhân viên không hợp lệ.' });
+      }
+
+      if (typeof is_active !== 'boolean') {
+        return res.status(400).json({
+          success: false,
+          error: 'Trạng thái is_active phải là kiểu boolean (true hoặc false).',
+        });
+      }
+
+      const cleanReason = (reason && typeof reason === 'string') ? reason.trim() : '';
+      if (!cleanReason || cleanReason.length < 5) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bắt buộc phải nhập lý do hợp lệ (tối thiểu 5 ký tự) khi thay đổi trạng thái kích hoạt tài khoản nhân viên.',
+          code: 'REASON_REQUIRED',
+        });
+      }
+
+      // Xác định Admin đang thực hiện
+      const adminUser = (req as any).user;
+      const adminId = adminUser?.id || demoState.adminUser?.id;
+
+      if (adminId && adminId === id) {
+        return res.status(400).json({
+          success: false,
+          error: 'Bị từ chối: Quản trị viên không thể tự thay đổi trạng thái kích hoạt của chính mình.',
+          code: 'SELF_TOGGLE_FORBIDDEN',
+        });
+      }
+
+      // Kiểm tra tài khoản đích
+      const { data: targetProfile, error: tErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (tErr) throw tErr;
+      if (!targetProfile) {
+        return res.status(404).json({ success: false, error: 'Không tìm thấy hồ sơ người dùng trong hệ thống.' });
+      }
+
+      if (targetProfile.role !== 'staff') {
+        return res.status(400).json({
+          success: false,
+          error: `Chức năng này chỉ áp dụng cho tài khoản Cán bộ Tuyển sinh (Staff). Tài khoản hiện tại có vai trò "${targetProfile.role}".`,
+          code: 'TARGET_NOT_STAFF',
+        });
+      }
+
+      if (targetProfile.is_active === is_active) {
+        return res.status(400).json({
+          success: false,
+          error: is_active
+            ? 'Tài khoản nhân viên này hiện đang ở trạng thái Hoạt động, không cần mở khóa.'
+            : 'Tài khoản nhân viên này hiện đã bị Vô hiệu hóa trước đó, không cần khóa lại.',
+          code: 'ALREADY_IN_TARGET_STATE',
+        });
+      }
+
+      // Thử thực thi RPC fn_toggle_staff_active_status
+      let rpcSuccess = false;
+      let rpcResult: any = null;
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('fn_toggle_staff_active_status', {
+          p_staff_id: id,
+          p_admin_id: adminId,
+          p_is_active: is_active,
+          p_reason: cleanReason,
+          p_client_ip: req.ip || null,
+          p_user_agent: req.headers['user-agent'] || null,
+        });
+
+        if (!rpcErr) {
+          rpcSuccess = true;
+          rpcResult = rpcRes;
+        } else {
+          if (rpcErr.code === '42501') {
+            return res.status(403).json({ success: false, error: rpcErr.message, code: rpcErr.code });
+          }
+          if (rpcErr.code === '22023' || rpcErr.code === 'P0002') {
+            return res.status(400).json({ success: false, error: rpcErr.message, code: rpcErr.code });
+          }
+          console.warn('[RPC fn_toggle_staff_active_status FALLBACK TRIGGERED]', rpcErr.message);
+        }
+      } catch (rpcEx: any) {
+        console.warn('[RPC fn_toggle_staff_active_status EXCEPTION]', rpcEx);
+      }
+
+      // Nếu RPC chưa được nạp lên remote DB, thực hiện cập nhật an toàn bằng service_role
+      if (!rpcSuccess) {
+        const now = new Date().toISOString();
+        const oldActive = targetProfile.is_active;
+
+        const { error: upErr } = await supabase
+          .from('profiles')
+          .update({
+            is_active: is_active,
+            updated_at: now,
+          })
+          .eq('id', id);
+
+        if (upErr) throw upErr;
+
+        const auditAction = is_active ? 'STAFF_ACCOUNT_UNLOCKED' : 'STAFF_ACCOUNT_LOCKED';
+        await supabase.from('audit_logs').insert({
+          actor_id: adminId,
+          action: auditAction,
+          entity_name: 'profiles',
+          entity_id: id,
+          old_values: { is_active: oldActive },
+          new_values: { is_active: is_active },
+          reason: cleanReason,
+          ip_address: req.ip || null,
+          user_agent: req.headers['user-agent'] || null,
+          created_at: now,
+        });
+
+        rpcResult = {
+          success: true,
+          staff_id: id,
+          email: targetProfile.email,
+          full_name: targetProfile.full_name,
+          old_is_active: oldActive,
+          new_is_active: is_active,
+          action: auditAction,
+          reason: cleanReason,
+          updated_at: now,
+        };
+      }
+
+      return res.json({
+        success: true,
+        message: is_active
+          ? 'Mở khóa tài khoản nhân viên thành công!'
+          : 'Đã khóa tài khoản nhân viên thành công!',
+        data: rpcResult,
+      });
+    } catch (err: any) {
+      console.error('[API TOGGLE STAFF ACTIVE STATUS EXCEPTION]', err);
+      return res.status(500).json({ success: false, error: err.message || 'Lỗi cập nhật trạng thái tài khoản nhân viên.' });
+    }
+  });
+
+
+  // ----------------------------------------------------------------------------
   // MODULE C3.4A — API THÔNG BÁO VÀ HÒM THƯ DÀNH CHO CỘNG TÁC VIÊN (CTV)
   // Các endpoint:
   //   1. GET    /api/v1/portal/notifications              - Danh sách thông báo (phân trang, lọc tab, search, status)

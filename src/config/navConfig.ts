@@ -170,6 +170,7 @@ export const ADMIN_NAV_ITEMS: NavItem[] = [
     title: 'Tài khoản nhân viên',
     path: '/admin/staff-accounts',
     icon: UserCheck,
+    adminOnly: true,
     isActiveMatch: (currentPath: string) => {
       const clean = currentPath.split('?')[0].split('#')[0];
       return clean === '/admin/staff-accounts';

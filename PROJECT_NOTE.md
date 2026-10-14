@@ -69,6 +69,20 @@
   - Trạng thái DB: Tệp migration sẵn sàng trong repository; Remote Supabase DB ở trạng thái PENDING_DEPLOYMENT (chờ chạy qua SQL Editor).
   - Tiếp theo: Bước C3.12B — Hoàn thiện và kiểm tra luồng đăng ký công khai.
 
+- A7-NV.6: Triển khai màn hình Quản lý Tài khoản nhân viên (/admin/staff-accounts) End-to-End.
+  - Tình trạng: HOÀN THÀNH.
+  - Kết quả đạt được:
+    + Cập nhật bảo mật Route Guard và Sidebar: `adminOnly: true` cho mục menu `admin_staff` trong `navConfig.ts`, đăng ký `/admin/staff-accounts` trong `APP_ROUTES` và khóa chặt quyền truy cập chỉ dành riêng cho Admin trong `checkRouteAccess`.
+    + Triển khai 3 API endpoints quản trị tại `server.ts` dưới middleware `requireAdminOnly`:
+      * `GET /api/v1/admin/staff-accounts`: Danh sách nhân viên phân trang, tìm kiếm đa tiêu chí, lọc trạng thái, lọc nhóm quyền, ghép nối hồ sơ CTV qua `user_id` và thời điểm đăng nhập gần nhất `last_sign_in_at` từ Supabase Auth.
+      * `GET /api/v1/admin/staff-accounts/:id`: Chi tiết nhân viên, quyền nền, nhóm quyền active, nhóm quyền lịch sử đã thu hồi, quyền hiệu lực `fn_get_user_permissions` và nhật ký kiểm toán `audit_logs`.
+      * `PATCH /api/v1/admin/staff-accounts/:id/active-status`: Khóa / Mở khóa tài khoản Staff có kiểm tra lý do tối thiểu 5 ký tự, chống tự khóa chính mình, chống cập nhật trùng trạng thái, ghi audit log `STAFF_ACCOUNT_LOCKED` hoặc `STAFF_ACCOUNT_UNLOCKED`.
+    + Chuẩn bị tệp migration `supabase/migrations/20261014000001_staff_accounts_and_revocation_hardening.sql` chứa RPC nâng cấp `fn_update_user_system_role` (vô hiệu hóa nhóm quyền khi thu hồi vai trò Staff) và RPC mới `fn_toggle_staff_active_status`.
+    + Phát triển component giao diện người dùng hoàn chỉnh `StaffAccountsView.tsx` thay thế placeholder tại `/admin/staff-accounts`, phân định rõ ràng giữa Quyền nền Staff và Nhóm quyền chuyên biệt, hỗ trợ Drawer chi tiết đa tab và Modal khóa/mở khóa an toàn.
+    + Tích hợp liên kết điều hướng 2 chiều sang `/admin/permissions` (Tab Gán quyền) và `/admin/affiliates/:id`.
+    + Báo cáo chi tiết nghiệm thu tại `docs/A7_NV_6_STAFF_ACCOUNTS_IMPLEMENTATION_REPORT.md`.
+  - Trạng thái DB: Migration sẵn sàng trong repository; Remote Supabase DB ở trạng thái PENDING_DEPLOYMENT (được hỗ trợ bởi cơ chế dual-layer an toàn phía backend).
+
 
 
 

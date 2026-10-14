@@ -2,7 +2,7 @@
  * Client API Service for STHC Affiliate & Admission Management System
  */
 
-import { Course, AffiliateProfile, UserProfile, Lead, Reward, AuditLog, AffiliateDashboardSummaryData, AdminDashboardSummaryResponse, CreateAnnouncementParams, UpdateAnnouncementParams, NotificationRecipientScope, NotificationRecipientFilter } from '../types';
+import { Course, AffiliateProfile, UserProfile, Lead, Reward, AuditLog, AffiliateDashboardSummaryData, AdminDashboardSummaryResponse, CreateAnnouncementParams, UpdateAnnouncementParams, NotificationRecipientScope, NotificationRecipientFilter, StaffAccountsFilterParams } from '../types';
 
 export function getAuthHeaders(): Record<string, string> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('sthc_auth_token') : null;
@@ -1183,6 +1183,32 @@ export const api = {
       body: JSON.stringify(payload),
     });
   },
+
+  // ----------------------------------------------------------------------------
+  // A7-NV: API QUẢN LÝ TÀI KHOẢN NHÂN VIÊN (/admin/staff-accounts)
+  // ----------------------------------------------------------------------------
+  async getStaffAccounts(params?: StaffAccountsFilterParams) {
+    const query = new URLSearchParams();
+    if (params?.page) query.append('page', String(params.page));
+    if (params?.limit) query.append('limit', String(params.limit));
+    if (params?.search) query.append('search', params.search);
+    if (params?.status && params.status !== 'all') query.append('status', params.status);
+    if (params?.group && params.group !== 'all') query.append('group', params.group);
+    const qs = query.toString();
+    return apiFetch(`/api/v1/admin/staff-accounts${qs ? `?${qs}` : ''}`);
+  },
+
+  async getStaffAccountDetail(id: string) {
+    return apiFetch(`/api/v1/admin/staff-accounts/${id}`);
+  },
+
+  async toggleStaffActiveStatus(id: string, payload: { is_active: boolean; reason: string }) {
+    return apiFetch(`/api/v1/admin/staff-accounts/${id}/active-status`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
+
   // A9.5A: API Tổng quan quản trị Admin/Staff (Chỉ số tuyển sinh, Mạng lưới CTV, Việc chờ xử lý)
   async getAdminDashboardSummary(params?: {
     period?: 'THIS_MONTH' | 'LAST_MONTH' | 'THIS_YEAR' | 'ALL_TIME' | 'CUSTOM';

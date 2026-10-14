@@ -1346,6 +1346,82 @@ export interface EmailTemplateWithVersionsDTO {
   active_published_version?: EmailTemplateVersionDTO | null;
 }
 
+// ----------------------------------------------------------------------------
+// A7-NV: QUẢN LÝ TÀI KHOẢN NHÂN VIÊN (STAFF ACCOUNTS) DATA CONTRACTS
+// ----------------------------------------------------------------------------
+
+export interface StaffPermissionGroupInfo {
+  code: string;
+  name: string;
+  assigned_at?: string;
+  assigned_by?: string;
+  is_active?: boolean;
+}
+
+export interface StaffAccountAffiliateInfo {
+  id: string;
+  affiliate_code: string;
+  status: AffiliateStatus;
+  user_id?: string;
+}
+
+export interface StaffAccountItem {
+  id: string;
+  email: string;
+  full_name: string;
+  phone?: string | null;
+  avatar_url?: string | null;
+  role: 'staff';
+  is_active: boolean;
+  created_at: string;
+  updated_at?: string;
+  last_sign_in_at?: string | null;
+  email_confirmed_at?: string | null;
+  affiliate?: StaffAccountAffiliateInfo | null;
+  permission_groups: StaffPermissionGroupInfo[];
+}
+
+export interface StaffAccountDetail extends StaffAccountItem {
+  effective_permissions: string[];
+  deactivated_permission_groups: StaffPermissionGroupInfo[];
+  role_history?: Array<{
+    id: string;
+    action: string;
+    entity_name: string;
+    entity_id: string;
+    old_values?: any;
+    new_values?: any;
+    reason?: string | null;
+    created_at: string;
+    actor_id?: string;
+    actor?: {
+      id: string;
+      full_name: string;
+      email: string;
+    } | null;
+  }>;
+}
+
+export interface StaffAccountsFilterParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: 'all' | 'active' | 'disabled';
+  group?: string; // 'all' | 'none' | group_code
+}
+
+export interface StaffAccountsListResponse {
+  success: boolean;
+  data: StaffAccountItem[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+
 
 
 
